@@ -27,7 +27,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this); // Staff, Duty, Performance, Roles/Positions
+    _tabController = TabController(length: 5, vsync: this); // Staff, Duty, Attendance, Performance, Roles/Positions
     _loadStaff();
   }
 
@@ -51,9 +51,11 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               labelColor: Colors.green[800],
               unselectedLabelColor: Colors.grey[600],
               indicatorColor: Colors.green[800],
+              isScrollable: true,
               tabs: const [
                 Tab(text: 'Staff Directory', icon: Icon(Icons.people_alt)),
                 Tab(text: 'Duty Roster', icon: Icon(Icons.event_available)),
+                Tab(text: 'Attendance', icon: Icon(Icons.access_time)),
                 Tab(text: 'Performance', icon: Icon(Icons.assessment)),
                 Tab(text: 'Roles & Positions', icon: Icon(Icons.admin_panel_settings)),
               ],
@@ -65,6 +67,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               children: [
                 _buildStaffDirectoryTab(context),
                 _buildDutyRosterTab(context),
+                _buildAttendanceTab(context),
                 _buildPerformanceTab(context),
                 _buildRolesPositionsTab(context),
               ],
@@ -199,6 +202,26 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh'),
               ),
+              // Only owner can hire new staff
+              Consumer<MockAuthService>(
+                builder: (context, authService, _) {
+                  final isOwner = authService.currentUser?.role == AppRole.owner;
+                  if (!isOwner) return const SizedBox.shrink();
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: ElevatedButton.icon(
+                      onPressed: _showHireNewStaffDialog,
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Hire New Staff'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -232,13 +255,40 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                               case 'assign':
                                 _showAssignRoleDialog(u);
                                 break;
+                              case 'suspend':
+                                _showSuspendDialog(u);
+                                break;
+                              case 'terminate':
+                                _showTerminateDialog(u);
+                                break;
                             }
                           },
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(value: 'promote', child: Text('Promote')),
-                            PopupMenuItem(value: 'demote', child: Text('Demote')),
-                            PopupMenuItem(value: 'assign', child: Text('Assign Role')),
-                          ],
+                          itemBuilder: (context) {
+                            final authService = Provider.of<MockAuthService>(context, listen: false);
+                            final isOwner = authService.currentUser?.role == AppRole.owner;
+                            
+                            return [
+                              const PopupMenuItem(value: 'promote', child: Text('Promote')),
+                              const PopupMenuItem(value: 'demote', child: Text('Demote')),
+                              const PopupMenuItem(value: 'assign', child: Text('Assign Role')),
+                              const PopupMenuItem(value: 'suspend', child: Row(
+                                children: [
+                                  Icon(Icons.pause_circle, color: Colors.orange, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Suspend'),
+                                ],
+                              )),
+                              // Only owner can terminate
+                              if (isOwner)
+                                const PopupMenuItem(value: 'terminate', child: Row(
+                                  children: [
+                                    Icon(Icons.person_remove, color: Colors.red, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Terminate Employment'),
+                                  ],
+                                )),
+                            ];
+                          },
                         ),
                         onTap: () => context.push('/profile', extra: u),
                       ),
@@ -561,6 +611,906 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               );
             },
             child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Attendance Tab - Shows who's clocked in and their transactions
+  Widget _buildAttendanceTab(BuildContext context) {
+    final attendanceRecords = MockAuthService.getAttendanceRecords();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    
+    // Filter by selected date
+    final filteredRecords = attendanceRecords.where((record) {
+      final clockInTime = DateTime.tryParse(record['clock_in_time'] ?? '');
+      if (clockInTime == null) return false;
+      final recordDate = DateTime(clockInTime.year, clockInTime.month, clockInTime.day);
+      final selectedDay = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+      return recordDate == selectedDay;
+    }).toList();
+    
+    // Separate clocked in vs clocked out
+    final clockedIn = filteredRecords.where((r) => r['status'] == 'clocked_in').toList();
+    final clockedOut = filteredRecords.where((r) => r['status'] == 'clocked_out').toList();
+    
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Date selector
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_today, color: Colors.green[700]),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Viewing: ${_dateFormat.format(_selectedDate)}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setState(() => _selectedDate = picked);
+                      }
+                    },
+                    icon: const Icon(Icons.edit_calendar),
+                    label: const Text('Change Date'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          
+          // Summary cards
+          Row(
+            children: [
+              Expanded(
+                child: _buildAttendanceSummaryCard(
+                  'Currently Clocked In',
+                  '${clockedIn.length}',
+                  Icons.login,
+                  Colors.green,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildAttendanceSummaryCard(
+                  'Clocked Out',
+                  '${clockedOut.length}',
+                  Icons.logout,
+                  Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildAttendanceSummaryCard(
+                  'Total Staff',
+                  '${filteredRecords.length}',
+                  Icons.people,
+                  Colors.purple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          
+          // Clocked In Staff
+          if (clockedIn.isNotEmpty) ...[
+            Text(
+              'Currently Clocked In',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Colors.green[800],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...clockedIn.map((record) => _buildAttendanceCard(record, true)),
+            const SizedBox(height: 24),
+          ],
+          
+          // Clocked Out Staff
+          if (clockedOut.isNotEmpty) ...[
+            Text(
+              'Clocked Out',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Colors.blue[800],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...clockedOut.map((record) => _buildAttendanceCard(record, false)),
+          ],
+          
+          if (filteredRecords.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(48),
+                child: Column(
+                  children: [
+                    Icon(Icons.event_busy, size: 64, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No attendance records for this date',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceSummaryCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttendanceCard(Map<String, dynamic> record, bool isClockedIn) {
+    final clockInTime = DateTime.tryParse(record['clock_in_time'] ?? '');
+    final clockOutTime = record['clock_out_time'] != null 
+        ? DateTime.tryParse(record['clock_out_time']) 
+        : null;
+    
+    Duration? duration;
+    if (clockInTime != null && clockOutTime != null) {
+      duration = clockOutTime.difference(clockInTime);
+    } else if (clockInTime != null && isClockedIn) {
+      duration = DateTime.now().difference(clockInTime);
+    }
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ExpansionTile(
+        leading: CircleAvatar(
+          backgroundColor: isClockedIn ? Colors.green[100] : Colors.blue[100],
+          child: Icon(
+            isClockedIn ? Icons.check_circle : Icons.access_time,
+            color: isClockedIn ? Colors.green[700] : Colors.blue[700],
+          ),
+        ),
+        title: Text(
+          record['staff_name'] ?? 'Unknown',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Role: ${record['staff_role'] ?? 'Unknown'}'),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.login, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(
+                  clockInTime != null 
+                      ? DateFormat('hh:mm a').format(clockInTime)
+                      : 'N/A',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                ),
+                if (clockOutTime != null) ...[
+                  const SizedBox(width: 12),
+                  Icon(Icons.logout, size: 14, color: Colors.grey[600]),
+                  const SizedBox(width: 4),
+                  Text(
+                    DateFormat('hh:mm a').format(clockOutTime),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+            if (duration != null)
+              Text(
+                'Duration: ${duration.inHours}h ${duration.inMinutes % 60}m',
+                style: TextStyle(
+                  color: isClockedIn ? Colors.green[700] : Colors.blue[700],
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
+        trailing: Chip(
+          label: Text(
+            isClockedIn ? 'Active' : 'Completed',
+            style: const TextStyle(fontSize: 10),
+          ),
+          backgroundColor: isClockedIn ? Colors.green[100] : Colors.blue[100],
+          padding: EdgeInsets.zero,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Divider(),
+                const SizedBox(height: 8),
+                Text(
+                  'Transactions Made',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildStaffTransactions(record['staff_id'], clockInTime, clockOutTime),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStaffTransactions(String? staffId, DateTime? clockIn, DateTime? clockOut) {
+    if (staffId == null || clockIn == null) {
+      return Text(
+        'No transaction data available',
+        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+      );
+    }
+    
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _dataService.getStockTransactions(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        final allTransactions = snapshot.data!;
+        final staffTransactions = allTransactions.where((t) {
+          final transactionTime = DateTime.tryParse(t['date']?.toString() ?? '');
+          if (transactionTime == null) return false;
+          
+          // Check if transaction was made by this staff during their clock-in period
+          final isAfterClockIn = transactionTime.isAfter(clockIn);
+          final isBeforeClockOut = clockOut == null || transactionTime.isBefore(clockOut);
+          final isStaffTransaction = t['staff_id'] == staffId;
+          
+          return isStaffTransaction && isAfterClockIn && isBeforeClockOut;
+        }).toList();
+        
+        if (staffTransactions.isEmpty) {
+          return Text(
+            'No transactions made during this shift',
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          );
+        }
+        
+        final totalAmount = staffTransactions.fold<double>(
+          0,
+          (sum, t) => sum + ((t['total_amount'] as num?)?.toDouble() ?? 0),
+        );
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Total Transactions: ${staffTransactions.length}',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  Text(
+                    'Total: ₦${NumberFormat('#,##0.00').format(totalAmount)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...staffTransactions.take(5).map((transaction) {
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  Icons.shopping_cart,
+                  color: Colors.green[700],
+                  size: 20,
+                ),
+                title: Text(
+                  transaction['item_name'] ?? 'Unknown Item',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                subtitle: Text(
+                  DateFormat('hh:mm a').format(
+                    DateTime.tryParse(transaction['date']?.toString() ?? '') ?? DateTime.now(),
+                  ),
+                  style: const TextStyle(fontSize: 11),
+                ),
+                trailing: Text(
+                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              );
+            }).toList(),
+            if (staffTransactions.length > 5)
+              TextButton(
+                onPressed: () {
+                  // Show all transactions dialog
+                  _showAllTransactionsDialog(staffTransactions);
+                },
+                child: Text('View all ${staffTransactions.length} transactions'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAllTransactionsDialog(List<Map<String, dynamic>> transactions) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('All Transactions'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: transactions.length,
+            itemBuilder: (context, index) {
+              final transaction = transactions[index];
+              return ListTile(
+                leading: Icon(Icons.shopping_cart, color: Colors.green[700]),
+                title: Text(transaction['item_name'] ?? 'Unknown Item'),
+                subtitle: Text(
+                  DateFormat('MMM dd, hh:mm a').format(
+                    DateTime.tryParse(transaction['date']?.toString() ?? '') ?? DateTime.now(),
+                  ),
+                ),
+                trailing: Text(
+                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Suspend Staff Dialog
+  void _showSuspendDialog(Map<String, dynamic> staff) {
+    final reasonController = TextEditingController();
+    DateTime? suspensionEndDate;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.pause_circle, color: Colors.orange[700]),
+              const SizedBox(width: 8),
+              const Text('Suspend Staff'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Staff: ${staff['full_name'] ?? staff['name'] ?? 'Unknown'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for Suspension',
+                    border: OutlineInputBorder(),
+                    hintText: 'Enter reason...',
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                const Text('Suspension Period:', style: TextStyle(fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: DateTime.now().add(const Duration(days: 7)),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(const Duration(days: 365)),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => suspensionEndDate = picked);
+                          }
+                        },
+                        icon: const Icon(Icons.calendar_today),
+                        label: Text(
+                          suspensionEndDate != null
+                              ? DateFormat('MMM dd, yyyy').format(suspensionEndDate!)
+                              : 'Select End Date',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Staff will not be able to log in during suspension period.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (reasonController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please provide a reason for suspension'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                if (suspensionEndDate == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please select suspension end date'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Staff suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
+                    ),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                _loadStaff();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[700],
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Suspend'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Terminate Staff Dialog
+  void _showTerminateDialog(Map<String, dynamic> staff) {
+    final reasonController = TextEditingController();
+    bool confirmTermination = false;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.person_remove, color: Colors.red[700]),
+              const SizedBox(width: 8),
+              const Text('Terminate Staff'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning, color: Colors.red[700], size: 24),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'WARNING: This action is permanent and cannot be undone!',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Staff: ${staff['full_name'] ?? staff['name'] ?? 'Unknown'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for Termination *',
+                    border: OutlineInputBorder(),
+                    hintText: 'Enter detailed reason...',
+                  ),
+                  maxLines: 4,
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  value: confirmTermination,
+                  onChanged: (val) {
+                    setDialogState(() => confirmTermination = val ?? false);
+                  },
+                  title: const Text(
+                    'I confirm that I want to terminate this staff member',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Effects of Termination:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildTerminationEffect('Account will be deactivated immediately'),
+                      _buildTerminationEffect('Staff cannot log in to the system'),
+                      _buildTerminationEffect('All access permissions revoked'),
+                      _buildTerminationEffect('Record kept for audit purposes'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: confirmTermination && reasonController.text.isNotEmpty
+                  ? () {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
+                          ),
+                          backgroundColor: Colors.red,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                      _loadStaff();
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Terminate Staff'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTerminationEffect(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle, color: Colors.red[700], size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Hire New Staff Dialog (Owner Only)
+  void _showHireNewStaffDialog() {
+    final fullNameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    String? selectedRole;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.person_add, color: Colors.green[700]),
+              const SizedBox(width: 8),
+              const Text('Hire New Staff'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 500,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Default password will be: Password123',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: fullNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name *',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: emailController,
+                    decoration: const InputDecoration(
+                      labelText: 'Email *',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                      hintText: 'staff@pzed.home',
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedRole,
+                    decoration: const InputDecoration(
+                      labelText: 'Assign Role *',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.work),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'manager', child: Text('Manager')),
+                      DropdownMenuItem(value: 'supervisor', child: Text('Supervisor')),
+                      DropdownMenuItem(value: 'accountant', child: Text('Accountant')),
+                      DropdownMenuItem(value: 'hr', child: Text('HR')),
+                      DropdownMenuItem(value: 'receptionist', child: Text('Receptionist')),
+                      DropdownMenuItem(value: 'bartender', child: Text('Bartender')),
+                      DropdownMenuItem(value: 'kitchen_staff', child: Text('Kitchen Staff')),
+                      DropdownMenuItem(value: 'housekeeper', child: Text('Housekeeper')),
+                      DropdownMenuItem(value: 'cleaner', child: Text('Cleaner')),
+                      DropdownMenuItem(value: 'laundry_attendant', child: Text('Laundry Attendant')),
+                      DropdownMenuItem(value: 'security', child: Text('Security')),
+                      DropdownMenuItem(value: 'purchaser', child: Text('Purchaser')),
+                      DropdownMenuItem(value: 'storekeeper', child: Text('Storekeeper')),
+                    ],
+                    onChanged: (val) {
+                      setDialogState(() => selectedRole = val);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Staff will receive:',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildStaffBenefit('Login credentials via email'),
+                        _buildStaffBenefit('Access to assigned role features'),
+                        _buildStaffBenefit('Default password: Password123'),
+                        _buildStaffBenefit('Must change password on first login'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // Validation
+                if (fullNameController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter full name'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                if (emailController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter email'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                if (selectedRole == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please select a role'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                
+                // TODO: Add staff to database
+                // For now, just show success message
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '${fullNameController.text} hired as ${selectedRole!.replaceAll('_', ' ')}',
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+                _loadStaff();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Hire Staff'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStaffBenefit(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle, color: Colors.green[700], size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 11)),
           ),
         ],
       ),

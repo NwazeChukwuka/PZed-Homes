@@ -64,9 +64,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
               value: _selectedAssetId,
               decoration: const InputDecoration(labelText: 'Asset *', border: OutlineInputBorder()),
               items: const [
-                DropdownMenuItem<String>(value: 'asset_elevator_a', child: Text('Elevator A')),
+                DropdownMenuItem<String>(value: 'asset_small_generator', child: Text('Small Generator')),
                 DropdownMenuItem<String>(value: 'asset_ac_302', child: Text('AC Unit 302')),
-                DropdownMenuItem<String>(value: 'asset_generator', child: Text('Generator')), 
+                DropdownMenuItem<String>(value: 'asset_backup_generator', child: Text('Backup Generator')), 
                 DropdownMenuItem<String>(value: 'asset_kitchen_oven', child: Text('Kitchen Oven')), 
               ],
               onChanged: (val) => setState(() => _selectedAssetId = val),

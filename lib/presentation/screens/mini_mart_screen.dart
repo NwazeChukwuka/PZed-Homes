@@ -142,6 +142,18 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       return;
     }
 
+    // Check if staff is clocked in
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    if (!authService.canMakeTransactions()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must clock in before making transactions'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     // Validate credit payment requirements
     if (_paymentMethod == 'Credit') {
       if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {

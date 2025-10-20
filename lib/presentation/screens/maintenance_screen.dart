@@ -26,10 +26,10 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       ..addAll([
         {
           'id': 1,
-          'asset_name': 'Elevator A',
-          'issue_description': 'Intermittent stopping between floors',
-          'location': 'Main Lobby',
-          'reported_by_name': 'Front Desk',
+          'asset_name': 'Small Generator',
+          'issue_description': 'Engine making unusual noise',
+          'location': 'Generator Room',
+          'reported_by_name': 'Maintenance',
           'status': 'Pending',
         },
         {

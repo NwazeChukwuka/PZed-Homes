@@ -8,6 +8,11 @@ class MockAuthService with ChangeNotifier {
   bool _isLoggedIn = false;
   bool _isRoleAssumed = false;
   AppRole? _assumedRole;
+  bool _isClockedIn = false;
+  DateTime? _clockInTime;
+  
+  // Global attendance tracking for all staff
+  static final List<Map<String, dynamic>> _attendanceRecords = [];
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
@@ -15,12 +20,17 @@ class MockAuthService with ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   bool get isRoleAssumed => _isRoleAssumed;
   AppRole? get assumedRole => _assumedRole;
+  bool get isClockedIn => _isClockedIn;
+  DateTime? get clockInTime => _clockInTime;
+  
+  // Get all attendance records
+  static List<Map<String, dynamic>> getAttendanceRecords() => List.from(_attendanceRecords);
 
   // Mock users for testing with Igbo names
   static const Map<String, Map<String, dynamic>> _mockUsers = {
     'owner@pzed.home': {
       'id': 'owner-001',
-      'full_name': 'Chukwudi Okonkwo',
+      'full_name': 'P-ZED Owner',
       'roles': ['owner'],
       'password': 'Password123',
     },
@@ -148,7 +158,66 @@ class MockAuthService with ChangeNotifier {
   Future<void> logout() async {
     _currentUser = null;
     _isLoggedIn = false;
+    _isClockedIn = false;
+    _clockInTime = null;
     notifyListeners();
+  }
+
+  // Clock in/out methods
+  void clockIn() {
+    _isClockedIn = true;
+    _clockInTime = DateTime.now();
+    
+    // Record attendance
+    _attendanceRecords.add({
+      'id': 'att-${DateTime.now().millisecondsSinceEpoch}',
+      'staff_id': _currentUser?.id ?? 'unknown',
+      'staff_name': _currentUser?.name ?? 'Unknown',
+      'staff_role': _currentUser?.role.name ?? 'unknown',
+      'clock_in_time': _clockInTime!.toIso8601String(),
+      'clock_out_time': null,
+      'status': 'clocked_in',
+      'date': DateTime.now().toIso8601String(),
+    });
+    
+    notifyListeners();
+  }
+
+  void clockOut() {
+    _isClockedIn = false;
+    
+    // Update the latest attendance record for this user
+    final latestRecord = _attendanceRecords.lastWhere(
+      (record) => record['staff_id'] == _currentUser?.id && record['clock_out_time'] == null,
+      orElse: () => {},
+    );
+    
+    if (latestRecord.isNotEmpty) {
+      latestRecord['clock_out_time'] = DateTime.now().toIso8601String();
+      latestRecord['status'] = 'clocked_out';
+    }
+    
+    _clockInTime = null;
+    notifyListeners();
+  }
+
+  // Check if user is management (doesn't need to clock in)
+  bool isManagementRole() {
+    final role = _isRoleAssumed ? _assumedRole : _currentUser?.role;
+    return role == AppRole.owner ||
+           role == AppRole.manager ||
+           role == AppRole.supervisor ||
+           role == AppRole.accountant ||
+           role == AppRole.hr;
+  }
+
+  // Check if user can make transactions
+  bool canMakeTransactions() {
+    // Management can always make transactions
+    if (isManagementRole()) return true;
+    
+    // Junior staff must be clocked in
+    return _isClockedIn;
   }
 
   // Get list of available mock users for testing

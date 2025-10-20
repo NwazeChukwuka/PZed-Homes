@@ -951,6 +951,18 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   Future<void> _processSale() async {
     if (_currentSale.isEmpty) return;
 
+    // Check if staff is clocked in
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    if (!authService.canMakeTransactions()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must clock in before making transactions'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     // Validate credit payment requirements
     if (_paymentMethod == 'credit') {
       if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {

@@ -256,7 +256,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
                       _buildHeader(context),
                       const SizedBox(height: 24),
                       SizedBox(
-                        height: MediaQuery.of(context).size.height - 300,
+                        height: MediaQuery.of(context).size.height - 500,
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.white,

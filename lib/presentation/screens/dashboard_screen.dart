@@ -172,19 +172,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleClockIn() async {
-        setState(() {
-          _isClockedIn = true;
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    authService.clockIn();
+    setState(() {
+      _isClockedIn = true;
       _lastAttendanceRecord = {
         'clock_in_time': DateTime.now().toIso8601String(),
       };
-        });
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Clocked in successfully'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Future<void> _handleClockOut() async {
-        setState(() {
-          _isClockedIn = false;
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    authService.clockOut();
+    setState(() {
+      _isClockedIn = false;
       _lastAttendanceRecord = null;
-        });
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Clocked out successfully'),
+        backgroundColor: Colors.blue,
+      ),
+    );
   }
 
   @override
@@ -557,7 +573,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       // Sidebar (rooms)
                         Container(
                         width: 220,
-                        color: const Color(0xFF0A1F44),
+                        color: Colors.green[800],
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -676,8 +692,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
         if (isManagement) _buildFocusToggle(),
-        const SizedBox(width: 12),
-        _buildAttendanceCard(),
+        if (!isManagement) ...[
+          const SizedBox(width: 12),
+          _buildAttendanceCard(),
+        ],
       ],
     );
   }
@@ -1581,10 +1599,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withOpacity(0.1),
+                      color: Colors.green[700]!.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(icon, color: const Color(0xFFFFD700), size: 18),
+                    child: Icon(icon, color: Colors.green[700], size: 18),
                   ),
                   const Spacer(),
                 ],

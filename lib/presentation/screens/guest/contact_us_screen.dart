@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -125,10 +127,10 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
           _buildContactCard(
             context,
             'Email',
-            'info@pzedhotels.com',
+            'pzedglobal@gmail.com',
             Icons.email,
             Colors.red,
-            () => _sendEmail('info@pzedhotels.com'),
+            () => _sendEmail('pzedglobal@gmail.com'),
           ),
           const SizedBox(height: 16),
           _buildContactCard(
@@ -396,64 +398,137 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   }
 
   Widget _buildMapSection(BuildContext context) {
+    final hotelLocation = LatLng(6.3493114, 8.0977385);
+    
     return Container(
-      height: 300,
+      height: 400,
       margin: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey[300]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Stack(
           children: [
-            // Placeholder for map
-            Container(
-              color: Colors.grey[200],
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.map,
-                      size: 60,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Interactive Map',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[600],
+            // Embedded Map
+            FlutterMap(
+              options: MapOptions(
+                initialCenter: hotelLocation,
+                initialZoom: 15.0,
+                minZoom: 10.0,
+                maxZoom: 18.0,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.pzedhomes.app',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: hotelLocation,
+                      width: 80,
+                      height: 80,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              'P-ZED Luxury Hotels & Suites',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Icon(
+                            Icons.location_on,
+                            color: Colors.red[700],
+                            size: 40,
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Unity FM Junction, off Nwiboko Enigwe Street',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[500],
-                      ),
-                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
+            
+            // Map Controls
             Positioned(
               top: 16,
               right: 16,
-              child: ElevatedButton.icon(
-                onPressed: _openMaps,
-                icon: const Icon(Icons.directions),
-                label: const Text('Directions'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[600],
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              child: Column(
+                children: [
+                  // Get Directions Button
+                  ElevatedButton.icon(
+                    onPressed: _openMaps,
+                    icon: const Icon(Icons.directions),
+                    label: const Text('Get Directions'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[600],
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 4,
+                    ),
                   ),
+                ],
+              ),
+            ),
+            
+            // Address Info at Bottom
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.7),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_on, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Unity FM Junction, off Nwiboko Enigwe Street, Owerri',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

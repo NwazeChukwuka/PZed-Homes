@@ -9,6 +9,7 @@ import 'package:pzed_homes/presentation/screens/guest/guest_landing_page.dart';
 import 'package:pzed_homes/presentation/screens/login_screen.dart';
 import 'package:pzed_homes/presentation/screens/main_screen.dart';
 import 'package:pzed_homes/presentation/screens/dashboard_screen.dart';
+import 'package:pzed_homes/presentation/screens/staff_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/housekeeping_screen.dart';
 import 'package:pzed_homes/presentation/screens/inventory_screen.dart';
 import 'package:pzed_homes/presentation/screens/communications_screen.dart';
@@ -192,7 +193,24 @@ class AppRouter {
           GoRoute(
             path: '/dashboard',
             name: 'dashboard',
-            builder: (context, state) => const DashboardScreen(),
+            builder: (context, state) {
+              final authService = Provider.of<MockAuthService>(context, listen: false);
+              final user = authService.currentUser;
+              final userRole = authService.isRoleAssumed 
+                  ? (authService.assumedRole ?? user?.role) 
+                  : user?.role;
+              
+              // Management roles get the full dashboard
+              final isManagement = userRole == AppRole.owner || 
+                                   userRole == AppRole.manager || 
+                                   userRole == AppRole.supervisor ||
+                                   userRole == AppRole.accountant ||
+                                   userRole == AppRole.hr;
+              
+              return isManagement 
+                  ? const DashboardScreen() 
+                  : const StaffDashboardScreen();
+            },
           ),
           GoRoute(
             path: '/housekeeping',
@@ -283,7 +301,21 @@ class AppRouter {
         builder: (context, state) {
           final booking = state.extra as Booking?;
           if (booking == null) {
-            return const DashboardScreen();
+            final authService = Provider.of<MockAuthService>(context, listen: false);
+            final user = authService.currentUser;
+            final userRole = authService.isRoleAssumed 
+                ? (authService.assumedRole ?? user?.role) 
+                : user?.role;
+            
+            final isManagement = userRole == AppRole.owner || 
+                                 userRole == AppRole.manager || 
+                                 userRole == AppRole.supervisor ||
+                                 userRole == AppRole.accountant ||
+                                 userRole == AppRole.hr;
+            
+            return isManagement 
+                ? const DashboardScreen() 
+                : const StaffDashboardScreen();
           }
           return BookingDetailsScreen(booking: booking);
         },
@@ -482,9 +514,22 @@ class RootDecider extends StatelessWidget {
           return const GuestLandingPage();
         }
 
-        // If user is logged in, show dashboard directly
+        // If user is logged in, show appropriate dashboard
         // This prevents navigation conflicts with login screen
-        return const DashboardScreen();
+        final user = authService.currentUser;
+        final userRole = authService.isRoleAssumed 
+            ? (authService.assumedRole ?? user?.role) 
+            : user?.role;
+        
+        final isManagement = userRole == AppRole.owner || 
+                             userRole == AppRole.manager || 
+                             userRole == AppRole.supervisor ||
+                             userRole == AppRole.accountant ||
+                             userRole == AppRole.hr;
+        
+        return isManagement 
+            ? const DashboardScreen() 
+            : const StaffDashboardScreen();
       },
     );
   }
