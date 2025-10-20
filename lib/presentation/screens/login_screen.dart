@@ -69,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
             
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Login successful! Welcome to P-ZED Homes Staff Portal.'),
+                content: Text('Login successful! Welcome to P-ZED Luxury Hotels & Suites Staff Portal.'),
                 backgroundColor: Colors.green,
                 duration: Duration(seconds: 1),
               ),
@@ -163,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'P-ZED Homes Staff Portal',
+                  'P-ZED Luxury Hotels & Suites Staff Portal',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),

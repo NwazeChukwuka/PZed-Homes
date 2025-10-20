@@ -478,7 +478,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     final Uri emailUri = Uri(
       scheme: 'mailto',
       path: email,
-      query: 'subject=Inquiry from P-ZED Homes App',
+      query: 'subject=Inquiry from P-ZED Luxury Hotels & Suites App',
     );
     if (await canLaunchUrl(emailUri)) {
       await launchUrl(emailUri);

@@ -2,6 +2,7 @@
 enum AppRole {
   owner,
   manager,
+  supervisor,
   accountant,
   hr,
   receptionist,

@@ -1,10 +1,11 @@
 // Location: lib/presentation/screens/kitchen_dispatch_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 
 class KitchenDispatchScreen extends StatefulWidget {
   const KitchenDispatchScreen({super.key});
@@ -15,7 +16,7 @@ class KitchenDispatchScreen extends StatefulWidget {
 
 class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _supabase = Supabase.instance.client;
+  final _dataService = DataService();
   final _quantityController = TextEditingController();
 
   List<Map<String, dynamic>> _stockItems = [];
@@ -41,17 +42,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
   Future<void> _checkAccessAndLoad() async {
     final authService = Provider.of<MockAuthService>(context, listen: false);
     final user = authService.currentUser;
-    final isStaff = user != null && user.roles.any((role) => role != AppRole.guest);
+    final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
+    final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
+    final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+    
+    // Owner/Manager can view dispatches without assuming role
+    // But need to assume role for full functionality
+    final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager;
 
-    if (!isStaff) {
-      // Use a delayed navigation to avoid overlapping calls
+    if (!canAccess) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Access Denied. Staff credentials required.'),
+            content: Text('Access restricted.'),
             backgroundColor: Colors.red,
           ));
-          Future.delayed(const Duration(milliseconds: 100), () {
+          Future.delayed(const Duration(milliseconds: 150), () {
             if (mounted) context.pop();
           });
         }
@@ -65,21 +71,20 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
   Future<void> _loadStockAndLocations() async {
     setState(() => _isLoading = true);
     try {
-      final stockResponse = await _supabase
-          .from('stock_items')
-          .select('id, name, current_stock')
-          .order('name');
-
-      final locResponse = await _supabase
-          .from('locations')
-          .select('id, name')
-          .order('name');
+      final stockResponse = await _dataService.getInventoryItems();
+      final locResponse = [
+        {'id': 'loc001', 'name': 'Kitchen'},
+        {'id': 'loc002', 'name': 'VIP Bar'},
+        {'id': 'loc003', 'name': 'Outside Bar'},
+        {'id': 'loc004', 'name': 'Mini Mart'},
+        {'id': 'loc005', 'name': 'Store'},
+      ];
 
       if (!mounted) return;
 
       setState(() {
-        _stockItems = List<Map<String, dynamic>>.from(stockResponse as List<dynamic>);
-        _locations = List<Map<String, dynamic>>.from(locResponse as List<dynamic>);
+        _stockItems = List<Map<String, dynamic>>.from(stockResponse);
+        _locations = List<Map<String, dynamic>>.from(locResponse);
       });
 
       // Find Kitchen location id
@@ -132,14 +137,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
         throw Exception('Insufficient stock. Available: $currentStock');
       }
 
-      // Call atomic RPC to perform the transfer on the DB side
-      await _supabase.rpc('perform_stock_transfer', params: {
-        'p_stock_item_id': _selectedStockItemId,
-        'p_source_location_id': _sourceLocationId,
-        'p_destination_location_id': _selectedDestinationLocationId,
-        'p_quantity': quantity,
-        'p_staff_id': staffId,
-      });
+      // Mock-only: simulate dispatch
+      await Future.delayed(const Duration(milliseconds: 300));
 
       // Clear form and refresh
       _formKey.currentState?.reset();
@@ -150,7 +149,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Item dispatched successfully!'),
+        content: Text('Item dispatched successfully (mock).'),
         backgroundColor: Colors.green,
       ));
 
@@ -184,29 +183,45 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final destinations = _locations.where((l) => l['id'] != _sourceLocationId).toList();
+    return Consumer<MockAuthService>(
+      builder: (context, authService, child) {
+        final user = authService.currentUser;
+        final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
+        final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
+        final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+        
+        // Show full functionality if kitchen staff or assumed kitchen staff
+        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff;
+        final destinations = _locations.where((l) => l['id'] != _sourceLocationId).toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kitchen Dispatch'),
-        backgroundColor: Colors.orange.shade800,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadStockAndLocations,
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Kitchen Dispatch'),
+            backgroundColor: Colors.orange.shade800,
+            leading: Navigator.of(context).canPop() ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => context.pop(),
+            ) : null,
+            actions: [
+              const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadStockAndLocations,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Dispatch Form
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          body: Column(
+            children: [
+              // Show dispatch form only if full functionality
+              if (showFullFunctionality) ...[
+                // Dispatch Form
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   DropdownButtonFormField<String>(
                     value: _selectedStockItemId,
                     decoration: const InputDecoration(
@@ -276,34 +291,41 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                         ),
-                ],
-              ),
-            ),
-          ),
-          const Divider(thickness: 2),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              
+              const Divider(thickness: 2),
 
-          // Recent Dispatches
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Recent Dispatches',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ),
+              // Recent Dispatches
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'Recent Dispatches',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _supabase
-                  .from('department_transfers')
-                  .stream(primaryKey: ['id'])
-                  .order('created_at', ascending: false)
-                  .limit(20),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: Future.value(const [
+                {
+                  'destination_department': 'VIP Bar',
+                  'quantity': 12,
+                  'status': 'completed',
+                  'created_at': '2024-01-15T14:30:00',
+                },
+                {
+                  'destination_location_name': 'Outside Bar',
+                  'quantity': 8,
+                  'status': 'completed',
+                  'created_at': '2024-01-15T13:05:00',
+                },
+              ]),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
                 }
 
                 final transfers = snapshot.data ?? [];
@@ -336,8 +358,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
               },
             ),
           ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

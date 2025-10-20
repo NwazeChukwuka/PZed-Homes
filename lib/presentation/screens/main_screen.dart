@@ -24,9 +24,15 @@ class MainScreen extends StatelessWidget {
         final userRoles = user?.roles ?? [AppRole.guest];
 
         // Merge: Instead of just one role, collect accessible features for ALL roles
+        // PLUS add features from assumed role (additive, not restrictive)
         final accessibleFeatures = <String>{};
         for (var role in userRoles) {
           accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(role));
+        }
+        
+        // If role is assumed, ADD those features (don't replace)
+        if (authService.isRoleAssumed && authService.assumedRole != null) {
+          accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(authService.assumedRole!));
         }
 
         return ResponsiveLayout(
@@ -54,7 +60,7 @@ class MainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              const Text('P-ZED Homes'),
+              const Text('P-ZED Luxury Hotels & Suites'),
             ],
           ),
         ),
@@ -109,7 +115,7 @@ class MainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              const Text('P-ZED Homes'),
+              const Text('P-ZED Luxury Hotels & Suites'),
             ],
           ),
         ),
@@ -232,7 +238,7 @@ class MainScreen extends StatelessWidget {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              children: _getNavItemsForRoles(userRoles, accessibleFeatures)
+              children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
                   .map((item) => _buildSidebarNavItem(context, item))
                   .toList(),
             ),
@@ -375,7 +381,7 @@ class MainScreen extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               Text(
-                'P-ZED Homes Management System',
+                'P-ZED Luxury Hotels & Suites Management System',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   color: Colors.green[800],
                   fontWeight: FontWeight.w600,
@@ -384,6 +390,67 @@ class MainScreen extends StatelessWidget {
             ],
           ),
           const Spacer(),
+          Consumer<MockAuthService>(
+            builder: (context, authService, child) {
+              final currentUser = authService.currentUser;
+              final isOwnerOrManager = currentUser?.role == AppRole.owner || currentUser?.role == AppRole.manager;
+              if (!isOwnerOrManager) return const SizedBox.shrink();
+
+              // Get suggested role based on current route
+              final currentRoute = GoRouterState.of(context).uri.toString();
+              final suggestedRole = MockAuthService.getSuggestedRoleForRoute(currentRoute);
+              final buttonLabel = suggestedRole != null 
+                  ? 'Assume ${MockAuthService.getRoleDisplayName(suggestedRole)}'
+                  : 'Assume Role';
+
+              return Row(
+                children: [
+                  if (authService.isRoleAssumed)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: [Colors.orange.shade400, Colors.orange.shade600]),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            MockAuthService.getRoleDisplayName(authService.assumedRole!),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () => authService.returnToOriginalRole(),
+                            child: const Icon(Icons.close, color: Colors.white, size: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (authService.isRoleAssumed) const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    onPressed: () => suggestedRole != null 
+                        ? _assumeSpecificRole(context, suggestedRole)
+                        : _showAssumeRoleSheet(context),
+                    icon: const Icon(Icons.person_outline, size: 18),
+                    label: Text(buttonLabel),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: suggestedRole != null ? Colors.orange[700] : Colors.green[800],
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () {
@@ -403,6 +470,126 @@ class MainScreen extends StatelessWidget {
     );
   }
 
+  void _assumeSpecificRole(BuildContext context, AppRole role) {
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    authService.assumeRole(role);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Now assuming ${MockAuthService.getRoleDisplayName(role)} role'),
+        backgroundColor: Colors.orange[700],
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showAssumeRoleSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) {
+        final authService = Provider.of<MockAuthService>(context, listen: false);
+        final roles = <Map<String, dynamic>>[
+          {'label': 'Bartender', 'role': AppRole.bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
+          {'label': 'Receptionist', 'role': AppRole.receptionist, 'icon': Icons.support_agent, 'color': Colors.indigo},
+          {'label': 'Storekeeper', 'role': AppRole.storekeeper, 'icon': Icons.inventory_2, 'color': Colors.teal},
+          {'label': 'Purchaser', 'role': AppRole.purchaser, 'icon': Icons.shopping_cart, 'color': Colors.blue},
+          {'label': 'Accountant', 'role': AppRole.accountant, 'icon': Icons.calculate, 'color': Colors.green},
+          {'label': 'Kitchen Staff', 'role': AppRole.kitchen_staff, 'icon': Icons.restaurant, 'color': Colors.orange},
+        ];
+
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.5,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) => Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.swap_horiz),
+                    const SizedBox(width: 8),
+                    const Text('Assume a Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Spacer(),
+                    if (authService.isRoleAssumed)
+                      TextButton.icon(
+                        onPressed: () {
+                          authService.returnToOriginalRole();
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.undo),
+                        label: const Text('Return'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: GridView.builder(
+                    controller: scrollController,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.1,
+                    ),
+                    itemCount: roles.length,
+                    itemBuilder: (context, i) {
+                      final r = roles[i];
+                      final Color base = r['color'] as Color;
+                      final bool selected = authService.isRoleAssumed && authService.assumedRole == r['role'];
+                      return InkWell(
+                        onTap: () {
+                          authService.assumeRole(r['role'] as AppRole);
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Now assuming ${r['label']}')),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: LinearGradient(
+                              colors: [base.withOpacity(0.15), base.withOpacity(0.35)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            border: Border.all(color: selected ? base : base.withOpacity(0.3), width: selected ? 2 : 1),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor: base.withOpacity(0.2),
+                                child: Icon(r['icon'] as IconData, color: base),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                r['label'] as String,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMobileDrawer(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
     return Drawer(
       child: AppAnimations.fadeTransition(
@@ -413,7 +600,7 @@ class MainScreen extends StatelessWidget {
             ),
             Expanded(
               child: AppAnimations.staggeredList(
-                children: _getNavItemsForRoles(userRoles, accessibleFeatures)
+                children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
                     .map((item) => _buildMobileDrawerItem(context, item))
                     .toList(),
               ),
@@ -439,7 +626,7 @@ class MainScreen extends StatelessWidget {
             ),
             Expanded(
               child: AppAnimations.staggeredList(
-                children: _getNavItemsForRoles(userRoles, accessibleFeatures)
+                children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
                     .map((item) => _buildTabletDrawerItem(context, item))
                     .toList(),
               ),
@@ -543,12 +730,21 @@ class MainScreen extends StatelessWidget {
     );
   }
 
-  List<NavigationItem> _getNavItemsForRoles(List<AppRole> userRoles, List<String> accessibleFeatures) {
+  List<NavigationItem> _getNavItemsForRoles(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
     final items = <NavigationItem>[];
 
     if (accessibleFeatures.contains('dashboard')) {
       items.add(NavigationItem(icon: Icons.dashboard, label: 'Dashboard', route: '/dashboard'));
     }
+    
+    // Add booking form for receptionist only (not owner/manager unless they assume receptionist role)
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final isReceptionist = userRoles.contains(AppRole.receptionist) || 
+        (authService.isRoleAssumed && authService.assumedRole == AppRole.receptionist);
+    if (isReceptionist) {
+      items.add(NavigationItem(icon: Icons.book_online, label: 'Create Booking', route: '/booking/create'));
+    }
+    
     if (accessibleFeatures.contains('housekeeping')) {
       items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
     }
@@ -762,7 +958,7 @@ class MainScreen extends StatelessWidget {
           _buildLargeDesktopSidebarHeader(context),
           Expanded(
             child: AppAnimations.staggeredList(
-              children: _getNavItemsForRoles(userRoles, accessibleFeatures)
+              children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
                   .map((item) => _buildLargeDesktopSidebarItem(context, item))
                   .toList(),
             ),
@@ -900,7 +1096,7 @@ class MainScreen extends StatelessWidget {
               ),
               const SizedBox(width: 20),
               Text(
-                'P-ZED Homes Management System',
+                'P-ZED Luxury Hotels & Suites Management System',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: Colors.green[800],
                   fontWeight: FontWeight.w600,

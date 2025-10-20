@@ -162,6 +162,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.receptionist,
           AppRole.housekeeper,
           AppRole.laundry_attendant,
@@ -172,6 +173,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.bartender,
           AppRole.kitchen_staff,
         ].contains(userRole);
@@ -180,6 +182,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.accountant,
         ].contains(userRole);
       
@@ -194,6 +197,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.kitchen_staff,
           AppRole.bartender,
         ].contains(userRole);
@@ -205,6 +209,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.security,
         ].contains(userRole);
       
@@ -212,6 +217,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.accountant,
         ].contains(userRole);
       
@@ -219,6 +225,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.purchaser,
         ].contains(userRole);
       
@@ -226,6 +233,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.storekeeper,
         ].contains(userRole);
       
@@ -233,6 +241,7 @@ class PermissionManager {
         return [
           AppRole.owner,
           AppRole.manager,
+          AppRole.supervisor,
           AppRole.receptionist,
         ].contains(userRole);
       

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
 class CommunicationsScreen extends StatefulWidget {
@@ -13,15 +12,39 @@ class CommunicationsScreen extends StatefulWidget {
 }
 
 class _CommunicationsScreenState extends State<CommunicationsScreen> {
-  final _supabase = Supabase.instance.client;
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
+  final List<Map<String, dynamic>> _posts = [];
+  bool _isLoading = false;
 
   @override
-  void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadMockPosts();
+  }
+
+  Future<void> _loadMockPosts() async {
+    setState(() => _isLoading = true);
+    await Future.delayed(const Duration(milliseconds: 250));
+    final now = DateTime.now();
+    _posts.clear();
+    _posts.addAll([
+      {
+        'id': 'post1',
+        'title': 'Welcome to P-ZED Luxury Hotels & Suites',
+        'content': 'Team, let\'s ensure premium experience for all guests today. ',
+        'author_name': 'Management',
+        'created_at': now.subtract(const Duration(days: 1)).toIso8601String(),
+      },
+      {
+        'id': 'post2',
+        'title': 'VIP Bar Inventory Reminder',
+        'content': 'Please reconcile VIP bar stock before 8PM.',
+        'author_name': 'Storekeeper',
+        'created_at': now.subtract(const Duration(hours: 6)).toIso8601String(),
+      },
+    ]);
+    setState(() => _isLoading = false);
   }
 
   Future<void> _showCreatePostDialog() async {
@@ -87,11 +110,14 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     throw Exception('User not authenticated');
                   }
 
-                  await _supabase.from('posts').insert({
+                  final post = {
+                    'id': 'post_${DateTime.now().millisecondsSinceEpoch}',
                     'title': _titleController.text.trim(),
                     'content': _contentController.text.trim(),
-                    'author_id': currentUser.id,
-                  });
+                    'author_name': currentUser.name,
+                    'created_at': DateTime.now().toIso8601String(),
+                  };
+                  setState(() => _posts.insert(0, post));
 
                   _titleController.clear();
                   _contentController.clear();
@@ -100,7 +126,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Announcement posted successfully!'),
+                        content: Text('[Mock] Announcement posted successfully!'),
                         backgroundColor: Colors.green,
                       ),
                     );
@@ -109,7 +135,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Error posting announcement: $e'),
+                        content: Text('[Mock] Error posting announcement: $e'),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -124,6 +150,13 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
   }
 
   @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final authService = Provider.of<MockAuthService>(context, listen: false);
     final canPost = authService.currentUser?.role == AppRole.manager || 
@@ -134,37 +167,10 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
         title: const Text('Announcements'),
         backgroundColor: Colors.blueGrey.shade700,
       ),
-      body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: _supabase
-            .from('posts')
-            .stream(primaryKey: ['id'])
-            .order('created_at', ascending: false)
-            .map((rows) => rows.map((row) {
-              return {
-                ...row,
-                'author_name': row['profiles']?['full_name'] ?? 'Unknown',
-              };
-            }).toList()),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text('Error: ${snapshot.error}'),
-                ],
-              ),
-            );
-          }
-
-          final posts = snapshot.data ?? [];
-          
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Builder(builder: (context) {
+          final posts = _posts;
           if (posts.isEmpty) {
             return Center(
               child: Column(
@@ -236,8 +242,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
               );
             },
           );
-        },
-      ),
+        }),
       floatingActionButton: canPost
           ? FloatingActionButton(
               onPressed: () => _showCreatePostDialog(),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/presentation/widgets/room_card.dart';
 import 'package:pzed_homes/data/models/room_category.dart';
+import 'package:pzed_homes/data/mock_data.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,7 +11,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _supabase = Supabase.instance.client;
   List<Map<String, dynamic>> _roomTypes = [];
   bool _isLoading = true;
 
@@ -23,10 +22,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadRoomTypes() async {
     try {
-      final roomTypes = await _supabase
-          .from('room_types')
-          .select('id, type, price, description, image_url')
-          .order('price');
+      // Load from mock data
+      await Future.delayed(const Duration(milliseconds: 250));
+      final roomTypes = mockRoomCategories;
 
       if (mounted) {
         setState(() {
@@ -38,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading room types: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('[Mock] Error loading room types: $e'), backgroundColor: Colors.red),
         );
       }
     }

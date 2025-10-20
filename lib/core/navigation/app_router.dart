@@ -428,6 +428,15 @@ class AppRouter {
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
+      case AppRole.supervisor:
+        return location.startsWith('/dashboard') ||
+               location.startsWith('/housekeeping') ||
+               location.startsWith('/inventory') ||
+               location.startsWith('/finance') ||
+               location.startsWith('/reporting') ||
+               location.startsWith('/communications') ||
+               location.startsWith('/profile');
+      
       case AppRole.purchaser:
         return location.startsWith('/purchasing') ||
                location.startsWith('/communications') ||

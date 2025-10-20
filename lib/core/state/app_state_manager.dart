@@ -9,7 +9,8 @@ import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 
 class AppStateManager extends ChangeNotifier {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  static const bool _useMock = bool.fromEnvironment('USE_MOCK', defaultValue: true);
+  final SupabaseClient? _supabase = _useMock ? null : Supabase.instance.client;
   AppConnectivity? _connectivity;
   
   // App state
@@ -88,7 +89,10 @@ class AppStateManager extends ChangeNotifier {
   // User management
   Future<void> _loadUserData() async {
     try {
-      final user = _supabase.auth.currentUser;
+      if (_useMock || _supabase == null) {
+        return; // In mock mode, rely on MockAuthService for user state
+      }
+      final user = _supabase!.auth.currentUser;
       if (user != null) {
         final userRoles = List<AppRole>.from((user.userMetadata?['roles'] as List?)?.map((r) => AppRole.values.firstWhere((role) => role.name == r, orElse: () => AppRole.guest)) ?? [AppRole.guest]);
         _currentUser = AppUser(
@@ -139,15 +143,15 @@ class AppStateManager extends ChangeNotifier {
   // Notification management
   Future<void> _loadNotifications() async {
     try {
-      if (!isOnline) return;
-      
-      final response = await _supabase
+      if (_useMock || _supabase == null || !isOnline) {
+        return;
+      }
+      final response = await _supabase!
           .from('notifications')
           .select('*')
           .eq('user_id', _currentUser?.id ?? '')
           .order('created_at', ascending: false)
           .limit(50);
-      
       _notifications = List<Map<String, dynamic>>.from(response);
       _unreadNotifications = _notifications.where((n) => !n['is_read']).length;
       notifyListeners();
@@ -158,11 +162,11 @@ class AppStateManager extends ChangeNotifier {
   
   Future<void> markNotificationAsRead(String notificationId) async {
     try {
-      await _supabase
+      if (_useMock || _supabase == null) return;
+      await _supabase!
           .from('notifications')
           .update({'is_read': true})
           .eq('id', notificationId);
-      
       await _loadNotifications();
     } catch (e) {
       _setError('Failed to mark notification as read: $e');
@@ -171,11 +175,11 @@ class AppStateManager extends ChangeNotifier {
   
   Future<void> markAllNotificationsAsRead() async {
     try {
-      await _supabase
+      if (_useMock || _supabase == null) return;
+      await _supabase!
           .from('notifications')
           .update({'is_read': true})
           .eq('user_id', _currentUser?.id ?? '');
-      
       await _loadNotifications();
     } catch (e) {
       _setError('Failed to mark all notifications as read: $e');
@@ -242,7 +246,9 @@ class AppStateManager extends ChangeNotifier {
   // Logout
   Future<void> logout() async {
     try {
-      await _supabase.auth.signOut();
+      if (!(_useMock || _supabase == null)) {
+        await _supabase!.auth.signOut();
+      }
       _currentUser = null;
       _userRoles = [];
       _accessibleFeatures = [];
@@ -270,10 +276,8 @@ class AppStateManager extends ChangeNotifier {
   
   // Real-time subscriptions
   void startRealtimeSubscriptions() {
-    if (!isOnline) return;
-    
-    // Subscribe to user notifications
-    _supabase
+    if (_useMock || _supabase == null || !isOnline) return;
+    _supabase!
         .channel('user_notifications')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
@@ -292,7 +296,8 @@ class AppStateManager extends ChangeNotifier {
   }
   
   void stopRealtimeSubscriptions() {
-    _supabase.removeAllChannels();
+    if (_useMock || _supabase == null) return;
+    _supabase!.removeAllChannels();
   }
   
   @override

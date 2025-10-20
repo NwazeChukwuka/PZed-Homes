@@ -284,7 +284,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               children: [
                 // Welcome Text
                 Text(
-                  'Welcome to P-ZED Homes',
+                  'Welcome to P-ZED Luxury Hotels & Suites',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: ResponsiveHelper.getResponsiveFontSize(

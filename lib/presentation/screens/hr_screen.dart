@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/data/models/user.dart';
 
 class HrScreen extends StatefulWidget {
   const HrScreen({super.key});
@@ -11,12 +14,21 @@ class HrScreen extends StatefulWidget {
 
 class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final _supabase = Supabase.instance.client;
+  final DataService _dataService = DataService();
+  final DateFormat _dateFormat = DateFormat('MMM dd, yyyy');
+
+  // State
+  List<Map<String, dynamic>> _allStaff = [];
+  List<Map<String, dynamic>> _filteredStaff = [];
+  DateTime _selectedDate = DateTime.now();
+  bool _isLoading = true;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 4, vsync: this); // Staff, Duty, Performance, Roles/Positions
+    _loadStaff();
   }
 
   @override
@@ -40,17 +52,21 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               unselectedLabelColor: Colors.grey[600],
               indicatorColor: Colors.green[800],
               tabs: const [
-                Tab(text: 'Staff Members', icon: Icon(Icons.work)),
-                Tab(text: 'Guests', icon: Icon(Icons.person)),
+                Tab(text: 'Staff Directory', icon: Icon(Icons.people_alt)),
+                Tab(text: 'Duty Roster', icon: Icon(Icons.event_available)),
+                Tab(text: 'Performance', icon: Icon(Icons.assessment)),
+                Tab(text: 'Roles & Positions', icon: Icon(Icons.admin_panel_settings)),
               ],
             ),
           ),
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                UserList(isStaff: true),
-                UserList(isStaff: false),
+              children: [
+                _buildStaffDirectoryTab(context),
+                _buildDutyRosterTab(context),
+                _buildPerformanceTab(context),
+                _buildRolesPositionsTab(context),
               ],
             ),
           ),
@@ -87,7 +103,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Manage staff members and guest profiles',
+                  'Staff directory, duty roster, performance, roles and positions',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Colors.grey[600],
                   ),
@@ -121,344 +137,433 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
       ),
     );
   }
-}
-
-class UserList extends StatefulWidget {
-  final bool isStaff;
-  const UserList({super.key, required this.isStaff});
-
-  @override
-  State<UserList> createState() => _UserListState();
-}
-
-class _UserListState extends State<UserList> {
-  final _supabase = Supabase.instance.client;
-  Future<List<Map<String, dynamic>>>? _usersFuture;
-  bool _isLoading = true;
-  
-  // Pagination state
-  int _rowsPerPage = 10;
-  int _currentPage = 0;
-  List<Map<String, dynamic>> _allUsers = [];
-  List<Map<String, dynamic>> _currentPageUsers = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _usersFuture = _loadUsers();
-  }
-
-  Future<List<Map<String, dynamic>>> _loadUsers() async {
+  // ---------- Staff Directory ----------
+  Future<void> _loadStaff() async {
+    setState(() => _isLoading = true);
     try {
-      final query = _supabase.from('profiles').select();
-      
-      if (widget.isStaff) {
-        // Staff members have roles that are not just 'guest'
-        final response = await query;
-        final allUsers = List<Map<String, dynamic>>.from(response);
-        final staffUsers = allUsers.where((user) {
-          final roles = (user['roles'] as List<dynamic>? ?? []);
-          return roles.isNotEmpty && !(roles.length == 1 && roles.contains('guest'));
+      final staff = await _dataService.getStaffProfiles();
+      // Exclude owner
+      final filtered = staff.where((s) {
+        final roles = (s['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+        return !roles.contains('owner');
         }).toList();
-        
-        if (mounted) {
           setState(() {
+        _allStaff = filtered;
+        _applySearchFilter();
             _isLoading = false;
-            _allUsers = staffUsers;
-            _updatePagination();
           });
-        }
-        return staffUsers;
-      } else {
-        // Guests have only the 'guest' role
-        final response = await query;
-        final allUsers = List<Map<String, dynamic>>.from(response);
-        final guestUsers = allUsers.where((user) {
-          final roles = (user['roles'] as List<dynamic>? ?? []);
-          return roles.length == 1 && roles.contains('guest');
-        }).toList();
-        
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _allUsers = guestUsers;
-            _updatePagination();
-          });
-        }
-        return guestUsers;
-      }
     } catch (e) {
-      if (mounted) {
         setState(() => _isLoading = false);
-      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading users: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Failed to load staff: $e'), backgroundColor: Colors.red),
       );
-      return [];
     }
   }
 
-  void _updatePagination() {
-    final startIndex = _currentPage * _rowsPerPage;
-    final endIndex = (startIndex + _rowsPerPage).clamp(0, _allUsers.length);
-    setState(() {
-      _currentPageUsers = _allUsers.sublist(startIndex, endIndex);
-    });
+  void _applySearchFilter() {
+    final q = _searchQuery.toLowerCase();
+    _filteredStaff = _allStaff.where((u) {
+      final name = (u['full_name']?.toString() ?? '').toLowerCase();
+      final email = (u['email']?.toString() ?? '').toLowerCase();
+      final roles = (u['roles'] as List<dynamic>? ?? []).join(',').toLowerCase();
+      return q.isEmpty || name.contains(q) || email.contains(q) || roles.contains(q);
+    }).toList();
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return Colors.green;
-      case 'inactive':
-        return Colors.red;
-      case 'pending':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _isLoading
-        ? const Center(child: CircularProgressIndicator())
-        : RefreshIndicator(
-            onRefresh: _loadUsers,
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _usersFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                        const SizedBox(height: 16),
-                        Text('Error: ${snapshot.error}'),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _loadUsers,
-                          child: const Text('Try Again'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                final users = snapshot.data ?? [];
-                
-                if (users.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          widget.isStaff ? Icons.people_outline : Icons.person_outline,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          widget.isStaff ? 'No staff members found' : 'No guests found',
-                          style: const TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton(
-                          onPressed: _loadUsers,
-                          child: const Text('Refresh'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: PaginatedDataTable(
-                      header: Container(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Text(
-                              widget.isStaff ? 'Staff Members' : 'Guests',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '${_allUsers.length} Total ${widget.isStaff ? 'Staff' : 'Guests'}',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      columns: [
-                        const DataColumn(
-                          label: Text('Full Name'),
-                          numeric: false,
-                        ),
-                        const DataColumn(
-                          label: Text('Email'),
-                          numeric: false,
-                        ),
-                        DataColumn(
-                          label: Text(widget.isStaff ? 'Roles' : 'Status'),
-                          numeric: false,
-                        ),
-                        const DataColumn(
-                          label: Text('Phone'),
-                          numeric: false,
-                        ),
-                        const DataColumn(
-                          label: Text('Actions'),
-                          numeric: false,
-                        ),
-                      ],
-                      source: _UserDataSource(
-                        users: _currentPageUsers,
-                        isStaff: widget.isStaff,
-                        onUserTap: (user) {
-                          context.push('/profile', extra: user);
-                        },
-                        getStatusColor: _getStatusColor,
-                      ),
-                      rowsPerPage: _rowsPerPage,
-                      onPageChanged: (pageIndex) {
-                        setState(() {
-                          _currentPage = pageIndex;
-                        });
-                        _updatePagination();
-                      },
-                      onRowsPerPageChanged: (newRowsPerPage) {
-                        setState(() {
-                          _rowsPerPage = newRowsPerPage ?? 10;
-                          _currentPage = 0;
-                        });
-                        _updatePagination();
-                      },
-                      availableRowsPerPage: const [5, 10, 20, 50],
-                      showFirstLastButtons: true,
-                    ),
-                  ),
-                );
-              },
-            ),
-          );
-  }
-}
-
-class _UserDataSource extends DataTableSource {
-  final List<Map<String, dynamic>> users;
-  final bool isStaff;
-  final Function(Map<String, dynamic>) onUserTap;
-  final Color Function(String) getStatusColor;
-
-  _UserDataSource({
-    required this.users,
-    required this.isStaff,
-    required this.onUserTap,
-    required this.getStatusColor,
-  });
-
-  @override
-  DataRow? getRow(int index) {
-    if (index >= users.length) return null;
-    
-    final user = users[index];
-    final fullName = user['full_name']?.toString() ?? 'Unnamed User';
-    final email = user['email']?.toString() ?? 'N/A';
-    final phone = user['phone']?.toString() ?? 'N/A';
-    final status = user['status']?.toString() ?? 'Active';
-    final roles = (user['roles'] as List<dynamic>? ?? []).join(', ');
-    
-    return DataRow(
-      cells: [
-        DataCell(
-          Row(
+  Widget _buildStaffDirectoryTab(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Colors.white,
+          child: Row(
             children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: Colors.green[100],
-                child: Icon(
-                  isStaff ? Icons.work_outline : Icons.person_outline,
-                  color: Colors.green[700],
-                  size: 16,
+              Expanded(
+                child: TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Search by name, email, or role',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) {
+    setState(() {
+                      _searchQuery = v;
+                      _applySearchFilter();
+                    });
+                  },
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                fullName,
-                style: const TextStyle(fontWeight: FontWeight.w500),
+              ElevatedButton.icon(
+                onPressed: _loadStaff,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
               ),
             ],
           ),
         ),
-        DataCell(Text(email)),
-        DataCell(
-          isStaff
-              ? Text(
-                  roles,
-                  style: TextStyle(
-                    color: Colors.green[700],
-                    fontWeight: FontWeight.w500,
-                  ),
-                )
-              : Chip(
-                  label: Text(
-                    status,
-                    style: TextStyle(
-                      color: getStatusColor(status),
-                      fontWeight: FontWeight.w500,
-                      fontSize: 12,
-                    ),
-                  ),
-                  backgroundColor: getStatusColor(status).withOpacity(0.1),
-                  side: BorderSide(color: getStatusColor(status).withOpacity(0.3)),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _filteredStaff.length,
+                  itemBuilder: (context, index) {
+                    final u = _filteredStaff[index];
+                    final name = (u['full_name']?.toString() ?? (u['name']?.toString() ?? 'Unknown'));
+                    final roles = (u['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.green[100],
+                          child: const Icon(Icons.person, color: Colors.green),
+                        ),
+                        title: Text(name.isEmpty ? 'Unknown' : name),
+                        subtitle: Text(roles.isEmpty ? 'Unassigned' : roles.join(', ')),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (v) {
+                            switch (v) {
+                              case 'promote':
+                                _showPromoteDemoteDialog(u, isPromote: true);
+                                break;
+                              case 'demote':
+                                _showPromoteDemoteDialog(u, isPromote: false);
+                                break;
+                              case 'assign':
+                                _showAssignRoleDialog(u);
+                                break;
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(value: 'promote', child: Text('Promote')),
+                            PopupMenuItem(value: 'demote', child: Text('Demote')),
+                            PopupMenuItem(value: 'assign', child: Text('Assign Role')),
+                          ],
+                        ),
+                        onTap: () => context.push('/profile', extra: u),
+                      ),
+                    );
+                  },
                 ),
         ),
-        DataCell(Text(phone)),
-        DataCell(
-          IconButton(
-            icon: const Icon(Icons.visibility),
-            onPressed: () => onUserTap(user),
-            tooltip: 'View Profile',
+      ],
+    );
+  }
+
+  // ---------- Duty Roster ----------
+  Widget _buildDutyRosterTab(BuildContext context) {
+    final onDuty = _allStaff.where((u) {
+      // Simple mock: alternate staff on odd/even days
+      final idHash = (u['id']?.hashCode ?? 0).abs();
+      return (_selectedDate.day % 2 == idHash % 2);
+    }).toList();
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Colors.white,
+          child: Row(
+            children: [
+              Text('Date:  ${_dateFormat.format(_selectedDate)}'),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _selectedDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2035),
+                  );
+                  if (picked != null) setState(() => _selectedDate = picked);
+                },
+                icon: const Icon(Icons.calendar_today),
+                label: const Text('Pick Date'),
+              ),
+              const Spacer(),
+              Text('${onDuty.length} on duty'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: onDuty.length,
+            itemBuilder: (context, i) {
+              final u = onDuty[i];
+              final roles = (u['roles'] as List<dynamic>? ?? []).join(', ');
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.badge),
+                  title: Text(u['full_name']?.toString() ?? 'Unnamed'),
+                  subtitle: Text('Roles: $roles\nLast duty: ${_dateFormat.format(_selectedDate.subtract(const Duration(days: 7)))}'),
+                  isThreeLine: true,
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
 
-  @override
-  bool get isRowCountApproximate => false;
+  // ---------- Performance ----------
+  Widget _buildPerformanceTab(BuildContext context) {
+    // Simple mock KPI cards
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+                    child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+                      children: [
+              _kpiCard('Today Score', '92', Colors.green),
+              _kpiCard('This Week', '88', Colors.blue),
+              _kpiCard('This Month', '90', Colors.purple),
+            ],
+          ),
+                        const SizedBox(height: 16),
+          Text('Top Performers', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          ..._allStaff.take(5).map((u) => ListTile(
+                leading: const Icon(Icons.emoji_events, color: Colors.amber),
+                title: Text(u['full_name']?.toString() ?? 'Unnamed'),
+                subtitle: const Text('Consistent performance across duties'),
+              )),
+                      ],
+                    ),
+                  );
+                }
 
-  @override
-  int get rowCount => users.length;
+  Widget _kpiCard(String label, String value, Color color) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+                    child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+                        const SizedBox(height: 8),
+          Row(
+                      children: [
+              Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color)),
+              const SizedBox(width: 6),
+              const Text('/ 100'),
+            ],
+                        ),
+                      ],
+                    ),
+                  );
+                }
 
-  @override
-  int get selectedRowCount => 0;
+  // ---------- Roles & Positions ----------
+  Widget _buildRolesPositionsTab(BuildContext context) {
+                return Padding(
+      padding: const EdgeInsets.all(16),
+                    child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+                      children: [
+              ElevatedButton.icon(
+                onPressed: _showCreatePositionDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('Create Position'),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () => _showAssignRoleDialog(null),
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('Assign Role to Staff'),
+                        ),
+                      ],
+                        ),
+                        const SizedBox(height: 16),
+          Expanded(
+            child: ListView(
+                          children: [
+                ListTile(
+                  leading: const Icon(Icons.admin_panel_settings),
+                  title: const Text('Positions & Benefits'),
+                  subtitle: const Text('Define scalable positions with benefits and permissions'),
+                ),
+              ],
+                              ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+  // ---------- Dialogs / Actions ----------
+  Future<void> _showPromoteDemoteDialog(Map<String, dynamic> user, {required bool isPromote}) async {
+    final roles = (user['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+    final available = AppRole.values.where((r) => r != AppRole.owner && r != AppRole.guest).toList();
+    AppRole? selected;
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isPromote ? 'Promote Staff' : 'Demote Staff'),
+        content: DropdownButtonFormField<AppRole>(
+          decoration: const InputDecoration(labelText: 'Select Role'),
+          items: available
+              .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
+              .toList(),
+          onChanged: (v) => selected = v,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              if (selected != null) {
+                await _dataService.assignRoleToStaff(
+                  user['id'] as String,
+                  selected!.name,
+                  isTemporary: false,
+                );
+                if (!mounted) return;
+                Navigator.pop(context);
+                _loadStaff();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Updated role to ${selected!.name} for ${user['full_name']}')),
+                );
+              }
+            },
+            child: Text(isPromote ? 'Promote' : 'Demote'),
+                        ),
+                      ],
+                    ),
+    );
+  }
+
+  Future<void> _showAssignRoleDialog(Map<String, dynamic>? user) async {
+    String? staffId = user?['id'] as String?;
+    AppRole? selectedRole;
+    bool isTemporary = false;
+    DateTime? expiry;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Assign Role to Staff'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+                          children: [
+                if (user == null)
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(labelText: 'Select Staff (by ID)'),
+                    items: _allStaff
+                        .map((s) => DropdownMenuItem(value: s['id'] as String, child: Text(s['full_name']?.toString() ?? 'Unnamed')))
+                        .toList(),
+                    onChanged: (v) => staffId = v,
+                  ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<AppRole>(
+                  decoration: const InputDecoration(labelText: 'Role'),
+                  items: AppRole.values
+                      .where((r) => r != AppRole.owner && r != AppRole.guest)
+                      .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
+                      .toList(),
+                  onChanged: (v) => selectedRole = v,
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  value: isTemporary,
+                  onChanged: (v) => setState(() => isTemporary = v),
+                  title: const Text('Temporary assignment'),
+                ),
+                if (isTemporary)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now().add(const Duration(days: 7)),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) setState(() => expiry = picked);
+                    },
+                    icon: const Icon(Icons.date_range),
+                    label: Text(expiry == null ? 'Pick expiry date' : 'Expires: ${_dateFormat.format(expiry!)}'),
+                            ),
+                          ],
+                        ),
+                      ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                if (staffId != null && selectedRole != null) {
+                  await _dataService.assignRoleToStaff(
+                    staffId!,
+                    selectedRole!.name,
+                    isTemporary: isTemporary,
+                    expiryDate: expiry,
+                  );
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                  _loadStaff();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Role assigned successfully')),
+                  );
+                }
+              },
+              child: const Text('Assign'),
+            ),
+          ],
+                    ),
+                  ),
+                );
+  }
+
+  Future<void> _showCreatePositionDialog() async {
+    final nameController = TextEditingController();
+    final benefitsController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create New Position'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Position Name'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: benefitsController,
+                decoration: const InputDecoration(labelText: 'Benefits (comma separated)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              // Placeholder for persistence; scalable for backend integration
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Position created')),
+              );
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
 }

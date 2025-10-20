@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -11,8 +14,7 @@ class PurchaserDashboardScreen extends StatefulWidget {
 }
 
 class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _supabase = Supabase.instance.client;
+  TabController? _tabController;
   
   // Form controllers
   final _amountController = TextEditingController();
@@ -31,13 +33,35 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // Initialize with default tab count
+    _tabController = TabController(length: 2, vsync: this);
     _loadBudgetData();
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateTabController();
+  }
+  
+  void _updateTabController() {
+    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
+    final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+    final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+    final showRecordPurchase = (isPurchaser || isAssumedPurchaser) && !(isOwnerOrManager && !isAssumedPurchaser);
+    
+    final tabCount = showRecordPurchase ? 3 : 2;
+    if (!mounted || _tabController == null || _tabController!.length == tabCount) return;
+    
+    _tabController?.dispose();
+    _tabController = TabController(length: tabCount, vsync: this);
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     _amountController.dispose();
     _itemNameController.dispose();
     _quantityController.dispose();
@@ -49,25 +73,25 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   Future<void> _loadBudgetData() async {
     try {
-      // Load budget information and purchase history
-      final budgetResponse = await _supabase
-          .from('purchaser_budgets')
-          .select('*')
-          .order('created_at', ascending: false)
-          .limit(1);
-      
-      final purchasesResponse = await _supabase
-          .from('purchase_records')
-          .select('*')
-          .order('created_at', ascending: false)
-          .limit(20);
+      // Mock data for presentation
+      final budgetResponse = [
+        {'total_budget': 500000.0, 'remaining_budget': 275000.0}
+      ];
+      final purchasesResponse = [
+        {
+          'item_name': 'Heineken Crate',
+          'quantity': 5,
+          'unit': 'crates',
+          'amount_spent': 85000.0,
+          'supplier': 'Chinedu Suppliers',
+          'purchase_date': DateTime.now().toIso8601String(),
+        }
+      ];
 
       if (mounted) {
         setState(() {
-          if (budgetResponse.isNotEmpty) {
-            _totalBudget = (budgetResponse.first['total_budget'] as num?)?.toDouble() ?? 0.0;
-            _remainingBudget = (budgetResponse.first['remaining_budget'] as num?)?.toDouble() ?? 0.0;
-          }
+          _totalBudget = (budgetResponse.first['total_budget'] as num?)?.toDouble() ?? 0.0;
+          _remainingBudget = (budgetResponse.first['remaining_budget'] as num?)?.toDouble() ?? 0.0;
           _purchaseHistory = List<Map<String, dynamic>>.from(purchasesResponse);
           _isLoading = false;
         });
@@ -108,25 +132,18 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     }
 
     try {
-      final userId = _supabase.auth.currentUser!.id;
-      
-      // Record the purchase
-      await _supabase.from('purchase_records').insert({
-        'purchaser_id': userId,
-        'item_name': _itemNameController.text.trim(),
-        'quantity': int.parse(_quantityController.text),
-        'unit': _unitController.text.trim(),
-        'amount_spent': amount,
-        'supplier': _supplierController.text.trim(),
-        'notes': _notesController.text.trim(),
-        'purchase_date': DateTime.now().toIso8601String(),
+      // Mock-only: update local state
+      setState(() {
+        _remainingBudget -= amount;
+        _purchaseHistory.insert(0, {
+          'item_name': _itemNameController.text.trim(),
+          'quantity': int.parse(_quantityController.text),
+          'unit': _unitController.text.trim(),
+          'amount_spent': amount,
+          'supplier': _supplierController.text.trim(),
+          'purchase_date': DateTime.now().toIso8601String(),
+        });
       });
-
-      // Update remaining budget
-      await _supabase.from('purchaser_budgets').update({
-        'remaining_budget': _remainingBudget - amount,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('purchaser_id', userId);
 
       // Clear form
       _amountController.clear();
@@ -150,36 +167,71 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<MockAuthService>(context);
+    final user = authService.currentUser;
+    final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
+    final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+    final canRecord = isPurchaser || isAssumedPurchaser;
+    
+    // Owner/Manager can only access Record Purchase if they assume purchaser role
+    final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+    final showRecordPurchase = canRecord && !(isOwnerOrManager && !isAssumedPurchaser);
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Column(
-        children: [
-          _buildHeader(context),
-          Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.green[800],
-              unselectedLabelColor: Colors.grey[600],
-              indicatorColor: Colors.green[800],
-              tabs: const [
-                Tab(text: 'Record Purchase', icon: Icon(Icons.add_shopping_cart)),
-                Tab(text: 'Budget Overview', icon: Icon(Icons.account_balance_wallet)),
-                Tab(text: 'Purchase History', icon: Icon(Icons.history)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPurchaseForm(),
-                _buildBudgetOverview(),
-                _buildPurchaseHistory(),
-              ],
-            ),
-          ),
-        ],
+      body: Consumer<MockAuthService>(
+        builder: (context, authService, child) {
+          final user = authService.currentUser;
+          final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
+          final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+          final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+          final showRecordPurchase = (isPurchaser || isAssumedPurchaser) && !(isOwnerOrManager && !isAssumedPurchaser);
+          
+          // Update tab controller if needed
+          final tabCount = showRecordPurchase ? 3 : 2;
+          if (_tabController == null) {
+            _tabController = TabController(length: tabCount, vsync: this);
+          } else if (_tabController!.length != tabCount) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _tabController?.dispose();
+                  _tabController = TabController(length: tabCount, vsync: this);
+                });
+              }
+            });
+          }
+          
+          return Column(
+            children: [
+              _buildHeader(context),
+              Container(
+                color: Colors.white,
+                child: TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.green[800],
+                  unselectedLabelColor: Colors.grey[600],
+                  indicatorColor: Colors.green[800],
+                  tabs: [
+                    if (showRecordPurchase) const Tab(text: 'Record Purchase', icon: Icon(Icons.add_shopping_cart)),
+                    const Tab(text: 'Budget Overview', icon: Icon(Icons.account_balance_wallet)),
+                    const Tab(text: 'Purchase History', icon: Icon(Icons.history)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    if (showRecordPurchase) _buildPurchaseForm(),
+                    _buildBudgetOverview(),
+                    _buildPurchaseHistory(),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -220,6 +272,8 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
               ],
             ),
           ),
+          const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
+          const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(

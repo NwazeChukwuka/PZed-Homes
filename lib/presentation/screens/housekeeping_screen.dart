@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/data/mock_data.dart';
+import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/data/models/user.dart';
 
 class HousekeepingScreen extends StatefulWidget {
   const HousekeepingScreen({super.key});
@@ -10,10 +14,8 @@ class HousekeepingScreen extends StatefulWidget {
 }
 
 class _HousekeepingScreenState extends State<HousekeepingScreen> {
-  final _supabase = Supabase.instance.client;
-  late final Stream<List<Map<String, dynamic>>> _roomsStream;
   bool _isLoading = false;
-  
+
   // Pagination state
   int _rowsPerPage = 10;
   int _currentPage = 0;
@@ -23,30 +25,55 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
   @override
   void initState() {
     super.initState();
-    _roomsStream = _supabase
-        .from('rooms')
-        .stream(primaryKey: ['id'])
-        .order('room_number');
+    _loadRooms();
+  }
+
+  Future<void> _loadRooms() async {
+    setState(() => _isLoading = true);
+    await Future.delayed(const Duration(milliseconds: 250));
+    final rooms = MockData.getRooms().map((r) {
+      // Adapt keys to UI expectations
+      return {
+        'id': r['id'],
+        'room_number': r['id'],
+        'type': r['type'],
+        'status': _mapStatus(r['status']?.toString() ?? 'available'),
+      };
+    }).toList();
+    setState(() {
+      _allRooms = rooms;
+      _isLoading = false;
+    });
+    _updatePagination();
+  }
+
+  String _mapStatus(String s) {
+    switch (s.toLowerCase()) {
+      case 'available':
+        return 'Vacant';
+      case 'occupied':
+        return 'Occupied';
+      case 'maintenance':
+        return 'Maintenance';
+      case 'dirty':
+        return 'Dirty';
+      default:
+        return 'Vacant';
+    }
   }
 
   Future<void> _updateRoomStatus(String roomId, String newStatus) async {
-    try {
-      await _supabase
-          .from('rooms')
-          .update({'status': newStatus})
-          .eq('id', roomId);
-
+    // Mock: update locally
+    final idx = _allRooms.indexWhere((r) => r['id'] == roomId);
+    if (idx != -1) {
+      setState(() {
+        _allRooms[idx]['status'] = newStatus;
+      });
+      _updatePagination();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Room status updated to $newStatus'),
+          content: Text('[Mock] Room status updated to $newStatus'),
           backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating room: $e'),
-          backgroundColor: Colors.red,
         ),
       );
     }
@@ -101,7 +128,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
 
   void _showStatusUpdateOptions(Map<String, dynamic> room) {
     final currentStatus = room['status'] as String? ?? 'Unknown';
-    
+
     showModalBottomSheet(
       context: context,
       builder: (ctx) {
@@ -195,210 +222,187 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: _roomsStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text('Error: ${snapshot.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {});
-                    },
-                    child: const Text('Try Again'),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Builder(builder: (context) {
+              if (_allRooms.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        'assets/images/PZED logo.png',
+                        height: 64,
+                        width: 64,
+                        fit: BoxFit.contain,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No rooms found',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            );
-          }
+                );
+              }
 
-          final rooms = snapshot.data ?? [];
-          
-          // Update pagination after build completes
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_allRooms != rooms) {
-              setState(() {
-                _allRooms = rooms;
-              });
-              _updatePagination();
-            }
-          });
-          
-          if (rooms.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'assets/images/PZED logo.png',
-                    height: 64,
-                    width: 64,
-                    fit: BoxFit.contain,
-                    color: Colors.grey.shade400,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No rooms found',
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: PaginatedDataTable(
-                      header: Container(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Room Status Overview',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              icon: const Icon(Icons.refresh),
-                              onPressed: () {
-                                setState(() {});
-                              },
+              return SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(context),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height - 300,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
+                        child: PaginatedDataTable(
+                          header: Container(
+                            padding: const EdgeInsets.all(20),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Room Status Overview',
+                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  icon: const Icon(Icons.refresh),
+                                  onPressed: _loadRooms,
+                                ),
+                              ],
+                            ),
+                          ),
+                          columns: const [
+                            DataColumn(
+                              label: Text('Room #'),
+                              numeric: false,
+                            ),
+                            DataColumn(
+                              label: Text('Room Type'),
+                              numeric: false,
+                            ),
+                            DataColumn(
+                              label: Text('Priority'),
+                              numeric: false,
+                            ),
+                            DataColumn(
+                              label: Text('Status'),
+                              numeric: false,
+                            ),
+                            DataColumn(
+                              label: Text('Actions'),
+                              numeric: false,
+                            ),
+                          ],
+                          source: _RoomDataSource(
+                            rooms: _currentPageRooms,
+                            onStatusUpdate: _showStatusUpdateOptions,
+                            getStatusColor: _getStatusColor,
+                            getPriority: _getPriority,
+                            getPriorityColor: _getPriorityColor,
+                          ),
+                          rowsPerPage: _rowsPerPage,
+                          onPageChanged: (pageIndex) {
+                            setState(() {
+                              _currentPage = pageIndex;
+                            });
+                            _updatePagination();
+                          },
+                          onRowsPerPageChanged: (newRowsPerPage) {
+                            setState(() {
+                              _rowsPerPage = newRowsPerPage ?? 10;
+                              _currentPage = 0;
+                            });
+                            _updatePagination();
+                          },
+                          availableRowsPerPage: const [5, 10, 20, 50],
+                          showFirstLastButtons: true,
+                        ),
                       ),
-                      columns: const [
-                        DataColumn(
-                          label: Text('Room #'),
-                          numeric: false,
-                        ),
-                        DataColumn(
-                          label: Text('Room Type'),
-                          numeric: false,
-                        ),
-                        DataColumn(
-                          label: Text('Priority'),
-                          numeric: false,
-                        ),
-                        DataColumn(
-                          label: Text('Status'),
-                          numeric: false,
-                        ),
-                        DataColumn(
-                          label: Text('Actions'),
-                          numeric: false,
-                        ),
-                      ],
-                      source: _RoomDataSource(
-                        rooms: _currentPageRooms,
-                        onStatusUpdate: _showStatusUpdateOptions,
-                        getStatusColor: _getStatusColor,
-                        getPriority: _getPriority,
-                        getPriorityColor: _getPriorityColor,
                       ),
-                      rowsPerPage: _rowsPerPage,
-                      onPageChanged: (pageIndex) {
-                        setState(() {
-                          _currentPage = pageIndex;
-                        });
-                        _updatePagination();
-                      },
-                      onRowsPerPageChanged: (newRowsPerPage) {
-                        setState(() {
-                          _rowsPerPage = newRowsPerPage ?? 10;
-                          _currentPage = 0;
-                        });
-                        _updatePagination();
-                      },
-                      availableRowsPerPage: const [5, 10, 20, 50],
-                      showFirstLastButtons: true,
-                    ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              );
+            }),
     );
   }
 
   Widget _buildHeader(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Housekeeping',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green[800],
-                ),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Housekeeping',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[800],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Manage room status and housekeeping operations',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Manage room status and housekeeping operations',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.green[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.green[200]!),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.info_outline, color: Colors.green[700], size: 16),
-              const SizedBox(width: 8),
-              Text(
-                '${_allRooms.length} Total Rooms',
-                style: TextStyle(
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.w500,
-                ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green[200]!),
               ),
-            ],
-          ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.info_outline, color: Colors.green[700], size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_allRooms.length} Total Rooms',
+                    style: TextStyle(
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );

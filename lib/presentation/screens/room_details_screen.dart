@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/data/mock_data.dart';
 
 class RoomDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> roomType;
@@ -15,7 +15,6 @@ class RoomDetailsScreen extends StatefulWidget {
 }
 
 class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
-  final _supabase = Supabase.instance.client;
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
   List<Map<String, dynamic>> _availableRooms = [];
@@ -31,20 +30,23 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
     setState(() => _isLoadingAvailability = true);
     try {
-      final response = await _supabase.rpc('check_room_availability', params: {
-        'room_type_id': widget.roomType['id'],
-        'start_date': _checkInDate!.toIso8601String(),
-        'end_date': _checkOutDate!.toIso8601String(),
-      });
-
+      await Future.delayed(const Duration(milliseconds: 300));
+      final allRooms = mockAllRooms;
+      final type = (widget.roomType['type'] as String?)?.toLowerCase() ?? '';
+      final available = allRooms
+          .where((r) => (r['type']?.toString().toLowerCase() ?? '') == type && (r['status'] == 'Vacant'))
+          .map((r) => {
+                'room_number': r['roomNumber'] ?? r['id'],
+              })
+          .toList();
       setState(() {
-        _availableRooms = List<Map<String, dynamic>>.from(response);
+        _availableRooms = List<Map<String, dynamic>>.from(available);
         _isLoadingAvailability = false;
       });
     } catch (e) {
       setState(() => _isLoadingAvailability = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error checking availability: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('[Mock] Error checking availability: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -95,7 +97,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
   Widget build(BuildContext context) {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
     final dateFormatter = DateFormat('EEE, MMM d, yyyy');
-    final price = widget.roomType['price'] as int? ?? 0;
+    final price = widget.roomType['price_ngn'] as int? ?? (widget.roomType['price'] as int? ?? 0);
 
     return Scaffold(
       appBar: AppBar(

@@ -6,42 +6,76 @@ class MockAuthService with ChangeNotifier {
   AppUser? _currentUser;
   bool _isLoading = false;
   bool _isLoggedIn = false;
+  bool _isRoleAssumed = false;
+  AppRole? _assumedRole;
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _isLoggedIn;
+  bool get isRoleAssumed => _isRoleAssumed;
+  AppRole? get assumedRole => _assumedRole;
 
-  // Mock users for testing
+  // Mock users for testing with Igbo names
   static const Map<String, Map<String, dynamic>> _mockUsers = {
     'owner@pzed.home': {
       'id': 'owner-001',
-      'full_name': 'Hotel Owner',
+      'full_name': 'Chukwudi Okonkwo',
       'roles': ['owner'],
       'password': 'Password123',
     },
     'manager@pzed.home': {
       'id': 'manager-001',
-      'full_name': 'Hotel Manager',
+      'full_name': 'Adaeze Nwankwo',
       'roles': ['manager'],
+      'password': 'Password123',
+    },
+    'supervisor@pzed.home': {
+      'id': 'supervisor-001',
+      'full_name': 'Chidi Nwankwo',
+      'roles': ['supervisor'],
       'password': 'Password123',
     },
     'accountant@pzed.home': {
       'id': 'accountant-001',
-      'full_name': 'Hotel Accountant',
+      'full_name': 'Ngozi Igwe',
       'roles': ['accountant'],
       'password': 'Password123',
     },
     'receptionist@pzed.home': {
       'id': 'receptionist-001',
-      'full_name': 'Front Desk Receptionist',
+      'full_name': 'Emeka Onyeka',
       'roles': ['receptionist'],
       'password': 'Password123',
     },
     'bartender@pzed.home': {
       'id': 'bartender-001',
-      'full_name': 'Hotel Bartender',
+      'full_name': 'Amara Chukwu',
       'roles': ['bartender'],
+      'password': 'Password123',
+    },
+    'hr@pzed.home': {
+      'id': 'hr-001',
+      'full_name': 'Ifeoma Nwosu',
+      'roles': ['hr'],
+      'password': 'Password123',
+    },
+    'storekeeper@pzed.home': {
+      'id': 'storekeeper-001',
+      'full_name': 'Chioma Eze',
+      'roles': ['storekeeper'],
+      'password': 'Password123',
+    },
+    'purchaser@pzed.home': {
+      'id': 'purchaser-001',
+      'full_name': 'Ikenna Okafor',
+      'roles': ['purchaser'],
+      'password': 'Password123',
+    },
+    'kitchen@pzed.home': {
+      'id': 'kitchen-001',
+      'full_name': 'Obinna Nwosu',
+      'roles': ['kitchen_staff'],
       'password': 'Password123',
     },
   };
@@ -126,6 +160,53 @@ class MockAuthService with ChangeNotifier {
         'roles': entry.value['roles'],
       };
     }).toList();
+  }
+
+  // Role assumption methods
+  void assumeRole(AppRole role) {
+    _isRoleAssumed = true;
+    _assumedRole = role;
+    notifyListeners();
+  }
+
+  void returnToOriginalRole() {
+    _isRoleAssumed = false;
+    _assumedRole = null;
+    notifyListeners();
+  }
+  
+  // Get suggested role based on current route/section
+  static AppRole? getSuggestedRoleForRoute(String route) {
+    if (route.contains('/inventory')) return AppRole.bartender;
+    if (route.contains('/housekeeping') || route.contains('/mini_mart')) return AppRole.receptionist;
+    if (route.contains('/kitchen')) return AppRole.kitchen_staff;
+    if (route.contains('/storekeeping')) return AppRole.storekeeper;
+    if (route.contains('/purchasing')) return AppRole.purchaser;
+    if (route.contains('/finance')) return AppRole.accountant;
+    if (route.contains('/hr')) return AppRole.hr;
+    return null;
+  }
+  
+  // Get role display name
+  static String getRoleDisplayName(AppRole role) {
+    switch (role) {
+      case AppRole.bartender:
+        return 'Bartender';
+      case AppRole.receptionist:
+        return 'Receptionist';
+      case AppRole.kitchen_staff:
+        return 'Kitchen Staff';
+      case AppRole.storekeeper:
+        return 'Storekeeper';
+      case AppRole.purchaser:
+        return 'Purchaser';
+      case AppRole.accountant:
+        return 'Accountant';
+      case AppRole.hr:
+        return 'HR';
+      default:
+        return role.name.toUpperCase();
+    }
   }
 }
 

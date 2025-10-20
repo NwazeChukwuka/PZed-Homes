@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/presentation/screens/scanner_screen.dart';
 
 class PosScreen extends StatefulWidget {
@@ -15,7 +15,7 @@ class PosScreen extends StatefulWidget {
 
 class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final _supabase = Supabase.instance.client;
+  final _dataService = DataService();
   List<Map<String, dynamic>> _currentOrder = [];
   Map<String, dynamic>? _linkedBooking;
   bool _isLoading = false;
@@ -39,11 +39,8 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
   Future<void> _loadInitialData() async {
     try {
       final [menuItems, guests] = await Future.wait([
-        _supabase.from('menu_items').select('id, name, price, department, barcode').order('name'),
-        _supabase
-            .from('bookings')
-            .select('id, profiles!inner(full_name), rooms!inner(room_number)')
-            .eq('status', 'Checked-in'),
+        _dataService.getPosMenuItems(),
+        _dataService.getPosCheckedInGuests(),
       ]);
 
       setState(() {
@@ -141,21 +138,12 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
     try {
       final authService = Provider.of<MockAuthService>(context, listen: false);
       
-      // Create order charges
-      for (var orderItem in _currentOrder) {
-        await _supabase.from('booking_charges').insert({
-          'booking_id': _linkedBooking!['id'],
-          'item_name': orderItem['name'],
-          'price': orderItem['price'],
-          'quantity': orderItem['quantity'],
-          'department': orderItem['department'],
-          'added_by': authService.currentUser!.id,
-        });
-      }
+      // Mock-only: simulate adding charges
+      for (var _ in _currentOrder) {}
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Order added to ${_linkedBooking!['profiles']?['full_name']?.toString() ?? 'guest'}\'s bill'),
+          content: Text('Order added to guest bill (mock).'),
           backgroundColor: Colors.green,
         ),
       );

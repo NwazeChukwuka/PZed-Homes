@@ -4,14 +4,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
+import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/layout/responsive_layout.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/summary_card.dart';
 import 'package:pzed_homes/presentation/screens/create_booking_screen.dart';
 import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
+
+enum TimeRange { today, week, month, custom }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,7 +27,8 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _searchController = TextEditingController();
-  final _supabase = Supabase.instance.client;
+  // final _supabase = Supabase.instance.client; // Disabled for mock-only presentation
+  final DataService _dataService = DataService();
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _filteredBookings = [];
@@ -31,12 +37,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isClockedIn = false;
   bool _isLoading = true;
   bool _isLoadingAttendance = true;
+  
+  // Time range state
+  TimeRange _timeRange = TimeRange.today;
+  DateTimeRange? _customRange;
+
+  // Financial/records (mock) for role metrics
+  List<Map<String, dynamic>> _incomeRecords = [];
+  List<Map<String, dynamic>> _expenseRecords = [];
+  List<Map<String, dynamic>> _stockTransactions = [];
+  List<Map<String, dynamic>> _payrollRecords = [];
+  List<Map<String, dynamic>> _cashDeposits = [];
+
+  // Calendar state
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+
+  // View focus state: 'financial' or 'performance'
+  String _focus = 'performance';
+
+  // Presentation: checked-in guests and department sales
+  List<Map<String, dynamic>> _checkedInGuests = [];
+  Map<String, num> _deptSalesTotals = {
+    'VIP Bar': 0,
+    'Outside Bar': 0,
+    'Mini Mart': 0,
+    'Kitchen': 0,
+  };
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _searchController.addListener(_filterBookings);
+    // Set default focus by role
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<MockAuthService>(context, listen: false);
+      final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+      if (role == AppRole.owner || role == AppRole.accountant) {
+        setState(() { _focus = 'financial'; });
+      } else {
+        setState(() { _focus = 'performance'; });
+      }
+    });
   }
 
   @override
@@ -47,25 +91,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadData() async {
     try {
-      // Load data sequentially to avoid type issues
-      final bookings = await _supabase
-          .from('bookings')
-          .select('*, profiles(full_name), rooms(room_number)')
-          .order('created_at', ascending: false)
-          .limit(50);
-      
-      final stats = await _calculateDashboardStats();
+      // Load data using DataService
+      final bookings = await _dataService.getBookings();
+      final stats = await _dataService.getDashboardStats();
       final attendance = await _fetchLastAttendance();
+      final income = await _dataService.getIncomeRecords();
+      final expenses = await _dataService.getExpenses();
+      final stockTx = await _dataService.getStockTransactions();
+      final payroll = await _dataService.getPayrollRecords();
+      final deposits = await _dataService.getCashDeposits();
+      final checkedInGuests = await _dataService.getCheckedInGuests();
+      final vipSales = await _dataService.getDepartmentSales('vip_bar');
+      final outsideSales = await _dataService.getDepartmentSales('outside_bar');
+      final miniMartSales = await _dataService.getDepartmentSales('mini_mart');
+      final kitchenSales = await _dataService.getDepartmentSales('kitchen');
 
       if (mounted) {
         setState(() {
-          _bookings = List<Map<String, dynamic>>.from(bookings);
+          _bookings = bookings;
           _filteredBookings = _bookings;
           _stats = stats;
           _lastAttendanceRecord = attendance;
           _isClockedIn = attendance != null && attendance['clock_out_time'] == null;
           _isLoading = false;
           _isLoadingAttendance = false;
+          _incomeRecords = income;
+          _expenseRecords = expenses;
+          _stockTransactions = stockTx;
+          _payrollRecords = payroll;
+          _cashDeposits = deposits;
+          _checkedInGuests = checkedInGuests;
+          num sum(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
+          _deptSalesTotals = {
+            'VIP Bar': sum(vipSales),
+            'Outside Bar': sum(outsideSales),
+            'Mini Mart': sum(miniMartSales),
+            'Kitchen': sum(kitchenSales),
+          };
         });
       }
     } catch (e) {
@@ -80,56 +142,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<Map<String, dynamic>> _calculateDashboardStats() async {
-    try {
-      final checkedIn = await _supabase
-          .from('bookings')
-          .select('id')
-          .eq('status', 'Checked-in');
-      
-      final pending = await _supabase
-          .from('bookings')
-          .select('id')
-          .eq('status', 'Pending Check-in');
-      
-      final totalRooms = await _supabase
-          .from('rooms')
-          .select('id');
-
-      final checkedInCount = checkedIn.length;
-      final pendingCount = pending.length;
-      final totalRoomsCount = totalRooms.length;
-      final occupancyRate = totalRoomsCount > 0 ? ((checkedInCount / totalRoomsCount) * 100).round() : 0;
-
+    // Mock-only stats for presentation
       return {
-        'checked_in_count': checkedInCount,
-        'pending_count': pendingCount,
-        'occupancy_rate': occupancyRate,
-        'total_revenue': 0, // You can calculate this from bookings if needed
-      };
-    } catch (e) {
-      return {
-        'checked_in_count': 0,
-        'pending_count': 0,
-        'occupancy_rate': 0,
-        'total_revenue': 0,
-      };
-    }
+      'checked_in_count': _bookings.where((b) => (b['status']?.toString().toLowerCase() ?? '') == 'checked_in').length,
+      'pending_count': _bookings.where((b) => (b['status']?.toString().toLowerCase() ?? '') == 'confirmed').length,
+      'occupancy_rate': (_stats['occupancy_rate'] ?? 65),
+      'total_revenue': _stats['total_revenue'] ?? 0,
+    };
   }
 
   Future<Map<String, dynamic>?> _fetchLastAttendance() async {
-    try {
-      final userId = _supabase.auth.currentUser!.id;
-      final response = await _supabase
-          .from('attendance_records')
-          .select()
-          .eq('profile_id', userId)
-          .order('clock_in_time', ascending: false)
-          .limit(1);
-
-      return response.isNotEmpty ? response.first : null;
-    } catch (e) {
+    // Mock attendance: not clocked in by default
       return null;
-    }
   }
 
   void _filterBookings() {
@@ -148,28 +172,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleClockIn() async {
-    try {
-      final userId = _supabase.auth.currentUser!.id;
-      await _supabase.from('attendance_records').insert({
-        'profile_id': userId,
+        setState(() {
+          _isClockedIn = true;
+      _lastAttendanceRecord = {
         'clock_in_time': DateTime.now().toIso8601String(),
-      });
-      await _loadData();
-    } catch (e) {
-      ErrorHandler.handleError(context, e);
-    }
+      };
+        });
   }
 
   Future<void> _handleClockOut() async {
-    try {
-      await _supabase
-          .from('attendance_records')
-          .update({'clock_out_time': DateTime.now().toIso8601String()})
-          .eq('id', _lastAttendanceRecord!['id']);
-      await _loadData();
-    } catch (e) {
-      ErrorHandler.handleError(context, e);
-    }
+        setState(() {
+          _isClockedIn = false;
+      _lastAttendanceRecord = null;
+        });
   }
 
   @override
@@ -200,10 +215,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           AppAnimations.slideInFromBottom(
             child: _buildHeader(context),
           ),
+          const SizedBox(height: 12),
+          _buildQuickNav(context),
+          const SizedBox(height: 12),
+          _buildTimeRangeToolbar(context),
           const SizedBox(height: 24),
           AppAnimations.staggeredGrid(
             children: _buildMetricCardsList(context),
             crossAxisCount: 4,
+          ),
+          const SizedBox(height: 24),
+          _buildDepartmentSalesQuickCards(context),
+          const SizedBox(height: 24),
+          _buildCheckedInGuestsCard(context),
+          const SizedBox(height: 24),
+          _buildRoleSpecificSection(context),
+            const SizedBox(height: 24),
+          // Calendar launcher
+          AppAnimations.fadeTransition(
+            child: _buildCalendarLauncher(context),
+            animation: const AlwaysStoppedAnimation(1.0),
           ),
           const SizedBox(height: 24),
           Row(
@@ -244,8 +275,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(context),
+          const SizedBox(height: 12),
+          _buildQuickNav(context),
+          const SizedBox(height: 16),
+          _buildTimeRangeToolbar(context),
           const SizedBox(height: 16),
           _buildMetricCards(context),
+          const SizedBox(height: 16),
+          _buildDepartmentSalesQuickCards(context),
+          const SizedBox(height: 16),
+          _buildCheckedInGuestsCard(context),
+          const SizedBox(height: 16),
+          _buildRoleSpecificSection(context),
+            const SizedBox(height: 16),
+          _buildCalendarLauncher(context),
           const SizedBox(height: 16),
           _buildOccupancyChart(context),
           const SizedBox(height: 16),
@@ -264,8 +307,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(context),
+          const SizedBox(height: 12),
+          _buildQuickNav(context),
+          const SizedBox(height: 16),
+          _buildTimeRangeToolbar(context),
           const SizedBox(height: 16),
           _buildMetricCards(context),
+          const SizedBox(height: 16),
+          _buildDepartmentSalesQuickCards(context),
+          const SizedBox(height: 16),
+          _buildCheckedInGuestsCard(context),
+          const SizedBox(height: 16),
+          _buildRoleSpecificSection(context),
+            const SizedBox(height: 16),
+          _buildCalendarLauncher(context),
           const SizedBox(height: 16),
           _buildOccupancyChart(context),
           const SizedBox(height: 16),
@@ -277,32 +332,382 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildCalendarLauncher(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Booking Calendar',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                  ),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: _showCalendarDialog,
+            icon: const Icon(Icons.calendar_today),
+            label: const Text('View Calendar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[800],
+              foregroundColor: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: _showFrontDeskCalendarDialog,
+            icon: const Icon(Icons.view_timeline),
+            label: const Text('Booking Calendar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[800],
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCalendarDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+      child: Container(
+            padding: const EdgeInsets.all(16),
+            constraints: const BoxConstraints(maxWidth: 900),
+      child: Column(
+              mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Text(
+                    const Icon(Icons.calendar_today, size: 18),
+                    const SizedBox(width: 8),
+          Text(
+                      'Booking Calendar',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+                const SizedBox(height: 8),
+                TableCalendar(
+                  firstDay: DateTime.utc(2020, 1, 1),
+                  lastDay: DateTime.utc(2035, 12, 31),
+                  focusedDay: _focusedDay,
+                  calendarFormat: _calendarFormat,
+                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                  onDaySelected: (selectedDay, focusedDay) {
+                  setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
+                  },
+                  onFormatChanged: (format) {
+                    setState(() => _calendarFormat = format);
+                  },
+                  onPageChanged: (focusedDay) {
+                    _focusedDay = focusedDay;
+                  },
+                  eventLoader: _getEventsForDay,
+                  headerStyle: const HeaderStyle(
+                    formatButtonVisible: true,
+                    titleCentered: true,
+                  ),
+                  calendarStyle: CalendarStyle(
+                    todayDecoration: BoxDecoration(
+                      color: Colors.green[700],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    selectedDecoration: BoxDecoration(
+                      color: Colors.green[700],
+              borderRadius: BorderRadius.circular(8),
+            ),
+                    todayTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    outsideDaysVisible: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showFrontDeskCalendarDialog() {
+    final DateTime start = DateTime.now();
+    final List<DateTime> days = List.generate(7, (i) => DateTime(start.year, start.month, start.day + i));
+
+    // Collect unique rooms from bookings (fallback to sample if empty)
+    final Set<String> roomSet = {
+      ..._bookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? 'Room ?'))
+    }..removeWhere((e) => e.isEmpty);
+    final List<String> rooms = roomSet.isNotEmpty
+        ? (roomSet.toList()..sort())
+        : List.generate(10, (i) => 'Room ${100 + i}');
+
+    Color statusColor(String status) {
+      switch (status.toLowerCase()) {
+        case 'booked':
+          return const Color(0xFF3B82F6);
+        case 'checked_in':
+        case 'checked-in':
+          return const Color(0xFF22C55E);
+        case 'checked_out':
+        case 'checked-out':
+          return const Color(0xFFF59E0B);
+        case 'cancelled':
+          return const Color(0xFFEF4444);
+        case 'pending':
+          return const Color(0xFFA855F7);
+      default:
+          return Colors.grey;
+      }
+    }
+
+    String fmt(DateTime d) => DateFormat('EEE, MMM d').format(d);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(12),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 1200, maxHeight: 700),
+      decoration: BoxDecoration(
+        color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12)],
+      ),
+      child: Column(
+        children: [
+                // Top bar
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('Front Desk Calendar View', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const Spacer(),
+                      // Date range label
+                      Text('From: ${fmt(days.first)}', style: const TextStyle(color: Colors.black54)),
+                      const SizedBox(width: 12),
+                      // Filter dropdown placeholder
+                      DropdownButton<String>(
+                        value: 'All Reservations',
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(value: 'All Reservations', child: Text('All Reservations')),
+                          DropdownMenuItem(value: 'Checked-in', child: Text('Checked-in')),
+                          DropdownMenuItem(value: 'Due in', child: Text('Due in')),
+                          DropdownMenuItem(value: 'Due out', child: Text('Due out')),
+                        ],
+                        onChanged: (_) {},
+                      ),
+                      const SizedBox(width: 12),
+                      // Search box placeholder
+          SizedBox(
+                        width: 220,
+                        child: TextField(
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search),
+                            hintText: 'Search reservations...',
+                            isDense: true,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      )
+                    ],
+                  ),
+                ),
+
+                Expanded(
+                    child: Row(
+                      children: [
+                      // Sidebar (rooms)
+                        Container(
+                        width: 220,
+                        color: const Color(0xFF0A1F44),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              child: const Text('Rooms', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            ),
+                            const Divider(color: Colors.white24, height: 1),
+                            Expanded(
+                              child: ListView.builder(
+                                itemCount: rooms.length,
+                                itemBuilder: (context, i) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    border: Border(bottom: BorderSide(color: Colors.white24.withOpacity(0.2))),
+                                  ),
+                                  child: Text(rooms[i], style: const TextStyle(color: Colors.white)),
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+
+                      // Timeline grid
+                      Expanded(
+      child: Column(
+        children: [
+                            // Sticky header for dates
+                            Container(
+                              color: Colors.white,
+            child: Row(
+              children: [
+                                  for (final d in days)
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+                                        ),
+                                        child: Center(
+                                          child: Text(DateFormat('EEE\nMMM d').format(d), textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                            Expanded(
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    for (final room in rooms)
+                                      _buildFrontDeskCalendarRow(context, room, days, _bookings, statusColor),
+              ],
+            ),
+          ),
+                    ),
+                  ],
+                ),
+              ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+  List<dynamic> _getEventsForDay(DateTime day) {
+    // Basic marker: mark days that have any booking check-in or check-out
+    final hasBooking = _bookings.any((b) {
+      try {
+        final ci = b['check_in_date'] != null ? DateTime.parse(b['check_in_date']) : null;
+        final co = b['check_out_date'] != null ? DateTime.parse(b['check_out_date']) : null;
+        return (ci != null && isSameDay(ci, day)) || (co != null && isSameDay(co, day));
+      } catch (_) {
+        return false;
+      }
+    });
+    return hasBooking ? ['booking'] : const [];
+  }
+
+
+ 
+
+  Widget _buildHeader(BuildContext context) {
+    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+    final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
+
+    return Row(
+        children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
                 'Dashboard',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: Colors.green[800],
+                  color: Colors.green[800], // Green for headers on light background
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                'Welcome back! Here\'s what\'s happening at P-ZED Homes.',
+                          Text(
+                'Welcome back! Here\'s what\'s happening at P-ZED Luxury Hotels & Suites.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ),
-        ),
+                  color: Colors.grey[700], // Darker grey for better readability
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+        if (isManagement) _buildFocusToggle(),
+        const SizedBox(width: 12),
         _buildAttendanceCard(),
       ],
+    );
+  }
+
+  Widget _buildFocusToggle() {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ChoiceChip(
+            label: const Text('Performance'),
+            selected: _focus == 'performance',
+            onSelected: (v) { if (v) setState(() { _focus = 'performance'; }); },
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('Financial'),
+            selected: _focus == 'financial',
+            onSelected: (v) { if (v) setState(() { _focus = 'financial'; }); },
+          ),
+        ],
+      ),
     );
   }
 
@@ -313,30 +718,156 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'New Bookings',
           '${_stats['pending_count'] ?? 0}',
           Icons.book_online,
-          Colors.blue,
+          Colors.green[700]!, // Green for better readability
         ),
         _buildMetricCard(
           context,
           'Checked In',
           '${_stats['checked_in_count'] ?? 0}',
           Icons.login,
-          Colors.green,
+          Colors.green[700]!, // Green for better readability
         ),
         _buildMetricCard(
           context,
           'Occupancy Rate',
           '${_stats['occupancy_rate'] ?? 0}%',
           Icons.hotel,
-          Colors.orange,
+          Colors.green[700]!, // Green for better readability
         ),
         _buildMetricCard(
           context,
           'Total Revenue',
           '₦${_stats['total_revenue'] ?? 0}',
           Icons.attach_money,
-          Colors.purple,
+          Colors.green[700]!, // Green for better readability
+        ),
+        _buildMetricCard(
+          context,
+          'Guests Checked-in',
+          '${_checkedInGuests.length}',
+          Icons.people,
+          Colors.green[700]!,
         ),
     ];
+  }
+
+  Widget _buildDepartmentSalesQuickCards(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: _deptSalesTotals.entries.map((e) {
+        return AppAnimations.animatedCard(
+          child: Container(
+            width: 220,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green[700]!.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.point_of_sale, color: Colors.green[700], size: 18),
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '₦${e.value}',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0A0A0A),
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  e.key,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF666666),
+                      ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildCheckedInGuestsCard(BuildContext context) {
+    if (_checkedInGuests.isEmpty) return const SizedBox.shrink();
+
+    return AppAnimations.animatedCard(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.people, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                Text(
+                  'Checked-in Guests',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[800],
+                      ),
+                ),
+                const Spacer(),
+                Chip(
+                  label: Text('${_checkedInGuests.length}'),
+                  backgroundColor: Colors.green[700]!.withOpacity(0.15),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ..._checkedInGuests.take(6).map((g) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(g['guest_name'] ?? 'Guest'),
+                    ),
+                    Text('Room ${g['room_id'] ?? ''}', style: const TextStyle(color: Colors.black54)),
+                    const SizedBox(width: 12),
+                    Text('by ${g['processed_by'] ?? 'Staff'}', style: const TextStyle(color: Colors.black45)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildMetricCards(BuildContext context) {
@@ -365,39 +896,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+              children: [
+                Row(
+                  children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
               const Spacer(),
-              Icon(Icons.trending_up, color: Colors.green[400], size: 16),
+              Icon(Icons.trending_up, color: Colors.green[700], size: 16),
             ],
-          ),
-          const SizedBox(height: 16),
-          Text(
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
             value,
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+              color: const Color(0xFF0A0A0A),
             ),
           ),
           const SizedBox(height: 4),
-          Text(
+                      Text(
             title,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.grey[600],
+              color: const Color(0xFF666666),
             ),
           ),
         ],
       ),
-    ),
+      ),
     );
   }
 
@@ -422,7 +953,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Occupancy by Rooms',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+              color: Colors.black87,
             ),
           ),
           const SizedBox(height: 20),
@@ -522,7 +1053,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Recent Activities',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+              color: Colors.green[800], // Green for headers on white background
             ),
           ),
           const SizedBox(height: 16),
@@ -554,7 +1085,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Text(
                           '${index + 1} hour${index > 0 ? 's' : ''} ago',
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: const Color(0xFFF2F2F2), // Light grey for regular text
                             fontSize: 12,
                           ),
                         ),
@@ -594,7 +1125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   'Recent Bookings',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
+                    color: Colors.green[800], // Green for headers on white background
                   ),
                 ),
                 const Spacer(),
@@ -739,6 +1270,433 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Colors.blue;
       default:
         return Colors.grey;
+  }
+}
+
+  // Toolbar to select time range filters
+  Widget _buildTimeRangeToolbar(BuildContext context) {
+    String labelFor(TimeRange r) {
+      switch (r) {
+        case TimeRange.today:
+          return 'Today';
+        case TimeRange.week:
+          return 'This Week';
+        case TimeRange.month:
+          return 'This Month';
+        case TimeRange.custom:
+          return 'Custom';
+      }
     }
+
+    return Row(
+      children: [
+        Wrap(
+          spacing: 8,
+          children: TimeRange.values.map((r) {
+            final selected = _timeRange == r;
+            return ChoiceChip(
+              label: Text(labelFor(r)),
+              selected: selected,
+              onSelected: (_) async {
+                if (r == TimeRange.custom) {
+                  final now = DateTime.now();
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime(now.year - 2),
+                    lastDate: DateTime(now.year + 2),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _timeRange = r;
+                      _customRange = picked;
+                    });
+                  }
+                } else {
+                  setState(() {
+                    _timeRange = r;
+                    _customRange = null;
+                  });
+                }
+              },
+              selectedColor: Colors.green[700],
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  // Role-specific metrics section
+  Widget _buildRoleSpecificSection(BuildContext context) {
+    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final effectiveRole = auth.isRoleAssumed ? auth.assumedRole ?? auth.userRole : auth.userRole;
+
+    switch (effectiveRole) {
+      case AppRole.owner:
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context);
+      case AppRole.accountant:
+        return _buildManagementAggregate(context);
+      case AppRole.manager:
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context);
+      case AppRole.receptionist:
+        return _buildReceptionistPanel(context);
+      case AppRole.bartender:
+        return _buildBartenderPanel(context);
+      case AppRole.kitchen_staff:
+        return _buildKitchenPanel(context);
+      case AppRole.storekeeper:
+        return _buildStorekeeperPanel(context);
+      case AppRole.purchaser:
+        return _buildPurchaserPanel(context);
+      case AppRole.security:
+      case AppRole.laundry_attendant:
+      case AppRole.cleaner:
+      case AppRole.housekeeper:
+      case AppRole.guest:
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // Performance-focused aggregate for management (non-financial emphasis)
+  Widget _buildPerformanceAggregate(BuildContext context) {
+    return _buildReceptionistPanel(context); // reuse a performance-like panel as placeholder
+  }
+
+  // Quick navigation for department and key areas
+  Widget _buildQuickNav(BuildContext context) {
+    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+    final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
+
+    if (!isManagement) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _quickButton(context, 'My Department', Icons.domain, () {
+            if (role == AppRole.storekeeper) context.go('/storekeeping');
+            else if (role == AppRole.purchaser) context.go('/purchasing');
+            else if (role == AppRole.kitchen_staff || role == AppRole.bartender) context.go('/kitchen');
+            else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
+            else context.go('/dashboard');
+          }),
+          _quickButton(context, 'My Profile', Icons.person, () { context.push('/profile'); }),
+        ],
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr)
+          _quickButton(context, 'HR', Icons.people_alt, () { context.go('/hr'); }),
+        _quickButton(context, 'Finance', Icons.account_balance, () { context.go('/finance'); }),
+        _quickButton(context, 'Reporting', Icons.insights, () { context.go('/reporting'); }),
+      ],
+    );
+  }
+
+  Widget _quickButton(BuildContext context, String label, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.green[700]),
+            const SizedBox(width: 8),
+            Text(label, style: TextStyle(color: Colors.grey[800])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  DateTimeRange _currentRange() {
+    final now = DateTime.now();
+    switch (_timeRange) {
+      case TimeRange.today:
+        return DateTimeRange(start: DateTime(now.year, now.month, now.day), end: now);
+      case TimeRange.week:
+        final start = now.subtract(Duration(days: now.weekday - 1));
+        return DateTimeRange(start: DateTime(start.year, start.month, start.day), end: now);
+      case TimeRange.month:
+        return DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
+      case TimeRange.custom:
+        return _customRange ?? DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
+    }
+  }
+
+  bool _isInRange(DateTime date) {
+    final r = _currentRange();
+    return !date.isBefore(r.start) && !date.isAfter(r.end);
+  }
+
+  // Aggregate for owner/manager
+  Widget _buildManagementAggregate(BuildContext context) {
+    final inRangeIncome = _incomeRecords.where((e) {
+      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      return d != null && _isInRange(d);
+    }).toList();
+    final inRangeExpenses = _expenseRecords.where((e) {
+      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      return d != null && _isInRange(d);
+    }).toList();
+
+    num sumAmount(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['amount'] as num));
+
+    final income = sumAmount(inRangeIncome);
+    final expenses = sumAmount(inRangeExpenses);
+    final profit = income - expenses;
+
+    return _inlineCards(context, [
+      ('Income', '₦$income', Icons.trending_up),
+      ('Expenses', '₦$expenses', Icons.trending_down),
+      ('Net Profit', '₦$profit', Icons.account_balance),
+    ]);
+  }
+
+  // Accountant extra insights
+  Widget _buildAccountantInsights(BuildContext context) {
+    final r = _currentRange();
+    int countInRange(List<Map<String, dynamic>> list, String dateKey) {
+      return list.where((e) {
+        final d = DateTime.tryParse(e[dateKey]?.toString() ?? '');
+        return d != null && _isInRange(d);
+      }).length;
+    }
+
+    final depositsInRange = countInRange(_cashDeposits, 'date');
+    final payrollInRange = _payrollRecords.where((p) {
+      final month = p['month']?.toString() ?? '';
+      return month.startsWith('${r.start.year}-${r.start.month.toString().padLeft(2, '0')}');
+    }).length;
+
+    return _inlineCards(context, [
+      ('Cash Deposits', '$depositsInRange', Icons.savings),
+      ('Payroll Runs', '$payrollInRange', Icons.payments),
+    ]);
+  }
+
+  // Receptionist personal metrics
+  Widget _buildReceptionistPanel(BuildContext context) {
+    // Using bookings as proxy for processed rooms in range
+    final processed = _bookings.where((b) {
+      final ci = DateTime.tryParse(b['check_in']?.toString() ?? '');
+      return ci != null && _isInRange(ci);
+    }).length;
+    return _inlineCards(context, [
+      ('Rooms Processed', '$processed', Icons.meeting_room),
+    ]);
+  }
+
+  // Bartender metrics (sales from stock transactions)
+  Widget _buildBartenderPanel(BuildContext context) {
+    final sales = _stockTransactions.where((t) {
+      final ts = DateTime.tryParse((t['timestamp']?.toString() ?? '').replaceFirst(' ', 'T'));
+      return (t['type'] == 'sale') && ts != null && _isInRange(ts);
+    }).toList();
+    final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as int).abs()));
+    final value = sales.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
+    return _inlineCards(context, [
+      ('Items Sold', '$qty', Icons.local_bar),
+      ('Sales Value', '₦$value', Icons.point_of_sale),
+    ]);
+  }
+
+  // Kitchen metrics
+  Widget _buildKitchenPanel(BuildContext context) {
+    // Proxy using income records from vip/outside bar as dispatched
+    final inRange = _incomeRecords.where((e) {
+      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      final dept = e['department']?.toString() ?? '';
+      final isBar = dept == 'vip_bar' || dept == 'outside_bar';
+      return d != null && _isInRange(d) && isBar;
+    }).toList();
+    final total = inRange.fold<num>(0, (s, e) => s + (e['amount'] as num));
+    return _inlineCards(context, [
+      ('Food Dispatched', '${inRange.length}', Icons.restaurant),
+      ('Value', '₦$total', Icons.attach_money),
+    ]);
+  }
+
+  // Storekeeper metrics
+  Widget _buildStorekeeperPanel(BuildContext context) {
+    final movements = _stockTransactions.where((t) {
+      final ts = DateTime.tryParse((t['timestamp']?.toString() ?? '').replaceFirst(' ', 'T'));
+      return ts != null && _isInRange(ts);
+    }).length;
+    return _inlineCards(context, [
+      ('Stock Movements', '$movements', Icons.inventory_2),
+    ]);
+  }
+
+  // Purchaser metrics
+  Widget _buildPurchaserPanel(BuildContext context) {
+    final kitchenExpenses = _expenseRecords.where((e) {
+      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      return d != null && _isInRange(d) && (e['department'] == 'kitchen');
+    }).toList();
+    final total = kitchenExpenses.fold<num>(0, (s, e) => s + (e['amount'] as num));
+    return _inlineCards(context, [
+      ('Kitchen Purchases', '₦$total', Icons.shopping_cart),
+    ]);
+  }
+
+  Widget _inlineCards(BuildContext context, List<(String, String, IconData)> items) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: items.map((it) {
+        final (title, value, icon) = it;
+        return Container(
+          width: 220,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, color: const Color(0xFFFFD700), size: 18),
+                  ),
+                  const Spacer(),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A)),
+              ),
+              const SizedBox(height: 4),
+              Text(title, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF666666))),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // Inline builder for front desk calendar row to avoid nested class issues
+  Widget _buildFrontDeskCalendarRow(
+    BuildContext context,
+    String roomName,
+    List<DateTime> days,
+    List<Map<String, dynamic>> bookings,
+    Color Function(String status) statusColor,
+  ) {
+    return SizedBox(
+      height: 56,
+      child: Row(
+        children: [
+          for (final d in days)
+            Expanded(
+              child: Container(
+                height: 56,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  border: Border(
+                    right: BorderSide(color: Colors.grey[300]!),
+                    bottom: BorderSide(color: Colors.grey[300]!),
+                  ),
+                ),
+                child: _buildReservationBlock(context, roomName, bookings, statusColor, d),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReservationBlock(
+    BuildContext context,
+    String roomName,
+    List<Map<String, dynamic>> bookings,
+    Color Function(String status) statusColor,
+    DateTime day,
+  ) {
+    final booking = bookings.firstWhere(
+      (b) {
+        final room = (b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? '';
+        if (room != roomName) return false;
+        try {
+          final ci = b['check_in_date'] != null ? DateTime.parse(b['check_in_date']) : null;
+          final co = b['check_out_date'] != null ? DateTime.parse(b['check_out_date']) : null;
+          if (ci == null || co == null) return false;
+          final sameOrAfterCI = !day.isBefore(DateTime(ci.year, ci.month, ci.day));
+          final beforeCO = day.isBefore(DateTime(co.year, co.month, co.day));
+          return sameOrAfterCI && beforeCO;
+        } catch (_) {
+          return false;
+        }
+      },
+      orElse: () => {},
+    );
+
+    if (booking.isEmpty) return const SizedBox.shrink();
+
+    final status = (booking['status']?.toString().toLowerCase() ?? 'booked');
+    final guestName = (booking['profiles'] as Map<String, dynamic>?)?['full_name']?.toString() ?? 'GUEST';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+      child: Tooltip(
+        message:
+            'Guest: $guestName\nRoom: $roomName\nStatus: $status\nCheck-in: ${booking['check_in_date'] ?? ''}\nCheck-out: ${booking['check_out_date'] ?? ''}',
+        child: GestureDetector(
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Booking Details'),
+                content: Text('Guest: $guestName\nRoom: $roomName\nStatus: $status'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+                ],
+              ),
+            );
+          },
+          child: Container(
+            height: 40,
+            decoration: BoxDecoration(
+              color: statusColor(status),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              guestName,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

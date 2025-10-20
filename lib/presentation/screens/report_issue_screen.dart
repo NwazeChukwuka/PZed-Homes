@@ -1,7 +1,6 @@
 // Location: lib/presentation/screens/report_issue_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 
@@ -13,12 +12,12 @@ class ReportIssueScreen extends StatefulWidget {
 
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _supabase = Supabase.instance.client;
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
   String? _selectedAssetId; // FIX: We will link to an asset, not a free-text location.
   String? _selectedPriority = 'Medium';
   bool _isLoading = false;
+  final List<Map<String, dynamic>> _mockReports = [];
 
   final List<String> _priorities = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -27,17 +26,20 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     setState(() => _isLoading = true);
     try {
       final authService = Provider.of<MockAuthService>(context, listen: false);
-      
-      await _supabase.from('maintenance_work_orders').insert({
-        'reported_by_id': authService.currentUser!.id,
-        'asset_id': _selectedAssetId, // FIX: Use the correct asset_id column
+      final report = {
+        'id': DateTime.now().millisecondsSinceEpoch,
+        'reported_by_id': authService.currentUser?.id,
+        'asset_id': _selectedAssetId,
         'issue_description': _descriptionController.text.trim(),
-        'location': _locationController.text.trim(), // This column now exists
-        'priority': _selectedPriority, // This column now exists
-      });
+        'location': _locationController.text.trim(),
+        'priority': _selectedPriority,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+      await Future.delayed(const Duration(milliseconds: 200));
+      _mockReports.insert(0, report);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Issue reported successfully!'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('[Mock] Issue reported successfully!'), backgroundColor: Colors.green));
         context.pop(true); // Return true to signal a refresh
       }
     } catch (e) {
@@ -58,19 +60,17 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           padding: const EdgeInsets.all(16.0),
           children: [
             // Dropdown to select an asset from the 'assets' table
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: _supabase.from('assets').select('id, name'),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                final assets = snapshot.data!;
-                return DropdownButtonFormField<String>(
-                  value: _selectedAssetId,
-                  decoration: const InputDecoration(labelText: 'Asset *', border: OutlineInputBorder()),
-                  items: assets.map((a) => DropdownMenuItem<String>(value: a['id'], child: Text(a['name']))).toList(),
-                  onChanged: (val) => setState(() => _selectedAssetId = val),
-                  validator: (val) => val == null ? 'Please select an asset' : null,
-                );
-              },
+            DropdownButtonFormField<String>(
+              value: _selectedAssetId,
+              decoration: const InputDecoration(labelText: 'Asset *', border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem<String>(value: 'asset_elevator_a', child: Text('Elevator A')),
+                DropdownMenuItem<String>(value: 'asset_ac_302', child: Text('AC Unit 302')),
+                DropdownMenuItem<String>(value: 'asset_generator', child: Text('Generator')), 
+                DropdownMenuItem<String>(value: 'asset_kitchen_oven', child: Text('Kitchen Oven')), 
+              ],
+              onChanged: (val) => setState(() => _selectedAssetId = val),
+              validator: (val) => val == null ? 'Please select an asset' : null,
             ),
             const SizedBox(height: 16),
             TextFormField(

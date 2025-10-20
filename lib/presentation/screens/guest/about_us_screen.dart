@@ -77,7 +77,7 @@ class AboutUsScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  'About P-ZED Homes',
+                  'About P-ZED Luxury Hotels & Suites',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,

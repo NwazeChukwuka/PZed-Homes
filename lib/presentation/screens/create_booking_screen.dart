@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:go_router/go_router.dart';
 
 class CreateBookingScreen extends StatefulWidget {
@@ -15,12 +17,13 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   final _guestNameController = TextEditingController();
   final _guestEmailController = TextEditingController();
   final _guestPhoneController = TextEditingController();
-  final _supabase = Supabase.instance.client;
+  final _dataService = DataService();
 
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
   String? _selectedRoomTypeId;
   String? _selectedRoomId;
+  String _paymentMethod = 'Cash'; // Default payment method
   List<Map<String, dynamic>> _roomTypes = [];
   List<Map<String, dynamic>> _availableRooms = [];
   bool _isLoading = false;
@@ -42,12 +45,15 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
   Future<void> _loadRoomTypes() async {
     try {
-      final roomTypes = await _supabase
-          .from('room_types')
-          .select('id, type, price, description')
-          .order('price');
-      
-      setState(() => _roomTypes = List<Map<String, dynamic>>.from(roomTypes));
+      setState(() {
+        _roomTypes = [
+          {'id': 'Standard', 'type': 'Standard', 'price': 15000, 'description': 'Cozy standard room'},
+          {'id': 'Classic', 'type': 'Classic', 'price': 20000, 'description': 'Classic comfort'},
+          {'id': 'Diplomatic', 'type': 'Diplomatic', 'price': 25000, 'description': 'Spacious diplomatic'},
+          {'id': 'Deluxe', 'type': 'Deluxe', 'price': 30000, 'description': 'Premium deluxe'},
+          {'id': 'Executive', 'type': 'Executive', 'price': 50000, 'description': 'Executive luxury'},
+        ];
+      });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading room types: $e'), backgroundColor: Colors.red),
@@ -63,14 +69,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isFetchingRooms = true);
     try {
-      final availableRooms = await _supabase.rpc('get_available_room_types', params: {
-        'start_date': _checkInDate!.toIso8601String(),
-        'end_date': _checkOutDate!.toIso8601String(),
-        'room_type_id': _selectedRoomTypeId,
-      });
-
+      final rooms = await _dataService.getRooms();
+      final filtered = rooms.where((r) => r['type'] == _selectedRoomTypeId).toList();
       setState(() {
-        _availableRooms = List<Map<String, dynamic>>.from(availableRooms);
+        _availableRooms = filtered;
         _selectedRoomId = null;
       });
     } catch (e) {
@@ -114,32 +116,18 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isLoading = true);
     try {
-      // Create user with Supabase Auth
-      final authResponse = await _supabase.auth.signUp(
-        email: _guestEmailController.text.trim(),
-        password: 'temporaryPassword${DateTime.now().millisecondsSinceEpoch}',
-        data: {'full_name': _guestNameController.text.trim()},
-      );
-      
-      final guestId = authResponse.user!.id;
-
-      // Create booking
-      await _supabase.from('bookings').insert({
-        'guest_profile_id': guestId,
+      await _dataService.createBooking({
+        'id': 'booking-local-${DateTime.now().millisecondsSinceEpoch}',
+        'guest_name': _guestNameController.text.trim(),
         'room_id': _selectedRoomId,
-        'check_in_date': _checkInDate!.toIso8601String(),
-        'check_out_date': _checkOutDate!.toIso8601String(),
-        'status': 'Pending Check-in',
+        'check_in': _checkInDate!.toIso8601String(),
+        'check_out': _checkOutDate!.toIso8601String(),
+        'payment_method': _paymentMethod,
+        'status': 'confirmed',
       });
 
-      // Update room status
-      await _supabase
-          .from('rooms')
-          .update({'status': 'Occupied'})
-          .eq('id', _selectedRoomId!);
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Booking created successfully!'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('Booking created successfully (mock)!'), backgroundColor: Colors.green),
       );
 
       context.pop(true);
@@ -273,6 +261,24 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                 ),
                 keyboardType: TextInputType.phone,
                 validator: (val) => val?.isEmpty == true ? 'Please enter phone number' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Payment Method
+              DropdownButtonFormField<String>(
+                value: _paymentMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.payment),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                  DropdownMenuItem(value: 'Transfer', child: Text('Bank Transfer')),
+                  DropdownMenuItem(value: 'POS', child: Text('POS')),
+                  DropdownMenuItem(value: 'Credit', child: Text('Credit')),
+                ],
+                onChanged: (value) => setState(() => _paymentMethod = value!),
               ),
 
               const SizedBox(height: 32),

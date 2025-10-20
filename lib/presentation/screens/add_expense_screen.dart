@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -21,6 +21,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   List<String> _categories = [];
   List<String> _departments = [];
+  final DataService _dataService = DataService();
 
   @override
   void initState() {
@@ -29,21 +30,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _fetchCategoriesAndDepartments() async {
-    try {
-      final categoriesResponse = await Supabase.instance.client
-          .from('expense_categories')
-          .select('name');
-      final departmentsResponse = await Supabase.instance.client
-          .from('departments')
-          .select('name');
-
-      setState(() {
-        _categories = categoriesResponse.map((cat) => cat['name'] as String).toList();
-        _departments = departmentsResponse.map((dept) => dept['name'] as String).toList();
-      });
-    } catch (e) {
-      print('Error fetching categories/departments: $e');
-    }
+    // Mock lists for presentation
+    setState(() {
+      _categories = [
+        'utilities',
+        'payroll',
+        'maintenance',
+        'supplies',
+        'others',
+      ];
+      _departments = [
+        'front_desk',
+        'vip_bar',
+        'outside_bar',
+        'kitchen',
+        'store',
+        'all',
+      ];
+    });
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -68,15 +72,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         throw Exception('Invalid amount format');
       }
 
-      final userId = Supabase.instance.client.auth.currentUser!.id;
-      await Supabase.instance.client.from('expenses').insert({
-        'profile_id': userId,
-        'amount': (amount * 100).round(), // Store as kobo
+      // Persist to mock storage via DataService
+      await _dataService.addExpense({
+        'id': 'exp_${DateTime.now().millisecondsSinceEpoch}',
         'description': _descriptionController.text,
+        'amount': (amount * 100).round(),
         'category': _selectedCategory,
         'department': _selectedDepartment,
-        'transaction_date': _selectedDate.toIso8601String(),
-      }).select();
+        'date': _selectedDate.toIso8601String().split('T').first,
+        'payment_method': 'cash',
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

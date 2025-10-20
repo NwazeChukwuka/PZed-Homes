@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 
 class MiniMartScreen extends StatefulWidget {
   const MiniMartScreen({super.key});
@@ -11,8 +15,8 @@ class MiniMartScreen extends StatefulWidget {
 }
 
 class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _supabase = Supabase.instance.client;
+  TabController? _tabController;
+  final _dataService = DataService();
   
   // Sales data
   List<Map<String, dynamic>> _miniMartItems = [];
@@ -33,14 +37,20 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadMiniMartData();
     _searchController.addListener(_filterItems);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Tab controller will be updated in build method via Consumer
+  }
+
+  @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _searchController.dispose();
@@ -49,18 +59,11 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   Future<void> _loadMiniMartData() async {
     try {
-      // Load mini mart items
-      final itemsResponse = await _supabase
-          .from('mini_mart_items')
-          .select('*')
-          .order('name');
+      // Load mini mart items from mock data
+      final itemsResponse = await _dataService.getMiniMartItems();
       
-      // Load sales history
-      final salesResponse = await _supabase
-          .from('mini_mart_sales')
-          .select('*')
-          .order('created_at', ascending: false)
-          .limit(50);
+      // Load sales history from mock data
+      final salesResponse = await _dataService.getMiniMartSales();
 
       if (mounted) {
         setState(() {
@@ -139,44 +142,59 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       return;
     }
 
-    try {
-      final userId = _supabase.auth.currentUser!.id;
-      
-      // Create sale record
-      final saleResponse = await _supabase.from('mini_mart_sales').insert({
-        'receptionist_id': userId,
-        'customer_name': _customerNameController.text.trim().isNotEmpty 
-            ? _customerNameController.text.trim() 
-            : 'Walk-in Customer',
-        'customer_phone': _customerPhoneController.text.trim(),
-        'payment_method': _paymentMethod,
-        'total_amount': _saleTotal,
-        'sale_date': DateTime.now().toIso8601String(),
-        'items': _currentSale.map((item) => {
-          'item_id': item['id'],
-          'item_name': item['name'],
-          'quantity': item['quantity'],
-          'unit_price': item['price'],
-          'total_price': (item['price'] as num).toDouble() * (item['quantity'] as int),
-        }).toList(),
-      }).select('id').single();
+    // Validate credit payment requirements
+    if (_paymentMethod == 'Credit') {
+      if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Customer name and phone are required for credit sales'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
 
-      // Update stock levels
+    try {
+      // Mock-only: simulate saving sale and updating stock
       for (final item in _currentSale) {
-        await _supabase.from('mini_mart_items').update({
-          'current_stock': (item['current_stock'] as int) - (item['quantity'] as int),
-        }).eq('id', item['id']);
+        // no-op in mock mode
+      }
+
+      // If credit payment, record as debt
+      if (_paymentMethod == 'Credit') {
+        final debt = {
+          'debtor_name': _customerNameController.text.trim(),
+          'debtor_phone': _customerPhoneController.text.trim(),
+          'debtor_type': 'customer',
+          'amount': _saleTotal,
+          'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'reason': 'Mini Mart sale on credit - ${_currentSale.length} items',
+          'date': DateTime.now().toIso8601String(),
+          'due_date': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
+          'status': 'pending',
+          'department': 'mini_mart',
+        };
+        
+        await _dataService.recordDebt(debt);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
 
       // Clear sale
       _clearSale();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}'),
-          backgroundColor: Colors.green,
-        ),
-      );
 
       await _loadMiniMartData();
     } catch (e) {
@@ -198,37 +216,72 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: Column(
-        children: [
-          _buildHeader(context),
-          Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.green[800],
-              unselectedLabelColor: Colors.grey[600],
-              indicatorColor: Colors.green[800],
-              tabs: const [
-                Tab(text: 'Make Sale', icon: Icon(Icons.shopping_cart)),
-                Tab(text: 'Sales History', icon: Icon(Icons.history)),
-                Tab(text: 'Inventory', icon: Icon(Icons.inventory)),
-              ],
-            ),
+    return Consumer<MockAuthService>(
+      builder: (context, authService, child) {
+        final user = authService.currentUser;
+        final isReceptionist = (user?.roles.any((r) => r.name == 'receptionist') ?? false) ||
+            (authService.isRoleAssumed && authService.assumedRole?.name == 'receptionist');
+
+        // Update tab controller if needed
+        final tabCount = isReceptionist ? 3 : 2;
+        if (_tabController == null) {
+          _tabController = TabController(length: tabCount, vsync: this);
+        } else if (_tabController!.length != tabCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _tabController?.dispose();
+                _tabController = TabController(length: tabCount, vsync: this);
+              });
+            }
+          });
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Mini Mart'),
+            backgroundColor: Colors.green[700],
+            foregroundColor: Colors.white,
+            leading: Navigator.of(context).canPop() ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => context.pop(),
+            ) : null,
+            actions: [
+              ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+            ],
           ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildSalesInterface(),
-                _buildSalesHistory(),
-                _buildInventory(),
-              ],
-            ),
+          backgroundColor: Colors.grey[50],
+          body: Column(
+            children: [
+              _buildHeader(context),
+              Container(
+                color: Colors.white,
+                child: TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.green[800],
+                  unselectedLabelColor: Colors.grey[600],
+                  indicatorColor: Colors.green[800],
+                  tabs: [
+                    if (isReceptionist) const Tab(text: 'Make Sale', icon: Icon(Icons.shopping_cart)),
+                    const Tab(text: 'Sales History', icon: Icon(Icons.history)),
+                    const Tab(text: 'Inventory', icon: Icon(Icons.inventory)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    if (isReceptionist) _buildSalesInterface(),
+                    _buildSalesHistory(),
+                    _buildInventory(),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -549,9 +602,34 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                             DropdownMenuItem(value: 'Cash', child: Text('Cash')),
                             DropdownMenuItem(value: 'Card', child: Text('Card')),
                             DropdownMenuItem(value: 'Transfer', child: Text('Transfer')),
+                            DropdownMenuItem(value: 'Credit', child: Text('Credit (Pay Later)')),
                           ],
                           onChanged: (value) => setState(() => _paymentMethod = value ?? 'Cash'),
                         ),
+                        
+                        // Show warning for credit payment
+                        if (_paymentMethod == 'Credit')
+                          Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[50],
+                              border: Border.all(color: Colors.orange[300]!),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.warning_amber, color: Colors.orange[700], size: 16),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Customer info required. Will be recorded as debt.',
+                                    style: TextStyle(color: Colors.orange[900], fontSize: 11),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
@@ -655,15 +733,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Payment: ${sale['payment_method']}'),
+                          Text('Payment: ${sale['payment_method']?.toString() ?? 'N/A'}'),
                           Text(
-                            'Date: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(sale['sale_date']))}',
+                            'Date: ${sale['sale_date'] != null ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(sale['sale_date'])) : 'N/A'}',
                             style: TextStyle(color: Colors.grey[600], fontSize: 12),
                           ),
                         ],
                       ),
                       trailing: Text(
-                        '₦${NumberFormat('#,##0.00').format(sale['total_amount'])}',
+                        '₦${NumberFormat('#,##0.00').format(sale['total_amount'] ?? 0)}',
                         style: TextStyle(
                           color: Colors.green[700],
                           fontWeight: FontWeight.bold,
