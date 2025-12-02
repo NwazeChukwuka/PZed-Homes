@@ -14,6 +14,7 @@ enum AppRole {
   purchaser,
   storekeeper,
   housekeeper,
+  it_admin,
   guest
 }
 
@@ -23,6 +24,7 @@ class AppUser {
   final String email;
   final AppRole role;
   final List<AppRole> roles;
+  final List<String> permissions;
 
   AppUser({
     required this.id,
@@ -30,5 +32,6 @@ class AppUser {
     required this.email,
     required this.role,
     required this.roles,
+    required this.permissions,
   });
 }

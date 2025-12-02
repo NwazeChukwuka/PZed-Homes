@@ -9,27 +9,52 @@ const List<Map<String, dynamic>> mockRoomCategories = [
   {
     "type": "Standard",
     "price_ngn": 15000, 
-    "rooms": ["101", "102", "103", "104", "105", "106", "107", "108"]
+    "rooms": ["101", "102", "103", "104", "105", "106", "107", "108"],
+    "images": [
+      "assets/images/Standard Room/1.jpg",
+      "assets/images/Standard Room/2.jpg",
+      "assets/images/Standard Room/3.jpg"
+    ]
   },
   {
     "type": "Classic",
     "price_ngn": 20000,
-    "rooms": ["109", "201", "202", "203", "204", "205", "206", "207", "208"]
+    "rooms": ["109", "201", "202", "203", "204", "205", "206", "207", "208"],
+    "images": [
+      "assets/images/Classic Room/1.jpg",
+      "assets/images/Classic Room/2.jpg",
+      "assets/images/Classic Room/3.jpg"
+    ]
   },
   {
     "type": "Diplomatic",
     "price_ngn": 25000,
-    "rooms": ["209"]
+    "rooms": ["209"],
+    "images": [
+      "assets/images/Diplomatic Room/1.jpg",
+      "assets/images/Diplomatic Room/2.jpg",
+      "assets/images/Diplomatic Room/3.jpg"
+    ]
   },
   {
     "type": "Deluxe",
     "price_ngn": 30000,
-    "rooms": ["210", "211", "212"]
+    "rooms": ["210", "211", "212"],
+    "images": [
+      "assets/images/Deluxe Room/1.jpg",
+      "assets/images/Deluxe Room/2.jpg",
+      "assets/images/Deluxe Room/3.jpg"
+    ]
   },
   {
     "type": "Executive",
     "price_ngn": 50000,
-    "rooms": ["213"]
+    "rooms": ["213"],
+    "images": [
+      "assets/images/Executive Room/1.jpg",
+      "assets/images/Executive Room/2.jpg",
+      "assets/images/Executive Room/3.jpg"
+    ]
   }
 ];
 

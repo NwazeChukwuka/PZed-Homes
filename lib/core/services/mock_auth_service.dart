@@ -127,6 +127,7 @@ class MockAuthService with ChangeNotifier {
         email: userData['email'] ?? '',
         role: roles.first,
         roles: roles,
+        permissions: const [],
       );
       
       _isLoggedIn = true;

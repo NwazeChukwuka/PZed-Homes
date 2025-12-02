@@ -45,7 +45,7 @@ class ServicesScreen extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           CachedNetworkImage(
-            imageUrl: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&q=80',
+            'assets/images/Front View/Front View 4.JPG',
             fit: BoxFit.cover,
             placeholder: (context, url) => Shimmer.fromColors(
               baseColor: Colors.grey.shade300,
@@ -132,7 +132,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'Luxury Rooms & Suites',
             'Experience comfort and elegance in our well-appointed rooms and suites, each designed with modern amenities and thoughtful touches.',
-            'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=800&q=80',
+            'assets/images/Diplomatic Room/Diplomatic 1.png',
             Icons.hotel,
             Colors.blue,
           ),
@@ -141,7 +141,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             '24/7 Room Service',
             'Enjoy round-the-clock room service with our extensive menu of local and international cuisine delivered to your door.',
-            'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80',
+            'assets/images/Reception/Reception 3.JPG',
             Icons.room_service,
             Colors.orange,
           ),
@@ -150,7 +150,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'Housekeeping Services',
             'Professional housekeeping services ensure your room is always clean, comfortable, and well-maintained.',
-            'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&q=80',
+            'assets/images/Diplomatic Room/Diplomatic 2.JPG',
             Icons.cleaning_services,
             Colors.green,
           ),
@@ -178,7 +178,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'Restaurant',
             'Savor a wide range of local and continental dishes prepared by our expert chefs in our elegant restaurant.',
-            'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80',
+            'assets/images/Restaurant/Restaurant 1.JPG',
             Icons.restaurant,
             Colors.red,
           ),
@@ -187,7 +187,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'VIP Bar',
             'Relax in our exclusive VIP bar with premium drinks and a serene ambiance perfect for business or leisure.',
-            'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=800&q=80',
+            'assets/images/VIP Bar/VIP Bar 1.JPG',
             Icons.local_bar,
             Colors.purple,
           ),
@@ -196,7 +196,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'Outside Bar',
             'Enjoy refreshing beverages and cocktails in our beautiful outdoor setting with stunning views.',
-            'https://images.unsplash.com/photo-1544148103-0773bf10d330?w=800&q=80',
+            'assets/images/Outside bar/Outside Bar 2.jpg',
             Icons.outdoor_grill,
             Colors.teal,
           ),
@@ -230,10 +230,8 @@ class ServicesScreen extends StatelessWidget {
     final services = [
       {'title': 'Concierge', 'icon': Icons.support_agent, 'color': Colors.indigo},
       {'title': 'Laundry', 'icon': Icons.local_laundry_service, 'color': Colors.cyan},
-      {'title': 'Airport Transfer', 'icon': Icons.flight, 'color': Colors.amber},
-      {'title': 'Business Center', 'icon': Icons.business, 'color': Colors.brown},
-      {'title': 'Fitness Center', 'icon': Icons.fitness_center, 'color': Colors.pink},
-      {'title': 'Spa Services', 'icon': Icons.spa, 'color': Colors.teal},
+      {'title': 'Free Wi-Fi', 'icon': Icons.flight, 'color': Colors.amber},
+      {'title': '24/7 Security and CCTV', 'icon': Icons.business, 'color': Colors.brown},
     ];
 
     return GridView.builder(

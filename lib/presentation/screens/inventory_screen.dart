@@ -328,6 +328,19 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }
   }
 
+  Color _getCategoryColor(String? category) {
+    switch (category?.toLowerCase()) {
+      case 'alcoholic drinks':
+        return Colors.blue[400]!;
+      case 'soft drinks':
+        return Colors.green[400]!;
+      case 'snacks':
+        return Colors.orange[400]!;
+      default:
+        return Colors.grey[400]!;
+    }
+  }
+
   Widget _buildStockMovementsTab() {
     return Column(
       children: [
@@ -470,10 +483,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 5,
-                        crossAxisSpacing: 3,
-                        mainAxisSpacing: 2,
-                        childAspectRatio: 0.8,
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 0.7,
                       ),
                       itemCount: filteredItems.length,
                       itemBuilder: (context, index) {
@@ -571,84 +584,63 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final price = _getItemPrice(item);
     final stock = item['current_stock'] as int? ?? 0;
     final isOutOfStock = stock <= 0;
-
+    
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       child: InkWell(
         onTap: isOutOfStock ? null : () => _addItemToSale(item),
-        borderRadius: BorderRadius.circular(5),
-        child: Padding(
-          padding: const EdgeInsets.all(3),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isOutOfStock ? Colors.grey[100] : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Icon and stock badge
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.green[100],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Icon(
-                      _getCategoryIcon(item['category']),
-                      size: 16,
-                      color: Colors.green[700],
-                    ),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: _getCategoryColor(item['category']),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: isOutOfStock ? Colors.red[100] : Colors.blue[100],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Text(
-                      '$stock',
-                      style: TextStyle(
-                        fontSize: 6,
-                        color: isOutOfStock ? Colors.red[700] : Colors.blue[700],
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  child: Icon(
+                    _getCategoryIcon(item['category']),
+                    size: 32,
+                    color: Colors.white,
                   ),
-                ],
+                ),
               ),
-              const SizedBox(height: 2),
-              // Item name
+              const SizedBox(height: 8),
               Text(
-                item['name'] ?? 'Unknown',
+                item['name']?.toString() ?? 'Unknown',
                 style: const TextStyle(
-                  fontSize: 11,
                   fontWeight: FontWeight.w500,
+                  fontSize: 12,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 1),
-              // Price
+              const SizedBox(height: 4),
               Text(
-                '₦$price',
-                style: const TextStyle(
-                  fontSize: 10,
+                '₦${NumberFormat('#,##0').format(price)}',
+                style: TextStyle(
+                  color: Colors.green[700],
                   fontWeight: FontWeight.bold,
-                  color: Colors.green,
+                  fontSize: 11,
                 ),
               ),
-              // Category (no spacing after price)
+              const SizedBox(height: 2),
               Text(
-                item['category'] ?? '',
-                style: const TextStyle(
-                  fontSize: 8,
-                  color: Colors.grey,
+                'Stock: $stock',
+                style: TextStyle(
+                  color: isOutOfStock ? Colors.red : Colors.grey[600],
+                  fontSize: 10,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
         ),
       ),
     );

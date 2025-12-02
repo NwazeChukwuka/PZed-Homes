@@ -98,10 +98,11 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
     final dateFormatter = DateFormat('EEE, MMM d, yyyy');
     final price = widget.roomType['price_ngn'] as int? ?? (widget.roomType['price'] as int? ?? 0);
-
+    final List<String> images = List<String>.from(widget.roomType['images'] ?? []);
+    
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.roomType['type'] ?? 'Room Details'),
+        title: Text(widget.roomType['name'] ?? 'Room Details'),
         backgroundColor: Colors.green,
       ),
       body: SingleChildScrollView(
@@ -109,33 +110,60 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Room Image
-            Container(
-              height: 200,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(12),
-                image: widget.roomType['image_url'] != null
-                    ? DecorationImage(
-                        image: NetworkImage(widget.roomType['image_url'] as String),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-              ),
-              child: widget.roomType['image_url'] == null
-                  ? Center(
+            // Room Image Gallery
+            if (images.isNotEmpty) ...[
+              SizedBox(
+                height: 250,
+                child: PageView.builder(
+                  itemCount: images.length,
+                  itemBuilder: (context, index) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
                       child: Image.asset(
-                        'assets/images/PZED logo.png',
-                        height: 64,
-                        width: 64,
-                        fit: BoxFit.contain,
-                        color: Colors.grey,
+                        images[index],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: const Center(child: Icon(Icons.broken_image, size: 50)),
+                          );
+                        },
                       ),
-                    )
-                  : null,
-            ),
-            const SizedBox(height: 24),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Image indicator dots
+              if (images.length > 1)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(
+                    images.length,
+                    (index) => Container(
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: index == 0 ? Colors.green : Colors.grey[300],
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 24),
+            ] else
+              Container(
+                height: 200,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.image_not_supported, size: 50, color: Colors.grey),
+                ),
+              ),
 
             // Room Details
             Row(
@@ -143,7 +171,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    widget.roomType['type'] ?? 'Unknown Room Type',
+                    widget.roomType['name'] ?? 'Unknown Room Type',
                     style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -162,7 +190,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             if (widget.roomType['description'] != null)
               Text(
                 widget.roomType['description'] as String,
-                style: const TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey, fontSize: 16),
               ),
 
             const SizedBox(height: 24),

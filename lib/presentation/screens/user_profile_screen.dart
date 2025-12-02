@@ -15,12 +15,63 @@ class UserProfileScreen extends StatefulWidget {
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isLoading = false;
+  bool _hasSmartlockPermission = false;
+  bool _isLoadingPermissions = true;
 
   @override
   void initState() {
     super.initState();
-    // Note: Owner/Manager can view all profiles. Non-management staff can only view their own.
-    // Navigation to other profiles is hidden in the UI for non-management staff.
+    _loadUserPermissions();
+  }
+
+  // Mock implementation of permission loading
+  Future<void> _loadUserPermissions() async {
+    setState(() => _isLoadingPermissions = true);
+    try {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() {
+          // Mock data: Randomly assign smart lock permission for demo
+          _hasSmartlockPermission = widget.userProfile['id'] % 3 == 0;
+          _isLoadingPermissions = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingPermissions = false);
+      }
+    }
+  }
+
+  // Mock implementation of permission changes
+  Future<void> _onPermissionChanged(bool newValue) async {
+    setState(() {
+      _hasSmartlockPermission = newValue;
+    });
+
+    setState(() => _isLoading = true);
+    try {
+      await Future.delayed(const Duration(milliseconds: 400));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('[Mock] Smart Lock permission ${newValue ? 'granted' : 'revoked'}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating permission: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      // Revert on error
+      setState(() {
+        _hasSmartlockPermission = !newValue;
+      });
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _updateUserStatus(String newStatus) async {
@@ -81,6 +132,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final bool isManagement = effectiveRole == AppRole.owner || effectiveRole == AppRole.manager || effectiveRole == AppRole.hr || effectiveRole == AppRole.supervisor || effectiveRole == AppRole.accountant;
     final bool isHR = effectiveRole == AppRole.hr;
     final bool isAdmin = isManagement || isHR;
+    final bool isOwner = effectiveRole == AppRole.owner;
     final bool viewingSelf = (currentUser?.id != null) && (widget.userProfile['id'] == currentUser!.id);
 
     final userStatus = widget.userProfile['status'] as String? ?? 'Active';
@@ -171,6 +223,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
 
                   const SizedBox(height: 24),
+
+                  // Permission Delegation Section (Owner only)
+                  if (isOwner && !viewingSelf) ...[
+                    _buildPermissionsCard(isOwner: true),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // View-only permissions for users viewing their own profile
+                  if (viewingSelf && !isOwner) ...[
+                    _buildViewOnlyPermissions(),
+                    const SizedBox(height: 24),
+                  ],
 
                   // Role Assumption Section (for Owner and Manager)
                   if (isManagement) ...[
@@ -334,6 +398,83 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       selectedColor: Colors.green,
       labelStyle: TextStyle(
         color: isCurrentlyAssumed ? Colors.white : null,
+      ),
+    );
+  }
+
+  // Permission Delegation Card (for Owners managing other users)
+  Widget _buildPermissionsCard({required bool isOwner}) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Manage Delegated Permissions',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Grant special access permissions to this user',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+            const Divider(height: 24),
+            if (_isLoadingPermissions)
+              const Center(child: CircularProgressIndicator())
+            else
+              SwitchListTile(
+                title: const Text('Smart Lock Log Access'),
+                subtitle: const Text('Grants access to view all smart lock activity logs and history.'),
+                value: _hasSmartlockPermission,
+                onChanged: _onPermissionChanged,
+                secondary: Icon(
+                  Icons.lock_clock, 
+                  color: _hasSmartlockPermission ? Colors.teal : Colors.grey
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // View-only permissions for regular users
+  Widget _buildViewOnlyPermissions() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'My Delegated Permissions',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Special access permissions granted by management',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+            const Divider(height: 24),
+            if (_isLoadingPermissions)
+              const Center(child: CircularProgressIndicator())
+            else if (!_hasSmartlockPermission)
+              const ListTile(
+                leading: Icon(Icons.info_outline, color: Colors.grey),
+                title: Text('No special permissions granted'),
+                subtitle: Text('Contact management for additional access needs.'),
+              )
+            else
+              const ListTile(
+                leading: Icon(Icons.lock_clock, color: Colors.teal),
+                title: Text('Smart Lock Log Access'),
+                subtitle: Text('You have been granted access to view smart lock activity logs.'),
+              ),
+          ],
+        ),
       ),
     );
   }

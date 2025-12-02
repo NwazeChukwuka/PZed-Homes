@@ -448,6 +448,9 @@ class AppRouter {
         return location.startsWith('/housekeeping') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
+               
+      case AppRole.it_admin:
+        return true; // IT Admin has full access to all routes
       
       case AppRole.accountant:
         return location.startsWith('/finance') ||

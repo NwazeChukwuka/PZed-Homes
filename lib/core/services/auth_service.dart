@@ -6,15 +6,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthService with ChangeNotifier {
   final _supabase = Supabase.instance.client;
   AppUser? _currentUser;
-  bool _isLoading = true; // Added
-  bool _isLoggedIn = false; // Added
+  bool _isLoading = true;
+  bool _isLoggedIn = false;
   StreamSubscription<AuthState>? _authStateSubscription;
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
 
-  bool get isLoading => _isLoading; // Added
-  bool get isLoggedIn => _isLoggedIn; // Added
+  bool get isLoading => _isLoading;
+  bool get isLoggedIn => _isLoggedIn;
 
   AuthService() {
     // Listen to auth state changes
@@ -38,25 +38,37 @@ class AuthService with ChangeNotifier {
 
   Future<void> _onUserLoggedIn(User user) async {
     try {
-      final response = await _supabase
+      // Step 1: Fetch the user's main profile and roles
+      final profileResponse = await _supabase
           .from('profiles')
           .select()
           .eq('id', user.id)
           .single();
 
-      if (response != null) {
+      if (profileResponse != null) {
         // Handle roles as array - get the first role for now
-        final roles = (response['roles'] as List<dynamic>? ?? []);
+        final roles = (profileResponse['roles'] as List<dynamic>? ?? []);
         final primaryRole = roles.isNotEmpty 
             ? AppRole.values.byName(roles.first as String)
             : AppRole.guest;
         
+        // --- NEW LOGIC: Step 2 ---
+        // Fetch the user's delegated permissions
+        final permissionsResponse = await _supabase
+            .from('access_delegations')
+            .select('permission')
+            .eq('user_id', user.id);
+            
+        final permissions = (permissionsResponse as List).map((p) => p['permission'] as String).toList();
+
+        // Step 3: Create the AppUser with roles AND permissions
         _currentUser = AppUser(
-          id: response['id'],
-          name: response['full_name'],
-          email: response['email'] ?? '',
+          id: profileResponse['id'],
+          name: profileResponse['full_name'],
+          email: profileResponse['email'] ?? '',
           role: primaryRole,
           roles: roles.map((role) => AppRole.values.byName(role as String)).toList(),
+          permissions: permissions, // Added from Code 2
         );
       }
     } catch (_) {
