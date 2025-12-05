@@ -1,0 +1,6 @@
+{
+  "commands": {
+    "build": "bash ./vercel_build.sh"
+  }
+}
+

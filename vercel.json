@@ -1,0 +1,6 @@
+{
+  "buildCommand": "bash ./vercel_build.sh",
+  "outputDirectory": "build/web",
+  "installCommand": "echo 'Dependencies will be installed during build'"
+}
+
