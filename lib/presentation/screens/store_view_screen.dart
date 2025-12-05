@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/mock_auth_service.dart';
+import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
 /// Read-only store view for Owner/Manager to see what's available in the store
@@ -54,10 +55,13 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading store data: $e'), backgroundColor: Colors.red),
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load store data. Please check your connection and try again.',
+          onRetry: _loadStoreData,
         );
       }
     }

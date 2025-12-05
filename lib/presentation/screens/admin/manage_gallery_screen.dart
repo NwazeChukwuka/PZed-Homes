@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart'; // You'll need to run: flutter pub add image_picker
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'dart:io';
 
 class ManageGalleryScreen extends StatefulWidget {
@@ -36,10 +37,19 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
         'is_video': file.mimeType?.startsWith('video/') ?? false,
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Item added successfully!')));
-      setState(() {}); // Refresh the list
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Item added successfully!');
+        setState(() {}); // Refresh the list
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to upload item. Please try again.',
+          onRetry: _uploadNewItem,
+        );
+      }
     }
   }
 
@@ -59,7 +69,25 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _supabase.from('gallery_media').stream(primaryKey: ['id']).order('sort_order'),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return ErrorHandler.buildErrorWidget(
+              context,
+              snapshot.error,
+              message: 'Error loading gallery items',
+            );
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return ErrorHandler.buildEmptyWidget(
+              context,
+              message: 'No gallery items available',
+            );
+          }
+          
           final items = snapshot.data!;
           return ListView.builder(
             itemCount: items.length,
@@ -72,8 +100,21 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: () async {
-                    // This should also delete from storage
-                    await _supabase.from('gallery_media').delete().eq('id', item['id']);
+                    try {
+                      // This should also delete from storage
+                      await _supabase.from('gallery_media').delete().eq('id', item['id']);
+                      if (mounted) {
+                        ErrorHandler.showSuccessMessage(context, 'Item deleted successfully');
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ErrorHandler.handleError(
+                          context,
+                          e,
+                          customMessage: 'Failed to delete item. Please try again.',
+                        );
+                      }
+                    }
                   },
                 ),
               );

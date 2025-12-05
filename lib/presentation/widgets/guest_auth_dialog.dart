@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/password_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart'; // This imports the correct AppRole
 import 'package:pzed_homes/presentation/screens/main_screen.dart';
 
@@ -73,95 +75,8 @@ class _AuthFormState extends State<AuthForm> {
   bool _obscurePassword = true;
 
   Future<void> _showForgotPasswordDialog() async {
-    final emailController = TextEditingController();
-    
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Reset Password'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Enter your email address and we\'ll send you a password reset link.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email Address',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
-                ),
-                keyboardType: TextInputType.emailAddress,
-              ),
-            ],
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () {
-                emailController.dispose();
-                Navigator.of(context).pop();
-              },
-            ),
-            ElevatedButton(
-              child: const Text('Send Reset Link'),
-              onPressed: () async {
-                if (emailController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter your email address'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                if (!emailController.text.contains('@')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a valid email address'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                try {
-                  // Simulate password reset request
-                  await Future.delayed(const Duration(seconds: 2));
-                  
-                  emailController.dispose();
-                  
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Password reset link sent to your email!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error sending reset link: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-            ),
-          ],
-        );
-      },
-    );
+    // Use consolidated password service
+    await PasswordService.showPasswordResetDialog(context);
   }
 
   Future<void> _submit() async {
@@ -201,8 +116,9 @@ class _AuthFormState extends State<AuthForm> {
               Navigator.pop(context);
               // Then navigate to dashboard using GoRouter
               context.go('/dashboard');
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Welcome! Redirecting to Staff Portal...')),
+              ErrorHandler.showInfoMessage(
+                context,
+                'Welcome! Redirecting to Staff Portal...',
               );
             } catch (e) {
               print('DEBUG: Guest auth navigation error: $e');
@@ -210,21 +126,26 @@ class _AuthFormState extends State<AuthForm> {
           }
         } else {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.isSignUp ? 
+          ErrorHandler.showSuccessMessage(
+            context,
+            widget.isSignUp ? 
               'Sign-up successful! Please check your email.' : 
-              'Login successful!')),
+              'Login successful!',
           );
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          Exception(error),
+          customMessage: error,
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('An error occurred: $e'), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'An error occurred during authentication',
         );
       }
     } finally {

@@ -46,7 +46,7 @@ class BookingListItem extends StatelessWidget {
                   id: booking.id,
                   guestName: booking.guestName,
                   roomType: booking.roomType,
-                  roomNumber: booking.roomNumber,
+                  roomNumber: booking.roomNumber, // Can be null now
                   status: booking.status,
                   extraCharges: booking.extraCharges,
                   checkInDate: booking.checkInDate,
@@ -72,7 +72,7 @@ class BookingListItem extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           subtitle: Text(
-              'Room ${booking.roomNumber} (${booking.roomType})\nCheck-in: ${DateFormat.yMd().format(booking.checkInDate)}'),
+              '${booking.roomNumber != null ? "Room ${booking.roomNumber}" : "Room Not Assigned"} (${booking.roomType})\nCheck-in: ${DateFormat.yMd().format(booking.checkInDate)}'),
           trailing: Chip(
             label: Text(
               booking.status,

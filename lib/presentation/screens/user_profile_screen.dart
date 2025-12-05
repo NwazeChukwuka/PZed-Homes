@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/services/password_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final Map<String, dynamic> userProfile;
@@ -52,19 +55,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _isLoading = true);
     try {
       await Future.delayed(const Duration(milliseconds: 400));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('[Mock] Smart Lock permission ${newValue ? 'granted' : 'revoked'}'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Smart Lock permission ${newValue ? 'granted' : 'revoked'}',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating permission: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update permission. Please try again.',
+        );
+      }
       // Revert on error
       setState(() {
         _hasSmartlockPermission = !newValue;
@@ -78,13 +82,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _isLoading = true);
     try {
       await Future.delayed(const Duration(milliseconds: 400));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('[Mock] User status updated to $newStatus'), backgroundColor: Colors.green),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'User status updated to $newStatus',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating status: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update status. Please try again.',
+        );
+      }
     } finally {
       setState(() => _isLoading = false);
     }
@@ -92,21 +103,192 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _resetUserPassword() async {
     final email = widget.userProfile['email'];
-    if (email == null) return;
-
-    setState(() => _isLoading = true);
-    try {
-      await Future.delayed(const Duration(milliseconds: 400));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('[Mock] Password reset email would be sent'), backgroundColor: Colors.green),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending reset email: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      setState(() => _isLoading = false);
+    if (email == null) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Email address not found',
+        );
+      }
+      return;
     }
+
+    // Use consolidated password service
+    await PasswordService.showPasswordResetDialog(context);
+  }
+
+  Future<void> _showChangePasswordDialog() async {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    bool isLoading = false;
+    bool obscureOldPassword = true;
+    bool obscureNewPassword = true;
+    bool obscureConfirmPassword = true;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Change Password'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: oldPasswordController,
+                      enabled: !isLoading,
+                      obscureText: obscureOldPassword,
+                      decoration: InputDecoration(
+                        labelText: 'Current Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureOldPassword ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () => setDialogState(() => obscureOldPassword = !obscureOldPassword),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: newPasswordController,
+                      enabled: !isLoading,
+                      obscureText: obscureNewPassword,
+                      decoration: InputDecoration(
+                        labelText: 'New Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureNewPassword ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () => setDialogState(() => obscureNewPassword = !obscureNewPassword),
+                        ),
+                        helperText: 'Must be at least 6 characters',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: confirmPasswordController,
+                      enabled: !isLoading,
+                      obscureText: obscureConfirmPassword,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm New Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureConfirmPassword ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () => setDialogState(() => obscureConfirmPassword = !obscureConfirmPassword),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: <Widget>[
+                if (!isLoading)
+                  TextButton(
+                    child: const Text('Cancel'),
+                    onPressed: () {
+                      oldPasswordController.dispose();
+                      newPasswordController.dispose();
+                      confirmPasswordController.dispose();
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ElevatedButton(
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Change Password'),
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          // Validation
+                          if (oldPasswordController.text.isEmpty) {
+                            ErrorHandler.showWarningMessage(
+                              context,
+                              'Please enter your current password',
+                            );
+                            return;
+                          }
+
+                          if (newPasswordController.text.length < 6) {
+                            ErrorHandler.showWarningMessage(
+                              context,
+                              'New password must be at least 6 characters',
+                            );
+                            return;
+                          }
+
+                          if (newPasswordController.text != confirmPasswordController.text) {
+                            ErrorHandler.showWarningMessage(
+                              context,
+                              'New passwords do not match',
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => isLoading = true);
+
+                          try {
+                            final passwordService = PasswordService();
+                            
+                            // Verify old password by attempting to re-authenticate
+                            final authService = Provider.of<AuthService>(context, listen: false);
+                            final currentUser = authService.currentUser;
+                            if (currentUser?.email == null) {
+                              throw Exception('User email not found');
+                            }
+
+                            // Re-authenticate with old password
+                            await Supabase.instance.client.auth.signInWithPassword(
+                              email: currentUser!.email!,
+                              password: oldPasswordController.text,
+                            );
+
+                            // Update to new password
+                            await passwordService.updatePassword(newPasswordController.text);
+
+                            oldPasswordController.dispose();
+                            newPasswordController.dispose();
+                            confirmPasswordController.dispose();
+
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                              ErrorHandler.showSuccessMessage(
+                                context,
+                                'Password changed successfully!',
+                              );
+                            }
+                          } catch (e) {
+                            setDialogState(() => isLoading = false);
+                            if (context.mounted) {
+                              String errorMessage = 'Failed to change password';
+                              if (e.toString().contains('Invalid login credentials')) {
+                                errorMessage = 'Current password is incorrect';
+                              } else if (e.toString().contains('Password')) {
+                                errorMessage = e.toString();
+                              }
+                              ErrorHandler.handleError(
+                                context,
+                                e,
+                                customMessage: errorMessage,
+                              );
+                            }
+                          }
+                        },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Color _getStatusColor(String status) {
@@ -114,9 +296,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       case 'active':
         return Colors.green;
       case 'inactive':
-        return Colors.red;
+        return Colors.grey;
       case 'suspended':
         return Colors.orange;
+      case 'resigned':
+        return Colors.blue;
+      case 'terminated':
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -124,7 +310,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context);
+    final authService = Provider.of<AuthService>(context);
     final currentUser = authService.currentUser;
     final effectiveRole = authService.isRoleAssumed
         ? (authService.assumedRole ?? currentUser?.role)
@@ -224,6 +410,40 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                   const SizedBox(height: 24),
 
+                  // Change Password Section (for users viewing their own profile)
+                  if (viewingSelf) ...[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Change Password',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Update your account password',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _showChangePasswordDialog,
+                              icon: const Icon(Icons.lock_outline),
+                              label: const Text('Change Password'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
                   // Permission Delegation Section (Owner only)
                   if (isOwner && !viewingSelf) ...[
                     _buildPermissionsCard(isOwner: true),
@@ -307,6 +527,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         _buildStatusChip('Active', userStatus),
                         _buildStatusChip('Inactive', userStatus),
                         _buildStatusChip('Suspended', userStatus),
+                        _buildStatusChip('Resigned', userStatus),
+                        _buildStatusChip('Terminated', userStatus),
                       ],
                     ),
                   ],
@@ -378,7 +600,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildRoleChip(String roleName, AppRole role, MockAuthService authService) {
+  Widget _buildRoleChip(String roleName, AppRole role, AuthService authService) {
     final isCurrentlyAssumed = authService.isRoleAssumed && authService.assumedRole == role;
     
     return ChoiceChip(
@@ -387,12 +609,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       onSelected: (selected) {
         if (selected) {
           authService.assumeRole(role);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Now assuming $roleName role'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          if (mounted) {
+            ErrorHandler.showSuccessMessage(
+              context,
+              'Now assuming $roleName role',
+            );
+          }
         }
       },
       selectedColor: Colors.green,

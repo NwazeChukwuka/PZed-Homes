@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 import 'package:pzed_homes/core/layout/responsive_layout.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/storekeeper_dashboard_screen.dart';
@@ -18,7 +19,7 @@ class MainScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<MockAuthService, AppState>(
+    return Consumer2<AuthService, AppState>(
       builder: (context, authService, appState, _) {
         final user = authService.currentUser;
         final userRoles = user?.roles ?? [AppRole.guest];
@@ -250,7 +251,7 @@ class MainScreen extends StatelessWidget {
   }
 
   Widget _buildSidebarHeader(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, _) {
         final user = authService.currentUser;
         return Container(
@@ -390,7 +391,7 @@ class MainScreen extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          Consumer<MockAuthService>(
+          Consumer<AuthService>(
             builder: (context, authService, child) {
               final currentUser = authService.currentUser;
               final isOwnerOrManager = currentUser?.role == AppRole.owner || currentUser?.role == AppRole.manager;
@@ -398,9 +399,9 @@ class MainScreen extends StatelessWidget {
 
               // Get suggested role based on current route
               final currentRoute = GoRouterState.of(context).uri.toString();
-              final suggestedRole = MockAuthService.getSuggestedRoleForRoute(currentRoute);
+              final suggestedRole = AuthService.getSuggestedRoleForRoute(currentRoute);
               final buttonLabel = suggestedRole != null 
-                  ? 'Assume ${MockAuthService.getRoleDisplayName(suggestedRole)}'
+                  ? 'Assume ${AuthService.getRoleDisplayName(suggestedRole)}'
                   : 'Assume Role';
 
               return Row(
@@ -421,7 +422,7 @@ class MainScreen extends StatelessWidget {
                           const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
                           const SizedBox(width: 6),
                           Text(
-                            MockAuthService.getRoleDisplayName(authService.assumedRole!),
+                            AuthService.getRoleDisplayName(authService.assumedRole!),
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
                           ),
                           const SizedBox(width: 6),
@@ -471,15 +472,15 @@ class MainScreen extends StatelessWidget {
   }
 
   void _assumeSpecificRole(BuildContext context, AppRole role) {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     authService.assumeRole(role);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Now assuming ${MockAuthService.getRoleDisplayName(role)} role'),
-        backgroundColor: Colors.orange[700],
+    if (context.mounted) {
+      ErrorHandler.showInfoMessage(
+        context,
+        'Now assuming ${AuthService.getRoleDisplayName(role)} role',
         duration: const Duration(seconds: 2),
-      ),
-    );
+      );
+    }
   }
 
   void _showAssumeRoleSheet(BuildContext context) {
@@ -488,7 +489,7 @@ class MainScreen extends StatelessWidget {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (context) {
-        final authService = Provider.of<MockAuthService>(context, listen: false);
+        final authService = Provider.of<AuthService>(context, listen: false);
         final roles = <Map<String, dynamic>>[
           {'label': 'Bartender', 'role': AppRole.bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
           {'label': 'Receptionist', 'role': AppRole.receptionist, 'icon': Icons.support_agent, 'color': Colors.indigo},
@@ -544,9 +545,12 @@ class MainScreen extends StatelessWidget {
                         onTap: () {
                           authService.assumeRole(r['role'] as AppRole);
                           Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Now assuming ${r['label']}')),
-                          );
+                          if (context.mounted) {
+                            ErrorHandler.showInfoMessage(
+                              context,
+                              'Now assuming ${r['label']}',
+                            );
+                          }
                         },
                         borderRadius: BorderRadius.circular(14),
                         child: AnimatedContainer(
@@ -642,7 +646,7 @@ class MainScreen extends StatelessWidget {
   }
 
   Widget _buildMobileDrawerHeader(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, _) {
         final user = authService.currentUser;
         return DrawerHeader(
@@ -738,7 +742,7 @@ class MainScreen extends StatelessWidget {
     }
     
     // Add booking form for receptionist only (not owner/manager unless they assume receptionist role)
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final isReceptionist = userRoles.contains(AppRole.receptionist) || 
         (authService.isRoleAssumed && authService.assumedRole == AppRole.receptionist);
     if (isReceptionist) {
@@ -809,7 +813,7 @@ class MainScreen extends StatelessWidget {
                 context.pop();
                 
                 // Logout and navigate safely
-                await Provider.of<MockAuthService>(context, listen: false).logout();
+                await Provider.of<AuthService>(context, listen: false).logout();
                 
                 // Navigate to home after a brief delay
                 Future.delayed(const Duration(milliseconds: 100), () {
@@ -830,7 +834,7 @@ class MainScreen extends StatelessWidget {
 
   // Tablet drawer methods
   Widget _buildTabletDrawerHeader(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, _) {
         final user = authService.currentUser;
         return DrawerHeader(
@@ -970,7 +974,7 @@ class MainScreen extends StatelessWidget {
   }
 
   Widget _buildLargeDesktopSidebarHeader(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, _) {
         final user = authService.currentUser;
         return Container(

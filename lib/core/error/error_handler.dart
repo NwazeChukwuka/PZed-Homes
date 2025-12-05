@@ -192,6 +192,95 @@ class ErrorHandler {
       ),
     );
   }
+
+  /// Helper widget for FutureBuilder error states
+  static Widget buildErrorWidget(
+    BuildContext context,
+    Object? error, {
+    String? message,
+    VoidCallback? onRetry,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              message ?? 'Error loading data',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error?.toString() ?? 'Unknown error occurred',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Helper widget for empty states
+  static Widget buildEmptyWidget(
+    BuildContext context, {
+    String? message,
+    IconData icon = Icons.inbox,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              message ?? 'No data available',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.grey,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Safe async operation wrapper with error handling
+  static Future<T?> safeAsync<T>(
+    BuildContext? context,
+    Future<T> Function() operation, {
+    String? errorMessage,
+    VoidCallback? onError,
+  }) async {
+    try {
+      return await operation();
+    } catch (e) {
+      if (context != null && context.mounted) {
+        handleError(
+          context,
+          e,
+          customMessage: errorMessage,
+        );
+      }
+      onError?.call();
+      return null;
+    }
+  }
 }
 
 /// Custom exception classes

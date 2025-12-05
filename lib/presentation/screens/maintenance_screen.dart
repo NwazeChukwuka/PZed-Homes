@@ -1,5 +1,7 @@
 // Location: lib/presentation/screens/maintenance_screen.dart
 import 'package:flutter/material.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   const MaintenanceScreen({super.key});
@@ -11,6 +13,7 @@ class MaintenanceScreen extends StatefulWidget {
 class _MaintenanceScreenState extends State<MaintenanceScreen> {
   bool _loading = false;
   final List<Map<String, dynamic>> _workOrders = [];
+  final _dataService = DataService();
 
   @override
   void initState() {
@@ -20,37 +23,55 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
 
   Future<void> _loadWorkOrders() async {
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 250));
-    _workOrders
-      ..clear()
-      ..addAll([
-        {
-          'id': 1,
-          'asset_name': 'Small Generator',
-          'issue_description': 'Engine making unusual noise',
-          'location': 'Generator Room',
-          'reported_by_name': 'Maintenance',
-          'status': 'Pending',
-        },
-        {
-          'id': 2,
-          'asset_name': 'AC Unit 302',
-          'issue_description': 'Not cooling sufficiently',
-          'location': 'Room 302',
-          'reported_by_name': 'Housekeeping',
-          'status': 'In Progress',
-        },
-      ]);
-    setState(() => _loading = false);
+    try {
+      final orders = await _dataService.getMaintenanceWorkOrders();
+      setState(() {
+        _workOrders.clear();
+        _workOrders.addAll(orders.map((order) {
+          final asset = order['assets'] as Map<String, dynamic>?;
+          final reportedBy = order['profiles'] as Map<String, dynamic>?;
+          return {
+            'id': order['id'],
+            'asset_name': asset?['name'] ?? 'Unknown Asset',
+            'issue_description': order['issue_description'] ?? '',
+            'location': order['location'] ?? '',
+            'reported_by_name': reportedBy?['full_name'] ?? 'Unknown',
+            'status': order['status'] ?? 'Open',
+            'priority': order['priority'] ?? 'Medium',
+          };
+        }).toList());
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load work orders. Please check your connection and try again.',
+          onRetry: _loadWorkOrders,
+        );
+      }
+    }
   }
 
-  Future<void> _updateStatus(int id, String status) async {
-    final idx = _workOrders.indexWhere((w) => w['id'] == id);
-    if (idx != -1) {
-      setState(() => _workOrders[idx]['status'] = status);
+  Future<void> _updateStatus(String id, String status) async {
+    try {
+      await _dataService.updateMaintenanceWorkOrderStatus(id, status);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('[Mock] Status updated to $status'), backgroundColor: Colors.green),
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Status updated to $status',
+        );
+        await _loadWorkOrders(); // Reload to get updated data
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update status. Please try again.',
+          onRetry: () => _updateStatus(id, status),
         );
       }
     }
@@ -111,13 +132,13 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                       ),
                       trailing: DropdownButton<String>(
                         value: workOrder['status'],
-                        items: ['Pending', 'In Progress', 'Completed']
+                        items: ['Open', 'In Progress', 'Completed', 'Cancelled']
                             .map((status) =>
                                 DropdownMenuItem(value: status, child: Text(status)))
                             .toList(),
                         onChanged: (newStatus) {
                           if (newStatus != null) {
-                            _updateStatus(workOrder['id'] as int, newStatus);
+                            _updateStatus(workOrder['id'] as String, newStatus);
                           }
                         },
                       ),

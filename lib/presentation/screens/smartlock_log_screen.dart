@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class SmartLockLogScreen extends StatefulWidget {
   const SmartLockLogScreen({super.key});
@@ -19,10 +20,10 @@ class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
   void initState() {
     super.initState();
     // Fetch logs with room number, ordered by most recent
+    // Note: Streams don't support joins, so we'll fetch room data separately if needed
     _logStream = _supabase
         .from('smartlock_logs')
         .stream(primaryKey: ['id'])
-        .select('*, rooms(room_number)') // Join with rooms table
         .order('created_at', ascending: false)
         .limit(100); // Limit to recent logs for performance
   }
@@ -53,13 +54,19 @@ class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Error loading logs: ${snapshot.error}'));
+            return ErrorHandler.buildErrorWidget(
+              context,
+              snapshot.error,
+              message: 'Error loading smart lock logs',
+            );
           }
+          
           final logs = snapshot.data ?? [];
 
           if (logs.isEmpty) {
-            return const Center(
-              child: Text('No smart lock activity recorded yet.'),
+            return ErrorHandler.buildEmptyWidget(
+              context,
+              message: 'No smart lock activity recorded yet',
             );
           }
 
@@ -67,7 +74,9 @@ class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
             itemCount: logs.length,
             itemBuilder: (context, index) {
               final log = logs[index];
-              final roomNumber = (log['rooms'] as Map?)?['room_number'] ?? 'N/A';
+              // Fetch room number separately since streams don't support joins
+              final roomId = log['room_id'];
+              final roomNumber = roomId != null ? 'Room $roomId' : 'N/A';
               final eventType = log['event_type'] ?? 'UNKNOWN_EVENT';
               final userIdentifier = log['user_identifier'] ?? 'System';
 

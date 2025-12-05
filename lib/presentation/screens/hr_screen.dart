@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HrScreen extends StatefulWidget {
   const HrScreen({super.key});
@@ -12,7 +14,8 @@ class HrScreen extends StatefulWidget {
   State<HrScreen> createState() => _HrScreenState();
 }
 
-class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin {
+class _HrScreenState extends State<HrScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final DataService _dataService = DataService();
   final DateFormat _dateFormat = DateFormat('MMM dd, yyyy');
@@ -27,7 +30,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this); // Staff, Duty, Attendance, Performance, Roles/Positions
+    _tabController = TabController(
+      length: 5,
+      vsync: this,
+    ); // Staff, Duty, Attendance, Performance, Roles/Positions
     _loadStaff();
   }
 
@@ -57,7 +63,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 Tab(text: 'Duty Roster', icon: Icon(Icons.event_available)),
                 Tab(text: 'Attendance', icon: Icon(Icons.access_time)),
                 Tab(text: 'Performance', icon: Icon(Icons.assessment)),
-                Tab(text: 'Roles & Positions', icon: Icon(Icons.admin_panel_settings)),
+                Tab(
+                  text: 'Roles & Positions',
+                  icon: Icon(Icons.admin_panel_settings),
+                ),
               ],
             ),
           ),
@@ -140,6 +149,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
       ),
     );
   }
+
   // ---------- Staff Directory ----------
   Future<void> _loadStaff() async {
     setState(() => _isLoading = true);
@@ -147,19 +157,27 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
       final staff = await _dataService.getStaffProfiles();
       // Exclude owner
       final filtered = staff.where((s) {
-        final roles = (s['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+        final roles = (s['roles'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList();
         return !roles.contains('owner');
-        }).toList();
-          setState(() {
+      }).toList();
+      setState(() {
         _allStaff = filtered;
         _applySearchFilter();
-            _isLoading = false;
-          });
+        _isLoading = false;
+      });
     } catch (e) {
+      if (mounted) {
         setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load staff: $e'), backgroundColor: Colors.red),
-      );
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage:
+              'Failed to load staff. Please check your connection and try again.',
+          onRetry: _loadStaff,
+        );
+      }
     }
   }
 
@@ -168,8 +186,13 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
     _filteredStaff = _allStaff.where((u) {
       final name = (u['full_name']?.toString() ?? '').toLowerCase();
       final email = (u['email']?.toString() ?? '').toLowerCase();
-      final roles = (u['roles'] as List<dynamic>? ?? []).join(',').toLowerCase();
-      return q.isEmpty || name.contains(q) || email.contains(q) || roles.contains(q);
+      final roles = (u['roles'] as List<dynamic>? ?? [])
+          .join(',')
+          .toLowerCase();
+      return q.isEmpty ||
+          name.contains(q) ||
+          email.contains(q) ||
+          roles.contains(q);
     }).toList();
   }
 
@@ -189,7 +212,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (v) {
-    setState(() {
+                    setState(() {
                       _searchQuery = v;
                       _applySearchFilter();
                     });
@@ -203,11 +226,12 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 label: const Text('Refresh'),
               ),
               // Only owner can hire new staff
-              Consumer<MockAuthService>(
+              Consumer<AuthService>(
                 builder: (context, authService, _) {
-                  final isOwner = authService.currentUser?.role == AppRole.owner;
+                  final isOwner =
+                      authService.currentUser?.role == AppRole.owner;
                   if (!isOwner) return const SizedBox.shrink();
-                  
+
                   return Padding(
                     padding: const EdgeInsets.only(left: 12),
                     child: ElevatedButton.icon(
@@ -233,8 +257,12 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   itemCount: _filteredStaff.length,
                   itemBuilder: (context, index) {
                     final u = _filteredStaff[index];
-                    final name = (u['full_name']?.toString() ?? (u['name']?.toString() ?? 'Unknown'));
-                    final roles = (u['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+                    final name =
+                        (u['full_name']?.toString() ??
+                        (u['name']?.toString() ?? 'Unknown'));
+                    final roles = (u['roles'] as List<dynamic>? ?? [])
+                        .map((e) => e.toString())
+                        .toList();
                     return Card(
                       child: ListTile(
                         leading: CircleAvatar(
@@ -242,7 +270,9 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                           child: const Icon(Icons.person, color: Colors.green),
                         ),
                         title: Text(name.isEmpty ? 'Unknown' : name),
-                        subtitle: Text(roles.isEmpty ? 'Unassigned' : roles.join(', ')),
+                        subtitle: Text(
+                          roles.isEmpty ? 'Unassigned' : roles.join(', '),
+                        ),
                         trailing: PopupMenuButton<String>(
                           onSelected: (v) {
                             switch (v) {
@@ -264,29 +294,56 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                             }
                           },
                           itemBuilder: (context) {
-                            final authService = Provider.of<MockAuthService>(context, listen: false);
-                            final isOwner = authService.currentUser?.role == AppRole.owner;
-                            
+                            final authService = Provider.of<AuthService>(
+                              context,
+                              listen: false,
+                            );
+                            final isOwner =
+                                authService.currentUser?.role == AppRole.owner;
+
                             return [
-                              const PopupMenuItem(value: 'promote', child: Text('Promote')),
-                              const PopupMenuItem(value: 'demote', child: Text('Demote')),
-                              const PopupMenuItem(value: 'assign', child: Text('Assign Role')),
-                              const PopupMenuItem(value: 'suspend', child: Row(
-                                children: [
-                                  Icon(Icons.pause_circle, color: Colors.orange, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Suspend'),
-                                ],
-                              )),
+                              const PopupMenuItem(
+                                value: 'promote',
+                                child: Text('Promote'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'demote',
+                                child: Text('Demote'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'assign',
+                                child: Text('Assign Role'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'suspend',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.pause_circle,
+                                      color: Colors.orange,
+                                      size: 18,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text('Suspend'),
+                                  ],
+                                ),
+                              ),
                               // Only owner can terminate
                               if (isOwner)
-                                const PopupMenuItem(value: 'terminate', child: Row(
-                                  children: [
-                                    Icon(Icons.person_remove, color: Colors.red, size: 18),
-                                    SizedBox(width: 8),
-                                    Text('Terminate Employment'),
-                                  ],
-                                )),
+                                const PopupMenuItem(
+                                  value: 'terminate',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person_remove,
+                                        color: Colors.red,
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text('Terminate Employment'),
+                                    ],
+                                  ),
+                                ),
                             ];
                           },
                         ),
@@ -346,7 +403,9 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 child: ListTile(
                   leading: const Icon(Icons.badge),
                   title: Text(u['full_name']?.toString() ?? 'Unnamed'),
-                  subtitle: Text('Roles: $roles\nLast duty: ${_dateFormat.format(_selectedDate.subtract(const Duration(days: 7)))}'),
+                  subtitle: Text(
+                    'Roles: $roles\nLast duty: ${_dateFormat.format(_selectedDate.subtract(const Duration(days: 7)))}',
+                  ),
                   isThreeLine: true,
                 ),
               );
@@ -362,30 +421,34 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
     // Simple mock KPI cards
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-                    child: Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Wrap(
             spacing: 12,
             runSpacing: 12,
-                      children: [
+            children: [
               _kpiCard('Today Score', '92', Colors.green),
               _kpiCard('This Week', '88', Colors.blue),
               _kpiCard('This Month', '90', Colors.purple),
             ],
           ),
-                        const SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text('Top Performers', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          ..._allStaff.take(5).map((u) => ListTile(
-                leading: const Icon(Icons.emoji_events, color: Colors.amber),
-                title: Text(u['full_name']?.toString() ?? 'Unnamed'),
-                subtitle: const Text('Consistent performance across duties'),
-              )),
-                      ],
-                    ),
-                  );
-                }
+          ..._allStaff
+              .take(5)
+              .map(
+                (u) => ListTile(
+                  leading: const Icon(Icons.emoji_events, color: Colors.amber),
+                  title: Text(u['full_name']?.toString() ?? 'Unnamed'),
+                  subtitle: const Text('Consistent performance across duties'),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
 
   Widget _kpiCard(String label, String value, Color color) {
     return Container(
@@ -395,35 +458,46 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
-                    child: Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+        children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-                        const SizedBox(height: 8),
+          const SizedBox(height: 8),
           Row(
-                      children: [
-              Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color)),
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
               const SizedBox(width: 6),
               const Text('/ 100'),
             ],
-                        ),
-                      ],
-                    ),
-                  );
-                }
+          ),
+        ],
+      ),
+    );
+  }
 
   // ---------- Roles & Positions ----------
   Widget _buildRolesPositionsTab(BuildContext context) {
-                return Padding(
+    return Padding(
       padding: const EdgeInsets.all(16),
-                    child: Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-                      children: [
+            children: [
               ElevatedButton.icon(
                 onPressed: _showCreatePositionDialog,
                 icon: const Icon(Icons.add),
@@ -434,30 +508,39 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 onPressed: () => _showAssignRoleDialog(null),
                 icon: const Icon(Icons.person_add_alt_1),
                 label: const Text('Assign Role to Staff'),
-                        ),
-                      ],
-                        ),
-                        const SizedBox(height: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           Expanded(
             child: ListView(
-                          children: [
+              children: [
                 ListTile(
                   leading: const Icon(Icons.admin_panel_settings),
                   title: const Text('Positions & Benefits'),
-                  subtitle: const Text('Define scalable positions with benefits and permissions'),
+                  subtitle: const Text(
+                    'Define scalable positions with benefits and permissions',
+                  ),
                 ),
               ],
-                              ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ---------- Dialogs / Actions ----------
-  Future<void> _showPromoteDemoteDialog(Map<String, dynamic> user, {required bool isPromote}) async {
-    final roles = (user['roles'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
-    final available = AppRole.values.where((r) => r != AppRole.owner && r != AppRole.guest).toList();
+  Future<void> _showPromoteDemoteDialog(
+    Map<String, dynamic> user, {
+    required bool isPromote,
+  }) async {
+    final roles = (user['roles'] as List<dynamic>? ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final available = AppRole.values
+        .where((r) => r != AppRole.owner && r != AppRole.guest)
+        .toList();
     AppRole? selected;
     await showDialog(
       context: context,
@@ -471,7 +554,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
           onChanged: (v) => selected = v,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
               if (selected != null) {
@@ -483,15 +569,18 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 if (!mounted) return;
                 Navigator.pop(context);
                 _loadStaff();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Updated role to ${selected!.name} for ${user['full_name']}')),
-                );
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Updated role to ${selected!.name} for ${user['full_name']}',
+                  );
+                }
               }
             },
             child: Text(isPromote ? 'Promote' : 'Demote'),
-                        ),
-                      ],
-                    ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -509,12 +598,21 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-                          children: [
+              children: [
                 if (user == null)
                   DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(labelText: 'Select Staff (by ID)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Select Staff (by ID)',
+                    ),
                     items: _allStaff
-                        .map((s) => DropdownMenuItem(value: s['id'] as String, child: Text(s['full_name']?.toString() ?? 'Unnamed')))
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s['id'] as String,
+                            child: Text(
+                              s['full_name']?.toString() ?? 'Unnamed',
+                            ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) => staffId = v,
                   ),
@@ -523,7 +621,9 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: AppRole.values
                       .where((r) => r != AppRole.owner && r != AppRole.guest)
-                      .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
+                      .map(
+                        (r) => DropdownMenuItem(value: r, child: Text(r.name)),
+                      )
                       .toList(),
                   onChanged: (v) => selectedRole = v,
                 ),
@@ -538,20 +638,29 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                     onPressed: () async {
                       final picked = await showDatePicker(
                         context: context,
-                        initialDate: DateTime.now().add(const Duration(days: 7)),
+                        initialDate: DateTime.now().add(
+                          const Duration(days: 7),
+                        ),
                         firstDate: DateTime.now(),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
                       if (picked != null) setState(() => expiry = picked);
                     },
                     icon: const Icon(Icons.date_range),
-                    label: Text(expiry == null ? 'Pick expiry date' : 'Expires: ${_dateFormat.format(expiry!)}'),
-                            ),
-                          ],
-                        ),
-                      ),
+                    label: Text(
+                      expiry == null
+                          ? 'Pick expiry date'
+                          : 'Expires: ${_dateFormat.format(expiry!)}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () async {
                 if (staffId != null && selectedRole != null) {
@@ -564,17 +673,20 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   if (!mounted) return;
                   Navigator.pop(context);
                   _loadStaff();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Role assigned successfully')),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Role assigned successfully',
+                    );
+                  }
                 }
               },
               child: const Text('Assign'),
             ),
           ],
-                    ),
-                  ),
-                );
+        ),
+      ),
+    );
   }
 
   Future<void> _showCreatePositionDialog() async {
@@ -595,20 +707,25 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               const SizedBox(height: 12),
               TextField(
                 controller: benefitsController,
-                decoration: const InputDecoration(labelText: 'Benefits (comma separated)'),
+                decoration: const InputDecoration(
+                  labelText: 'Benefits (comma separated)',
+                ),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
               // Placeholder for persistence; scalable for backend integration
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Position created')),
-              );
+              if (mounted) {
+                ErrorHandler.showSuccessMessage(context, 'Position created');
+              }
             },
             child: const Text('Create'),
           ),
@@ -619,24 +736,55 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
 
   // Attendance Tab - Shows who's clocked in and their transactions
   Widget _buildAttendanceTab(BuildContext context) {
-    final attendanceRecords = MockAuthService.getAttendanceRecords();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final startDate = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final endDate = startDate.add(const Duration(days: 1));
     
-    // Filter by selected date
-    final filteredRecords = attendanceRecords.where((record) {
-      final clockInTime = DateTime.tryParse(record['clock_in_time'] ?? '');
-      if (clockInTime == null) return false;
-      final recordDate = DateTime(clockInTime.year, clockInTime.month, clockInTime.day);
-      final selectedDay = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-      return recordDate == selectedDay;
-    }).toList();
-    
-    // Separate clocked in vs clocked out
-    final clockedIn = filteredRecords.where((r) => r['status'] == 'clocked_in').toList();
-    final clockedOut = filteredRecords.where((r) => r['status'] == 'clocked_out').toList();
-    
-    return SingleChildScrollView(
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _dataService.getAttendanceRecords(
+        startDate: startDate,
+        endDate: endDate,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return ErrorHandler.buildErrorWidget(
+            context,
+            snapshot.error,
+            message: 'Failed to load attendance records',
+          );
+        }
+        
+        final attendanceRecords = snapshot.data ?? [];
+        
+        // Filter by selected date
+        final filteredRecords = attendanceRecords.where((record) {
+          final clockInTime = DateTime.tryParse(record['clock_in_time']?.toString() ?? '');
+          if (clockInTime == null) return false;
+          final recordDate = DateTime(
+            clockInTime.year,
+            clockInTime.month,
+            clockInTime.day,
+          );
+          final selectedDay = DateTime(
+            _selectedDate.year,
+            _selectedDate.month,
+            _selectedDate.day,
+          );
+          return recordDate == selectedDay;
+        }).toList();
+
+        // Separate clocked in vs clocked out
+        final clockedIn = filteredRecords
+            .where((r) => r['clock_out_time'] == null)
+            .toList();
+        final clockedOut = filteredRecords
+            .where((r) => r['clock_out_time'] != null)
+            .toList();
+
+        return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -651,7 +799,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   const SizedBox(width: 12),
                   Text(
                     'Viewing: ${_dateFormat.format(_selectedDate)}',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const Spacer(),
                   ElevatedButton.icon(
@@ -678,7 +829,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
             ),
           ),
           const SizedBox(height: 24),
-          
+
           // Summary cards
           Row(
             children: [
@@ -711,7 +862,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
             ],
           ),
           const SizedBox(height: 24),
-          
+
           // Clocked In Staff
           if (clockedIn.isNotEmpty) ...[
             Text(
@@ -725,7 +876,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
             ...clockedIn.map((record) => _buildAttendanceCard(record, true)),
             const SizedBox(height: 24),
           ],
-          
+
           // Clocked Out Staff
           if (clockedOut.isNotEmpty) ...[
             Text(
@@ -738,7 +889,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
             const SizedBox(height: 12),
             ...clockedOut.map((record) => _buildAttendanceCard(record, false)),
           ],
-          
+
           if (filteredRecords.isEmpty)
             Center(
               child: Padding(
@@ -758,9 +909,16 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
         ],
       ),
     );
+      },
+    );
   }
 
-  Widget _buildAttendanceSummaryCard(String title, String value, IconData icon, Color color) {
+  Widget _buildAttendanceSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -788,19 +946,30 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
     );
   }
 
+  String? _getStaffRole(Map<String, dynamic> record) {
+    final profiles = record['profiles'] as Map<String, dynamic>?;
+    if (profiles != null) {
+      final roles = profiles['roles'] as List<dynamic>?;
+      if (roles != null && roles.isNotEmpty) {
+        return roles.first.toString();
+      }
+    }
+    return record['staff_role']?.toString();
+  }
+
   Widget _buildAttendanceCard(Map<String, dynamic> record, bool isClockedIn) {
-    final clockInTime = DateTime.tryParse(record['clock_in_time'] ?? '');
-    final clockOutTime = record['clock_out_time'] != null 
-        ? DateTime.tryParse(record['clock_out_time']) 
-        : null;
-    
+    final clockInTimeStr = record['clock_in_time']?.toString();
+    final clockInTime = clockInTimeStr != null ? DateTime.tryParse(clockInTimeStr) : null;
+    final clockOutTimeStr = record['clock_out_time']?.toString();
+    final clockOutTime = clockOutTimeStr != null ? DateTime.tryParse(clockOutTimeStr) : null;
+
     Duration? duration;
     if (clockInTime != null && clockOutTime != null) {
       duration = clockOutTime.difference(clockInTime);
     } else if (clockInTime != null && isClockedIn) {
       duration = DateTime.now().difference(clockInTime);
     }
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
@@ -812,20 +981,22 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
           ),
         ),
         title: Text(
-          record['staff_name'] ?? 'Unknown',
+          (record['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 
+          record['staff_name'] ?? 
+          'Unknown',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Role: ${record['staff_role'] ?? 'Unknown'}'),
+            Text('Role: ${_getStaffRole(record) ?? 'Unknown'}'),
             const SizedBox(height: 4),
             Row(
               children: [
                 Icon(Icons.login, size: 14, color: Colors.grey[600]),
                 const SizedBox(width: 4),
                 Text(
-                  clockInTime != null 
+                  clockInTime != null
                       ? DateFormat('hh:mm a').format(clockInTime)
                       : 'N/A',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
@@ -877,7 +1048,11 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   ),
                 ),
                 const SizedBox(height: 12),
-                _buildStaffTransactions(record['staff_id'], clockInTime, clockOutTime),
+                _buildStaffTransactions(
+                  record['profile_id'] ?? record['staff_id'],
+                  clockInTime,
+                  clockOutTime,
+                ),
               ],
             ),
           ),
@@ -886,46 +1061,53 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _buildStaffTransactions(String? staffId, DateTime? clockIn, DateTime? clockOut) {
+  Widget _buildStaffTransactions(
+    String? staffId,
+    DateTime? clockIn,
+    DateTime? clockOut,
+  ) {
     if (staffId == null || clockIn == null) {
       return Text(
         'No transaction data available',
         style: TextStyle(color: Colors.grey[600], fontSize: 12),
       );
     }
-    
+
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _dataService.getStockTransactions(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         final allTransactions = snapshot.data!;
         final staffTransactions = allTransactions.where((t) {
-          final transactionTime = DateTime.tryParse(t['date']?.toString() ?? '');
+          final transactionTime = DateTime.tryParse(
+            t['created_at']?.toString() ?? t['date']?.toString() ?? '',
+          );
           if (transactionTime == null) return false;
-          
+
           // Check if transaction was made by this staff during their clock-in period
           final isAfterClockIn = transactionTime.isAfter(clockIn);
-          final isBeforeClockOut = clockOut == null || transactionTime.isBefore(clockOut);
-          final isStaffTransaction = t['staff_id'] == staffId;
-          
+          final isBeforeClockOut =
+              clockOut == null || transactionTime.isBefore(clockOut);
+          final isStaffTransaction = (t['staff_profile_id'] ?? t['staff_id']) == staffId;
+
           return isStaffTransaction && isAfterClockIn && isBeforeClockOut;
         }).toList();
-        
+
         if (staffTransactions.isEmpty) {
           return Text(
             'No transactions made during this shift',
             style: TextStyle(color: Colors.grey[600], fontSize: 12),
           );
         }
-        
+
         final totalAmount = staffTransactions.fold<double>(
           0,
           (sum, t) => sum + ((t['total_amount'] as num?)?.toDouble() ?? 0),
         );
-        
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -968,7 +1150,8 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 ),
                 subtitle: Text(
                   DateFormat('hh:mm a').format(
-                    DateTime.tryParse(transaction['date']?.toString() ?? '') ?? DateTime.now(),
+                    DateTime.tryParse(transaction['date']?.toString() ?? '') ??
+                        DateTime.now(),
                   ),
                   style: const TextStyle(fontSize: 11),
                 ),
@@ -987,7 +1170,9 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   // Show all transactions dialog
                   _showAllTransactionsDialog(staffTransactions);
                 },
-                child: Text('View all ${staffTransactions.length} transactions'),
+                child: Text(
+                  'View all ${staffTransactions.length} transactions',
+                ),
               ),
           ],
         );
@@ -1012,7 +1197,8 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 title: Text(transaction['item_name'] ?? 'Unknown Item'),
                 subtitle: Text(
                   DateFormat('MMM dd, hh:mm a').format(
-                    DateTime.tryParse(transaction['date']?.toString() ?? '') ?? DateTime.now(),
+                    DateTime.tryParse(transaction['date']?.toString() ?? '') ??
+                        DateTime.now(),
                   ),
                 ),
                 trailing: Text(
@@ -1037,7 +1223,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
   void _showSuspendDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     DateTime? suspensionEndDate;
-    
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1069,7 +1255,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   maxLines: 3,
                 ),
                 const SizedBox(height: 16),
-                const Text('Suspension Period:', style: TextStyle(fontWeight: FontWeight.w500)),
+                const Text(
+                  'Suspension Period:',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -1078,9 +1267,13 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                         onPressed: () async {
                           final picked = await showDatePicker(
                             context: context,
-                            initialDate: DateTime.now().add(const Duration(days: 7)),
+                            initialDate: DateTime.now().add(
+                              const Duration(days: 7),
+                            ),
                             firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
                           );
                           if (picked != null) {
                             setDialogState(() => suspensionEndDate = picked);
@@ -1089,7 +1282,9 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                         icon: const Icon(Icons.calendar_today),
                         label: Text(
                           suspensionEndDate != null
-                              ? DateFormat('MMM dd, yyyy').format(suspensionEndDate!)
+                              ? DateFormat(
+                                  'MMM dd, yyyy',
+                                ).format(suspensionEndDate!)
                               : 'Select End Date',
                         ),
                       ),
@@ -1106,7 +1301,11 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.orange[700],
+                        size: 20,
+                      ),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
@@ -1128,33 +1327,31 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
             ElevatedButton(
               onPressed: () {
                 if (reasonController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please provide a reason for suspension'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please provide a reason for suspension',
+                    );
+                  }
                   return;
                 }
                 if (suspensionEndDate == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please select suspension end date'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please select suspension end date',
+                    );
+                  }
                   return;
                 }
-                
+
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Staff suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
-                    ),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
+                if (mounted) {
+                  ErrorHandler.showWarningMessage(
+                    context,
+                    'Staff suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
+                  );
+                }
                 _loadStaff();
               },
               style: ElevatedButton.styleFrom(
@@ -1173,7 +1370,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
   void _showTerminateDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     bool confirmTermination = false;
-    
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1213,7 +1410,10 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                 const SizedBox(height: 16),
                 Text(
                   'Staff: ${staff['full_name'] ?? staff['name'] ?? 'Unknown'}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -1251,11 +1451,18 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                     children: [
                       const Text(
                         'Effects of Termination:',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      _buildTerminationEffect('Account will be deactivated immediately'),
-                      _buildTerminationEffect('Staff cannot log in to the system'),
+                      _buildTerminationEffect(
+                        'Account will be deactivated immediately',
+                      ),
+                      _buildTerminationEffect(
+                        'Staff cannot log in to the system',
+                      ),
                       _buildTerminationEffect('All access permissions revoked'),
                       _buildTerminationEffect('Record kept for audit purposes'),
                     ],
@@ -1273,16 +1480,13 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               onPressed: confirmTermination && reasonController.text.isNotEmpty
                   ? () {
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
-                          ),
-                          backgroundColor: Colors.red,
-                          duration: const Duration(seconds: 4),
-                        ),
-                      );
-                      _loadStaff();
+                      if (mounted) {
+                        ErrorHandler.showWarningMessage(
+                          context,
+                          '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
+                        );
+                        _loadStaff();
+                      }
                     }
                   : null,
               style: ElevatedButton.styleFrom(
@@ -1304,9 +1508,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
         children: [
           Icon(Icons.check_circle, color: Colors.red[700], size: 14),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 11)),
-          ),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 11))),
         ],
       ),
     );
@@ -1318,7 +1520,8 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
     final emailController = TextEditingController();
     final phoneController = TextEditingController();
     String? selectedRole;
-    
+    bool isLoading = false;
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1346,12 +1549,19 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                        Icon(
+                          Icons.info_outline,
+                          color: Colors.blue[700],
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
                             'Default password will be: Password123',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -1396,19 +1606,55 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                       prefixIcon: Icon(Icons.work),
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'manager', child: Text('Manager')),
-                      DropdownMenuItem(value: 'supervisor', child: Text('Supervisor')),
-                      DropdownMenuItem(value: 'accountant', child: Text('Accountant')),
+                      DropdownMenuItem(
+                        value: 'manager',
+                        child: Text('Manager'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'supervisor',
+                        child: Text('Supervisor'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'accountant',
+                        child: Text('Accountant'),
+                      ),
                       DropdownMenuItem(value: 'hr', child: Text('HR')),
-                      DropdownMenuItem(value: 'receptionist', child: Text('Receptionist')),
-                      DropdownMenuItem(value: 'bartender', child: Text('Bartender')),
-                      DropdownMenuItem(value: 'kitchen_staff', child: Text('Kitchen Staff')),
-                      DropdownMenuItem(value: 'housekeeper', child: Text('Housekeeper')),
-                      DropdownMenuItem(value: 'cleaner', child: Text('Cleaner')),
-                      DropdownMenuItem(value: 'laundry_attendant', child: Text('Laundry Attendant')),
-                      DropdownMenuItem(value: 'security', child: Text('Security')),
-                      DropdownMenuItem(value: 'purchaser', child: Text('Purchaser')),
-                      DropdownMenuItem(value: 'storekeeper', child: Text('Storekeeper')),
+                      DropdownMenuItem(
+                        value: 'receptionist',
+                        child: Text('Receptionist'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'bartender',
+                        child: Text('Bartender'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'kitchen_staff',
+                        child: Text('Kitchen Staff'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'housekeeper',
+                        child: Text('Housekeeper'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'cleaner',
+                        child: Text('Cleaner'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'laundry_attendant',
+                        child: Text('Laundry Attendant'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'security',
+                        child: Text('Security'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'purchaser',
+                        child: Text('Purchaser'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'storekeeper',
+                        child: Text('Storekeeper'),
+                      ),
                     ],
                     onChanged: (val) {
                       setDialogState(() => selectedRole = val);
@@ -1426,13 +1672,18 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
                       children: [
                         const Text(
                           'Staff will receive:',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         _buildStaffBenefit('Login credentials via email'),
                         _buildStaffBenefit('Access to assigned role features'),
                         _buildStaffBenefit('Default password: Password123'),
-                        _buildStaffBenefit('Must change password on first login'),
+                        _buildStaffBenefit(
+                          'Must change password on first login',
+                        ),
                       ],
                     ),
                   ),
@@ -1446,55 +1697,122 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: isLoading ? null : () async {
                 // Validation
                 if (fullNameController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter full name'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please enter full name',
+                    );
+                  }
                   return;
                 }
                 if (emailController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter email'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please enter email',
+                    );
+                  }
                   return;
                 }
                 if (selectedRole == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please select a role'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please select a role',
+                    );
+                  }
                   return;
                 }
-                
-                // TODO: Add staff to database
-                // For now, just show success message
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '${fullNameController.text} hired as ${selectedRole!.replaceAll('_', ' ')}',
-                    ),
-                    backgroundColor: Colors.green,
-                    duration: const Duration(seconds: 4),
-                  ),
-                );
-                _loadStaff();
+
+                // Create staff profile
+                setDialogState(() => isLoading = true);
+                try {
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  final currentUser = authService.currentUser;
+                  
+                  if (currentUser?.role != AppRole.owner) {
+                    throw Exception('Only owner can create staff profiles');
+                  }
+
+                  // Save values before disposing controllers
+                  final staffName = fullNameController.text.trim();
+                  final staffEmail = emailController.text.trim();
+                  final staffPhone = phoneController.text.trim().isEmpty ? null : phoneController.text.trim();
+                  final staffRole = selectedRole!;
+
+                  // Create auth user (this will create guest profile via trigger)
+                  final supabase = Supabase.instance.client;
+                  final signUpResponse = await supabase.auth.signUp(
+                    email: staffEmail,
+                    password: 'Password123', // Default password
+                    data: {
+                      'full_name': staffName,
+                    },
+                  );
+
+                  if (signUpResponse.user == null) {
+                    throw Exception('Failed to create user account');
+                  }
+
+                  // Wait a moment for trigger to create profile
+                  await Future.delayed(const Duration(milliseconds: 500));
+
+                  // Update profile to staff role using database function
+                  await _dataService.createStaffProfile(
+                    email: staffEmail,
+                    password: 'Password123', // Not used in function
+                    fullName: staffName,
+                    role: staffRole,
+                    phone: staffPhone,
+                    department: null,
+                  );
+
+                  fullNameController.dispose();
+                  emailController.dispose();
+                  phoneController.dispose();
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      '$staffName hired as ${staffRole.replaceAll('_', ' ')}. Default password: Password123',
+                    );
+                    _loadStaff();
+                  }
+                } catch (e) {
+                  setDialogState(() => isLoading = false);
+                  if (mounted) {
+                    String errorMsg = 'Failed to create staff profile';
+                    if (e.toString().contains('already registered')) {
+                      errorMsg = 'Email already exists. Please use a different email.';
+                    } else if (e.toString().contains('Only owner')) {
+                      errorMsg = 'Only owner can create staff profiles';
+                    }
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: errorMsg,
+                    );
+                  }
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green[700],
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Hire Staff'),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text('Hire Staff'),
             ),
           ],
         ),
@@ -1509,9 +1827,7 @@ class _HrScreenState extends State<HrScreen> with SingleTickerProviderStateMixin
         children: [
           Icon(Icons.check_circle, color: Colors.green[700], size: 14),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 11)),
-          ),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 11))),
         ],
       ),
     );

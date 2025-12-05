@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -77,7 +77,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   void _updateTabController() {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isBartender = user?.roles.any((role) => 
         role.toString().contains('bartender') || 
@@ -129,7 +129,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   @override
   Widget build(BuildContext context) {
     // Use Consumer to rebuild when role changes
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, child) {
         final user = authService.currentUser;
         final isBartender = (user?.roles.any((role) => role.name == 'bartender') ?? false) ||
@@ -206,10 +206,21 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               }
 
               if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
+                return ErrorHandler.buildErrorWidget(
+                  context,
+                  snapshot.error,
+                  message: 'Error loading inventory',
+                  onRetry: _loadInventory,
+                );
               }
 
               final items = snapshot.data ?? [];
+              if (items.isEmpty) {
+                return ErrorHandler.buildEmptyWidget(
+                  context,
+                  message: 'No inventory items available',
+                );
+              }
               final filteredItems = _filterItemsByBar(items);
 
               return ListView.builder(
@@ -227,7 +238,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildBarSelectionButtons() {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isManagement = user?.roles.any((role) => 
         role.toString().contains('owner') || 
@@ -477,7 +488,23 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                       return const Center(child: CircularProgressIndicator());
                     }
 
+                    if (snapshot.hasError) {
+                      return ErrorHandler.buildErrorWidget(
+                        context,
+                        snapshot.error,
+                        message: 'Error loading inventory items',
+                        onRetry: _loadInventory,
+                      );
+                    }
+
                     final items = snapshot.data ?? [];
+                    if (items.isEmpty) {
+                      return ErrorHandler.buildEmptyWidget(
+                        context,
+                        message: 'No inventory items available',
+                      );
+                    }
+
                     final filteredItems = _filterItemsForSales(items);
 
                     return GridView.builder(
@@ -510,7 +537,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildBarSelectionForSales() {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isManagement = user?.roles.any((role) => 
         role.toString().contains('owner') || 
@@ -546,10 +573,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   List<Map<String, dynamic>> _filterItemsForSales(List<Map<String, dynamic>> items) {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final userDepartment = (user?.roles.any((role) => role.toString().contains('bartender')) ?? false) 
-        ? ((user?.roles.first.toString().contains('vip') ?? false) ? 'vip_bar' : 'outside_bar')
+        ? ((user?.roles.isNotEmpty == true && user!.roles.first.toString().contains('vip')) ? 'vip_bar' : 'outside_bar')
         : '';
 
     // Filter by search
@@ -647,10 +674,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   double _getItemPrice(Map<String, dynamic> item) {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final userDepartment = (user?.roles.any((role) => role.toString().contains('bartender')) ?? false) 
-        ? ((user?.roles.first.toString().contains('vip') ?? false) ? 'vip_bar' : 'outside_bar')
+        ? ((user?.roles.isNotEmpty == true && user!.roles.first.toString().contains('vip')) ? 'vip_bar' : 'outside_bar')
         : '';
 
     if (authService.isRoleAssumed && authService.assumedRole.toString().contains('bartender')) {
@@ -944,31 +971,33 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     if (_currentSale.isEmpty) return;
 
     // Check if staff is clocked in
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     if (!authService.canMakeTransactions()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You must clock in before making transactions'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'You must clock in before making transactions',
+        );
+      }
       return;
     }
 
     // Validate credit payment requirements
     if (_paymentMethod == 'credit') {
       if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Customer name and phone are required for credit sales'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Customer name and phone are required for credit sales',
+          );
+        }
         return;
       }
     }
 
     try {
+      final userId = authService.currentUser?.id ?? 'system';
+      
       // Record each item sale
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
@@ -981,9 +1010,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'quantity': -quantity, // Negative for sale
           'unit_price': price,
           'total_amount': quantity * price,
-          'staff_id': 'current_staff', // Replace with actual staff ID
-          'customer_name': _customerNameController.text,
-          'customer_phone': _customerPhoneController.text,
+          'staff_id': userId,
+          'customer_name': _customerNameController.text.trim(),
+          'customer_phone': _customerPhoneController.text.trim(),
           'payment_method': _paymentMethod,
           'timestamp': DateTime.now().toIso8601String(),
           'notes': 'Multi-item sale - ${_currentSale.length} items',
@@ -1009,20 +1038,20 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         
         await _dataService.recordDebt(debt);
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sale on credit recorded! Total: ₦${_saleTotal.toStringAsFixed(0)} - Debt created'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Sale on credit recorded! Total: ₦${_saleTotal.toStringAsFixed(0)} - Debt created',
+          );
+        }
       } else {
         // Show success message for regular payment
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sale processed successfully! Total: ₦${_saleTotal.toStringAsFixed(0)}'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Sale processed successfully! Total: ₦${_saleTotal.toStringAsFixed(0)}',
+          );
+        }
       }
 
       // Clear sale and refresh data
@@ -1030,12 +1059,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       _loadInventory();
       _loadTransactions();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error processing sale: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to process sale. Please try again.',
+        );
+      }
     }
   }
 
@@ -1126,13 +1156,20 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Refresh inventory
       _loadInventory();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Item added successfully')),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Item added successfully',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error adding item: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to add item. Please try again.',
+        );
+      }
     }
   }
 }

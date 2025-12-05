@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pzed_homes/presentation/screens/assign_room_screen.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class Booking {
   final String id;
   final String guestName;
   final String roomType;
-  final String roomNumber;
+  final String? roomNumber; // Nullable - room may not be assigned yet
+  final String? roomId; // Nullable - room may not be assigned yet
+  final String? requestedRoomType; // Room type requested by guest
   final String status;
   final List<Map<String, dynamic>> extraCharges;
   final DateTime checkInDate;
@@ -17,7 +21,9 @@ class Booking {
     required this.id,
     required this.guestName,
     required this.roomType,
-    required this.roomNumber,
+    this.roomNumber,
+    this.roomId,
+    this.requestedRoomType,
     required this.status,
     required this.extraCharges,
     required this.checkInDate,
@@ -27,12 +33,16 @@ class Booking {
   Booking copyWith({
     String? status,
     List<Map<String, dynamic>>? extraCharges,
+    String? roomNumber,
+    String? roomId,
   }) {
     return Booking(
       id: id,
       guestName: guestName,
       roomType: roomType,
-      roomNumber: roomNumber,
+      roomNumber: roomNumber ?? this.roomNumber,
+      roomId: roomId ?? this.roomId,
+      requestedRoomType: requestedRoomType,
       status: status ?? this.status,
       extraCharges: extraCharges ?? this.extraCharges,
       checkInDate: checkInDate,
@@ -91,6 +101,28 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   Future<void> _performCheckIn() async {
     try {
+      // Check if room is assigned
+      if (_currentBooking.roomId == null) {
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Room must be assigned before check-in. Please assign a room first.',
+            duration: const Duration(seconds: 4),
+          );
+        }
+        // Navigate to room assignment screen
+        final assigned = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AssignRoomScreen(booking: _currentBooking),
+          ),
+        );
+        if (assigned != true) return;
+        // Reload booking data after assignment
+        await _reloadBooking();
+        return;
+      }
+
       // Show confirmation dialog
       final confirmed = await showDialog<bool>(
         context: context,
@@ -114,28 +146,79 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
       if (confirmed != true) return;
 
-      // Update booking status to checked-in
-      setState(() {
-        _currentBooking = _currentBooking.copyWith(status: 'Checked-in');
+      setState(() => _isLoading = true);
+
+      // Use database function for check-in (handles status updates correctly)
+      final result = await _supabase.rpc('check_in_guest', params: {
+        'booking_id': _currentBooking.id,
       });
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Guest checked in successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (result == true) {
+        // Update local state
+        setState(() {
+          _currentBooking = _currentBooking.copyWith(status: 'Checked-in');
+          _isLoading = false;
+        });
 
-      // Return updated booking to previous screen
-      Navigator.of(context).pop(_currentBooking);
+        // Show success message
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Guest checked in successfully!',
+          );
+        }
+
+        // Return updated booking to previous screen
+        if (mounted) {
+          Navigator.of(context).pop(_currentBooking);
+        }
+      } else {
+        throw Exception('Check-in failed. Please ensure room is assigned and booking is in correct status.');
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error during check-in: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to check in guest. Please try again.',
+          onRetry: _performCheckIn,
+        );
+      }
+    }
+  }
+
+  Future<void> _reloadBooking() async {
+    try {
+      final bookingData = await _supabase
+          .from('bookings')
+          .select('*, rooms(*), profiles!inner(*)')
+          .eq('id', _currentBooking.id)
+          .single();
+
+      final room = bookingData['rooms'] as Map<String, dynamic>?;
+      final profile = bookingData['profiles'] as Map<String, dynamic>?;
+      
+      setState(() {
+        _currentBooking = Booking(
+          id: bookingData['id'] as String,
+          guestName: profile?['full_name'] as String? ?? 'Unknown',
+          roomType: bookingData['requested_room_type'] as String? ?? 
+                    room?['type'] as String? ?? 
+                    'Unknown',
+          roomNumber: room?['room_number'] as String?,
+          roomId: bookingData['room_id'] as String?,
+          requestedRoomType: bookingData['requested_room_type'] as String?,
+          status: bookingData['status'] as String? ?? 'Pending Check-in',
+          extraCharges: List<Map<String, dynamic>>.from(
+            bookingData['extra_charges'] as List? ?? []
+          ),
+          checkInDate: DateTime.parse(bookingData['check_in_date'] as String),
+          checkOutDate: DateTime.parse(bookingData['check_out_date'] as String),
+        );
+      });
+    } catch (e) {
+      print('Error reloading booking: $e');
     }
   }
 
@@ -155,46 +238,69 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           extraCharges: newCharges,
         );
       });
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Charge added successfully!');
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error adding charge: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to add charge. Please try again.',
+          onRetry: () => _addCharge(itemName, price),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _performCheckOut() async {
+    if (_currentBooking.roomId == null) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Cannot check out: No room assigned to this booking.',
+        );
+      }
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
-      // Update room status
-      await _supabase
-          .from('rooms')
-          .update({'status': 'Dirty'})
-          .eq('room_number', _currentBooking.roomNumber);
-
-      // Update booking status
-      await _supabase
-          .from('bookings')
-          .update({'status': 'Checked-out'})
-          .eq('id', _currentBooking.id);
-
-      setState(() {
-        _currentBooking = _currentBooking.copyWith(status: 'Checked-out');
+      // Use database function for check-out (handles status updates correctly)
+      final result = await _supabase.rpc('check_out_guest', params: {
+        'booking_id': _currentBooking.id,
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Guest checked out successfully. Room marked as dirty.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (result == true) {
+        if (mounted) {
+          setState(() {
+            _currentBooking = _currentBooking.copyWith(status: 'Checked-out');
+          });
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Guest checked out successfully. Room marked as dirty.',
+          );
+        }
+      } else {
+        throw Exception('Check-out failed. Please ensure booking is in correct status.');
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error during checkout: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to check out guest. Please try again.',
+          onRetry: _performCheckOut,
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -282,7 +388,9 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Booking: Room ${_currentBooking.roomNumber}'),
+        title: Text(_currentBooking.roomNumber != null 
+            ? 'Booking: Room ${_currentBooking.roomNumber}'
+            : 'Booking: ${_currentBooking.guestName}'),
         backgroundColor: Colors.blueGrey,
       ),
       body: _isLoading
@@ -302,7 +410,20 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                   _buildDetailCard(
                     'Booking Details',
                     [
-                      _buildDetailRow(Icons.king_bed, 'Room', '${_currentBooking.roomType} - ${_currentBooking.roomNumber}'),
+                      _buildDetailRow(
+                        Icons.king_bed, 
+                        'Room', 
+                        _currentBooking.roomNumber != null 
+                          ? '${_currentBooking.roomType} - ${_currentBooking.roomNumber}'
+                          : '${_currentBooking.roomType} - Room Not Assigned',
+                      ),
+                      if (_currentBooking.roomNumber == null)
+                        _buildDetailRow(
+                          Icons.warning, 
+                          'Room Status', 
+                          'Room needs to be assigned before check-in',
+                          color: Colors.orange,
+                        ),
                       _buildDetailRow(Icons.info_outline, 'Status', _currentBooking.status),
                       _buildDetailRow(Icons.calendar_today, 'Check-in', DateFormat.yMMMd().format(_currentBooking.checkInDate)),
                       _buildDetailRow(Icons.calendar_today, 'Check-out', DateFormat.yMMMd().format(_currentBooking.checkOutDate)),
@@ -366,6 +487,30 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   Widget? _buildActionButton() {
     if (_currentBooking.status == 'Pending Check-in') {
+      if (_currentBooking.roomId == null) {
+        // Show assign room button if room not assigned
+        return ElevatedButton.icon(
+          icon: const Icon(Icons.room),
+          label: const Text('Assign Room'),
+          onPressed: () async {
+            final assigned = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AssignRoomScreen(booking: _currentBooking),
+              ),
+            );
+            if (assigned == true) {
+              await _reloadBooking();
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            minimumSize: const Size(double.infinity, 50),
+          ),
+        );
+      }
+      // Show check-in button if room is assigned
       return ElevatedButton.icon(
         icon: const Icon(Icons.login),
         label: const Text('Confirm Guest Check-in'),
@@ -408,15 +553,15 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     );
   }
 
-  Widget _buildDetailRow(IconData icon, String label, String value) {
+  Widget _buildDetailRow(IconData icon, String label, String value, {Color? color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey[700]),
+          Icon(icon, size: 20, color: color ?? Colors.grey[700]),
           const SizedBox(width: 8),
           Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(child: Text(value)),
+          Expanded(child: Text(value, style: TextStyle(color: color))),
         ],
       ),
     );

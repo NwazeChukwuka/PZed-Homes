@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:pzed_homes/presentation/widgets/guest_auth_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/animated_wrapper.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/gallery_viewer_screen.dart';
 import 'package:pzed_homes/data/models/gallery_item.dart';
@@ -155,8 +156,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not launch URL')),
+      ErrorHandler.showWarningMessage(
+        context,
+        'Could not launch URL. Please check your device settings.',
       );
     }
   }
@@ -319,9 +321,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     // This would be implemented with your theme provider
     // For example: Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
     // For now, we'll just show a snackbar
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Theme toggle will be implemented with theme provider')),
-    );
+    if (mounted) {
+      ErrorHandler.showInfoMessage(
+        context,
+        'Theme toggle will be implemented with theme provider',
+      );
+    }
   }
 
   @override
@@ -453,6 +458,15 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               if (contentSnapshot.connectionState == ConnectionState.waiting && 
                   gallerySnapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
+              }
+
+              // Handle errors gracefully
+              if (contentSnapshot.hasError && gallerySnapshot.hasError) {
+                return ErrorHandler.buildErrorWidget(
+                  context,
+                  contentSnapshot.error ?? gallerySnapshot.error,
+                  message: 'Error loading page content',
+                );
               }
 
               // Get content with fallback
@@ -1523,9 +1537,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
 
   void _showAvailableRooms() {
     if (_checkInDate == null || _checkOutDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select check-in and check-out dates')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select check-in and check-out dates',
+        );
+      }
       return;
     }
 
@@ -1670,13 +1687,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 // Here you would typically send the message to your backend
                 // For now, we'll just show a success message and close the dialog
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Your message has been sent successfully!'),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 3),
-                  ),
-                );
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Your message has been sent successfully!',
+                    duration: const Duration(seconds: 3),
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(

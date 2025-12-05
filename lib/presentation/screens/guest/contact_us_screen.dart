@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -543,9 +544,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     if (await canLaunchUrl(phoneUri)) {
       await launchUrl(phoneUri);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not make phone call')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Could not make phone call. Please check your device settings.',
+        );
+      }
     }
   }
 
@@ -558,9 +562,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     if (await canLaunchUrl(emailUri)) {
       await launchUrl(emailUri);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open email client')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Could not open email client. Please check your device settings.',
+        );
+      }
     }
   }
 
@@ -576,9 +583,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     if (await canLaunchUrl(mapsUri)) {
       await launchUrl(mapsUri, mode: LaunchMode.externalApplication);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open maps')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Could not open maps. Please check your device settings.',
+        );
+      }
     }
   }
 
@@ -594,12 +604,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       await Future.delayed(const Duration(seconds: 2));
       
       // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Message sent successfully! We\'ll get back to you soon.'),
-          backgroundColor: Colors.green[600],
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Message sent successfully! We\'ll get back to you soon.',
+        );
+      }
 
       // Clear form
       _nameController.clear();
@@ -608,14 +618,18 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       _subjectController.clear();
       _messageController.clear();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error sending message: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to send message. Please try again.',
+          onRetry: _submitForm,
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 }

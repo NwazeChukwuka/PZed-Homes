@@ -3,7 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateBookingScreen extends StatefulWidget {
   const CreateBookingScreen({super.key});
@@ -18,6 +20,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   final _guestEmailController = TextEditingController();
   final _guestPhoneController = TextEditingController();
   final _dataService = DataService();
+  final _supabase = Supabase.instance.client;
 
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
@@ -45,19 +48,23 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
   Future<void> _loadRoomTypes() async {
     try {
+      final response = await _supabase
+          .from('room_types')
+          .select('id, type, price, description')
+          .order('price');
+      
       setState(() {
-        _roomTypes = [
-          {'id': 'Standard', 'type': 'Standard', 'price': 15000, 'description': 'Cozy standard room'},
-          {'id': 'Classic', 'type': 'Classic', 'price': 20000, 'description': 'Classic comfort'},
-          {'id': 'Diplomatic', 'type': 'Diplomatic', 'price': 25000, 'description': 'Spacious diplomatic'},
-          {'id': 'Deluxe', 'type': 'Deluxe', 'price': 30000, 'description': 'Premium deluxe'},
-          {'id': 'Executive', 'type': 'Executive', 'price': 50000, 'description': 'Executive luxury'},
-        ];
+        _roomTypes = List<Map<String, dynamic>>.from(response);
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading room types: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load room types. Please check your connection and try again.',
+          onRetry: _loadRoomTypes,
+        );
+      }
     }
   }
 
@@ -69,16 +76,46 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isFetchingRooms = true);
     try {
-      final rooms = await _dataService.getRooms();
-      final filtered = rooms.where((r) => r['type'] == _selectedRoomTypeId).toList();
+      // Get conflicting bookings
+      final conflictingBookings = await _supabase
+          .from('bookings')
+          .select('room_id')
+          .or('status.eq.Pending Check-in,status.eq.Checked-in')
+          .lte('check_in_date', _checkOutDate!.toIso8601String())
+          .gte('check_out_date', _checkInDate!.toIso8601String());
+
+      final bookedRoomIds = (conflictingBookings as List)
+          .where((b) => b['room_id'] != null)
+          .map((b) => b['room_id'] as String)
+          .toSet();
+
+      // Get available rooms of selected type
+      var query = _supabase
+          .from('rooms')
+          .select()
+          .eq('status', 'Vacant');
+      
+      if (_selectedRoomTypeId != null) {
+        query = query.eq('type', _selectedRoomTypeId!);
+      }
+      
+      final rooms = await query
+          .not('id', 'in', bookedRoomIds.isEmpty ? [''] : bookedRoomIds.toList());
+
       setState(() {
-        _availableRooms = filtered;
+        _availableRooms = List<Map<String, dynamic>>.from(rooms);
         _selectedRoomId = null;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error checking availability: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _isFetchingRooms = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to check availability. Please try again.',
+          onRetry: _findAvailableRooms,
+        );
+      }
     } finally {
       setState(() => _isFetchingRooms = false);
     }
@@ -116,25 +153,66 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isLoading = true);
     try {
+      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final userId = authService.currentUser?.id ?? 'system';
+      
+      // Get or create guest profile
+      String guestProfileId;
+      final existingProfile = await _supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', _guestEmailController.text.trim())
+          .maybeSingle();
+
+      if (existingProfile != null) {
+        guestProfileId = existingProfile['id'] as String;
+      } else {
+        final newProfile = await _supabase
+            .from('profiles')
+            .insert({
+              'full_name': _guestNameController.text.trim(),
+              'email': _guestEmailController.text.trim(),
+              'phone': _guestPhoneController.text.trim(),
+            })
+            .select('id')
+            .single();
+        guestProfileId = newProfile['id'] as String;
+      }
+
+      // Get room type name for requested_room_type
+      final selectedRoomType = _roomTypes.firstWhere(
+        (type) => type['id'] == _selectedRoomTypeId,
+        orElse: () => {'type': 'Standard'},
+      );
+      
+      // Calculate total amount (nights * room price)
+      final nights = _checkOutDate!.difference(_checkInDate!).inDays;
+      final roomPrice = selectedRoomType['price'] as int? ?? 0;
+      final totalAmount = nights * roomPrice;
+      
       await _dataService.createBooking({
-        'id': 'booking-local-${DateTime.now().millisecondsSinceEpoch}',
-        'guest_name': _guestNameController.text.trim(),
-        'room_id': _selectedRoomId,
+        'guest_profile_id': guestProfileId, // Use the profile ID we just created/got
+        'room_id': _selectedRoomId, // Can be null - receptionist can assign later
+        'requested_room_type': selectedRoomType['type'] as String?,
         'check_in': _checkInDate!.toIso8601String(),
         'check_out': _checkOutDate!.toIso8601String(),
-        'payment_method': _paymentMethod,
-        'status': 'confirmed',
+        'status': 'Pending Check-in',
+        'total_amount': totalAmount,
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Booking created successfully (mock)!'), backgroundColor: Colors.green),
-      );
-
-      context.pop(true);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Booking created successfully!');
+        context.pop(true);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error creating booking: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to create booking. Please try again.',
+          onRetry: _createBooking,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

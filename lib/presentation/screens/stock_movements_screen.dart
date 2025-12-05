@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class StockMovementsScreen extends StatefulWidget {
   const StockMovementsScreen({super.key});
@@ -55,8 +56,11 @@ class _StockMovementsScreenState extends State<StockMovementsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading movements: $e'), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load stock movements. Please check your connection and try again.',
+          onRetry: _loadRecentMovements,
         );
       }
     }
@@ -140,24 +144,24 @@ class _StockMovementsScreenState extends State<StockMovementsScreen> {
                     _quantityController.text.trim().isEmpty ||
                     _unitController.text.trim().isEmpty ||
                     _locationController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please fill in all required fields'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please fill in all required fields',
+                    );
+                  }
                   return;
                 }
 
                 try {
                   final quantity = int.tryParse(_quantityController.text.trim());
                   if (quantity == null || quantity < 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please enter a valid quantity'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
+                    if (mounted) {
+                      ErrorHandler.showWarningMessage(
+                        context,
+                        'Please enter a valid quantity',
+                      );
+                    }
                     return;
                   }
 
@@ -176,22 +180,19 @@ class _StockMovementsScreenState extends State<StockMovementsScreen> {
                   
                   if (mounted) {
                     Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Stock entry added successfully!'),
-                        backgroundColor: Colors.green,
-                      ),
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Stock entry added successfully!',
                     );
                     // Refresh movements
                     await _loadRecentMovements();
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error adding stock entry: $e'),
-                        backgroundColor: Colors.red,
-                      ),
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: 'Failed to add stock entry. Please try again.',
                     );
                   }
                 }

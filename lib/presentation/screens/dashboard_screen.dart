@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -14,6 +14,8 @@ import 'package:pzed_homes/core/layout/responsive_layout.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/summary_card.dart';
 import 'package:pzed_homes/presentation/screens/create_booking_screen.dart';
+import 'package:pzed_homes/data/models/booking.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
 
 enum TimeRange { today, week, month, custom }
@@ -71,9 +73,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _loadData();
     _searchController.addListener(_filterBookings);
-    // Set default focus by role
+    // Set default focus by role and sync clock-in status
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<MockAuthService>(context, listen: false);
+      final auth = Provider.of<AuthService>(context, listen: false);
+      // Sync clock-in status with AuthService
+      if (mounted) {
+        setState(() {
+          _isClockedIn = auth.isClockedIn;
+        });
+      }
       final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
       if (role == AppRole.owner || role == AppRole.accountant) {
         setState(() { _focus = 'financial'; });
@@ -142,18 +150,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<Map<String, dynamic>> _calculateDashboardStats() async {
-    // Mock-only stats for presentation
+    // Calculate stats from actual bookings
       return {
-      'checked_in_count': _bookings.where((b) => (b['status']?.toString().toLowerCase() ?? '') == 'checked_in').length,
-      'pending_count': _bookings.where((b) => (b['status']?.toString().toLowerCase() ?? '') == 'confirmed').length,
+      'checked_in_count': _bookings.where((b) => (b['status']?.toString() ?? '') == 'Checked-in').length,
+      'pending_count': _bookings.where((b) => (b['status']?.toString() ?? '') == 'Pending Check-in').length,
       'occupancy_rate': (_stats['occupancy_rate'] ?? 65),
       'total_revenue': _stats['total_revenue'] ?? 0,
     };
   }
 
   Future<Map<String, dynamic>?> _fetchLastAttendance() async {
-    // Mock attendance: not clocked in by default
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      if (authService.currentUser == null) return null;
+      
+      // Get current attendance from database
+      final attendance = await _dataService.getCurrentAttendance(authService.currentUser!.id);
+      
+      // Update local state to match AuthService
+      if (mounted) {
+        setState(() {
+          _isClockedIn = authService.isClockedIn;
+        });
+      }
+      
+      return attendance;
+    } catch (e) {
+      // If error, check AuthService state
+      final authService = Provider.of<AuthService>(context, listen: false);
+      if (mounted) {
+        setState(() {
+          _isClockedIn = authService.isClockedIn;
+        });
+      }
       return null;
+    }
   }
 
   void _filterBookings() {
@@ -172,35 +203,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleClockIn() async {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
-    authService.clockIn();
-    setState(() {
-      _isClockedIn = true;
-      _lastAttendanceRecord = {
-        'clock_in_time': DateTime.now().toIso8601String(),
-      };
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Clocked in successfully'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.clockIn();
+      if (mounted) {
+        setState(() {
+          _isClockedIn = true;
+          _lastAttendanceRecord = {
+            'clock_in_time': authService.clockInTime?.toIso8601String() ?? DateTime.now().toIso8601String(),
+          };
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Clocked in successfully',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to clock in. Please try again.',
+        );
+      }
+    }
   }
 
   Future<void> _handleClockOut() async {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
-    authService.clockOut();
-    setState(() {
-      _isClockedIn = false;
-      _lastAttendanceRecord = null;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Clocked out successfully'),
-        backgroundColor: Colors.blue,
-      ),
-    );
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.clockOut();
+      if (mounted) {
+        setState(() {
+          _isClockedIn = false;
+          _lastAttendanceRecord = null;
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Clocked out successfully',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to clock out. Please try again.',
+        );
+      }
+    }
   }
 
   @override
@@ -664,7 +715,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
  
 
   Widget _buildHeader(BuildContext context) {
-    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final auth = Provider.of<AuthService>(context, listen: false);
     final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
     final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
 
@@ -1199,7 +1250,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
               rows: _filteredBookings.take(10).map((booking) {
                 final guestName = (booking['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown';
-                final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?['room_number'] ?? 'Unknown';
+                final room = booking['rooms'] as Map<String, dynamic>?;
+                final roomNumber = room?['room_number']?.toString() ?? 
+                                  booking['requested_room_type']?.toString() ?? 
+                                  'Not Assigned';
                 final status = booking['status'] as String? ?? 'Unknown';
                 final checkIn = booking['check_in_date'] != null 
                     ? DateFormat('MMM dd, yyyy').format(DateTime.parse(booking['check_in_date']))
@@ -1225,7 +1279,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       IconButton(
                         icon: const Icon(Icons.visibility),
                         onPressed: () {
-                          // Navigate to booking details
+                          // Convert booking map to Booking object and navigate
+                          try {
+                            final bookingObj = Booking.fromMap(booking);
+                            context.push('/booking/details', extra: bookingObj);
+                          } catch (e) {
+                            if (mounted) {
+                              ErrorHandler.handleError(
+                                context,
+                                e,
+                                customMessage: 'Failed to open booking. Please try again.',
+                              );
+                            }
+                          }
                         },
                       ),
                     ),
@@ -1346,7 +1412,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Role-specific metrics section
   Widget _buildRoleSpecificSection(BuildContext context) {
-    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final auth = Provider.of<AuthService>(context, listen: false);
     final effectiveRole = auth.isRoleAssumed ? auth.assumedRole ?? auth.userRole : auth.userRole;
 
     switch (effectiveRole) {
@@ -1383,7 +1449,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Quick navigation for department and key areas
   Widget _buildQuickNav(BuildContext context) {
-    final auth = Provider.of<MockAuthService>(context, listen: false);
+    final auth = Provider.of<AuthService>(context, listen: false);
     final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
     final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
 

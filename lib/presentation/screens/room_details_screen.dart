@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:pzed_homes/data/mock_data.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RoomDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> roomType;
@@ -22,32 +24,59 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
   Future<void> _checkAvailability() async {
     if (_checkInDate == null || _checkOutDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select check-in and check-out dates')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select check-in and check-out dates',
+        );
+      }
       return;
     }
 
     setState(() => _isLoadingAvailability = true);
     try {
-      await Future.delayed(const Duration(milliseconds: 300));
-      final allRooms = mockAllRooms;
+      final dataService = DataService();
+      final allRooms = await dataService.getRooms();
       final type = (widget.roomType['type'] as String?)?.toLowerCase() ?? '';
+      
+      // Get conflicting bookings
+      final supabase = Supabase.instance.client;
+      final conflictingBookings = await supabase
+          .from('bookings')
+          .select('room_id')
+          .or('status.eq.Pending Check-in,status.eq.Checked-in')
+          .lte('check_in_date', _checkOutDate!.toIso8601String())
+          .gte('check_out_date', _checkInDate!.toIso8601String());
+      
+      final bookedRoomIds = (conflictingBookings as List)
+          .where((b) => b['room_id'] != null)
+          .map((b) => b['room_id'] as String)
+          .toSet();
+      
       final available = allRooms
-          .where((r) => (r['type']?.toString().toLowerCase() ?? '') == type && (r['status'] == 'Vacant'))
+          .where((r) => 
+              (r['type']?.toString().toLowerCase() ?? '') == type && 
+              (r['status'] == 'Vacant') &&
+              !bookedRoomIds.contains(r['id']?.toString()))
           .map((r) => {
-                'room_number': r['roomNumber'] ?? r['id'],
+                'room_number': r['room_number'] ?? r['id'],
               })
           .toList();
+      
       setState(() {
         _availableRooms = List<Map<String, dynamic>>.from(available);
         _isLoadingAvailability = false;
       });
     } catch (e) {
-      setState(() => _isLoadingAvailability = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('[Mock] Error checking availability: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _isLoadingAvailability = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to check availability. Please try again.',
+          onRetry: _checkAvailability,
+        );
+      }
     }
   }
 
@@ -74,23 +103,32 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
   void _navigateToBooking() {
     if (_checkInDate == null || _checkOutDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select dates first')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select dates first',
+        );
+      }
       return;
     }
 
     if (_availableRooms.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please check availability first')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please check availability first',
+        );
+      }
       return;
     }
 
     // Navigate to booking screen with selected parameters
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Proceeding to booking...')),
-    );
+    if (mounted) {
+      ErrorHandler.showInfoMessage(
+        context,
+        'Proceeding to booking...',
+      );
+    }
   }
 
   @override

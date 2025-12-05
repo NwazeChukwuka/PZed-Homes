@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/data/mock_data.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -15,6 +16,7 @@ class HousekeepingScreen extends StatefulWidget {
 
 class _HousekeepingScreenState extends State<HousekeepingScreen> {
   bool _isLoading = false;
+  final _dataService = DataService();
 
   // Pagination state
   int _rowsPerPage = 10;
@@ -30,21 +32,33 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
 
   Future<void> _loadRooms() async {
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 250));
-    final rooms = MockData.getRooms().map((r) {
-      // Adapt keys to UI expectations
-      return {
-        'id': r['id'],
-        'room_number': r['id'],
-        'type': r['type'],
-        'status': _mapStatus(r['status']?.toString() ?? 'available'),
-      };
-    }).toList();
-    setState(() {
-      _allRooms = rooms;
-      _isLoading = false;
-    });
-    _updatePagination();
+    try {
+      final rooms = await _dataService.getRooms();
+      final adaptedRooms = rooms.map((r) {
+        // Adapt keys to UI expectations
+        return {
+          'id': r['id'],
+          'room_number': r['room_number'] ?? r['id'],
+          'type': r['type'],
+          'status': _mapStatus(r['status']?.toString() ?? 'Vacant'),
+        };
+      }).toList();
+      setState(() {
+        _allRooms = adaptedRooms;
+        _isLoading = false;
+      });
+      _updatePagination();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load rooms. Please check your connection and try again.',
+          onRetry: _loadRooms,
+        );
+      }
+    }
   }
 
   String _mapStatus(String s) {
@@ -70,12 +84,12 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
         _allRooms[idx]['status'] = newStatus;
       });
       _updatePagination();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('[Mock] Room status updated to $newStatus'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Room status updated to $newStatus',
+        );
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class ConfirmPurchasesScreen extends StatefulWidget {
   const ConfirmPurchasesScreen({super.key});
@@ -32,9 +33,21 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
         'order_id': orderId,
         'storekeeper_id': authService.currentUser!.id,
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Purchase Confirmed & Stock Updated!'), backgroundColor: Colors.green));
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Purchase Confirmed & Stock Updated!',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to confirm purchase order. Please try again.',
+          onRetry: () => _confirmOrder(orderId),
+        );
+      }
     }
   }
 
@@ -45,9 +58,26 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _pendingOrdersStream,
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return ErrorHandler.buildErrorWidget(
+              context,
+              snapshot.error,
+              message: 'Error loading pending orders',
+            );
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return ErrorHandler.buildEmptyWidget(
+              context,
+              message: 'No pending purchases to confirm',
+            );
+          }
+          
           final orders = snapshot.data!;
-          if (orders.isEmpty) return const Center(child: Text('No pending purchases to confirm.'));
 
           return ListView.builder(
             itemCount: orders.length,

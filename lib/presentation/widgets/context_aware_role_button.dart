@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/services/mock_auth_service.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
 /// Context-aware role assumption button that shows the appropriate role
@@ -17,7 +18,7 @@ class ContextAwareRoleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context);
+    final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
     
@@ -25,7 +26,7 @@ class ContextAwareRoleButton extends StatelessWidget {
     if (!isOwnerOrManager) return const SizedBox.shrink();
     
     final isCurrentlyAssumed = authService.isRoleAssumed && authService.assumedRole == suggestedRole;
-    final roleName = customLabel ?? MockAuthService.getRoleDisplayName(suggestedRole);
+    final roleName = customLabel ?? AuthService.getRoleDisplayName(suggestedRole);
     
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -33,21 +34,15 @@ class ContextAwareRoleButton extends StatelessWidget {
         onPressed: () {
           if (isCurrentlyAssumed) {
             authService.returnToOriginalRole();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Returned to ${user?.role.name.toUpperCase()} role'),
-                backgroundColor: Colors.blue[700],
-                duration: const Duration(seconds: 2),
-              ),
+            ErrorHandler.showInfoMessage(
+              context,
+              'Returned to ${user?.role.name.toUpperCase()} role',
             );
           } else {
             authService.assumeRole(suggestedRole);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Now assuming $roleName role'),
-                backgroundColor: Colors.green[700],
-                duration: const Duration(seconds: 2),
-              ),
+            ErrorHandler.showSuccessMessage(
+              context,
+              'Now assuming $roleName role',
             );
           }
         },

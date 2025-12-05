@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 
@@ -17,6 +19,7 @@ class MiniMartScreen extends StatefulWidget {
 class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProviderStateMixin {
   TabController? _tabController;
   final _dataService = DataService();
+  final _supabase = Supabase.instance.client;
   
   // Sales data
   List<Map<String, dynamic>> _miniMartItems = [];
@@ -76,10 +79,13 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load mini mart data. Please check your connection and try again.',
+          onRetry: _loadMiniMartData,
+        );
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading data: $e'), backgroundColor: Colors.red),
-      );
     }
   }
 
@@ -136,41 +142,76 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   Future<void> _processSale() async {
     if (_currentSale.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add items to the sale'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please add items to the sale',
+        );
+      }
       return;
     }
 
     // Check if staff is clocked in
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     if (!authService.canMakeTransactions()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You must clock in before making transactions'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'You must clock in before making transactions',
+        );
+      }
       return;
     }
 
     // Validate credit payment requirements
     if (_paymentMethod == 'Credit') {
       if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Customer name and phone are required for credit sales'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Customer name and phone are required for credit sales',
+          );
+        }
         return;
       }
     }
 
     try {
-      // Mock-only: simulate saving sale and updating stock
+      final userId = authService.currentUser?.id ?? 'system';
+      
+      // Create sale record
+      final saleResponse = await _supabase
+          .from('mini_mart_sales')
+          .insert({
+            'receptionist_id': userId,
+            'customer_name': _customerNameController.text.trim().isNotEmpty 
+                ? _customerNameController.text.trim() 
+                : 'Walk-in Customer',
+            'customer_phone': _customerPhoneController.text.trim(),
+            'payment_method': _paymentMethod,
+            'total_amount': _saleTotal,
+            'sale_date': DateTime.now().toIso8601String(),
+            'items': _currentSale.map((item) => {
+              'item_id': item['id'],
+              'item_name': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['price'],
+              'total_price': (item['price'] as num).toDouble() * (item['quantity'] as int),
+            }).toList(),
+          })
+          .select('id')
+          .single();
+
+      // Update stock levels for each item
       for (final item in _currentSale) {
-        // no-op in mock mode
+        final currentStock = (item['stock'] as int?) ?? 0;
+        final quantitySold = (item['quantity'] as int?) ?? 0;
+        final newStock = currentStock - quantitySold;
+
+        await _supabase
+            .from('mini_mart_items')
+            .update({'current_stock': newStock})
+            .eq('id', item['id']);
       }
 
       // If credit payment, record as debt
@@ -182,27 +223,27 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           'amount': _saleTotal,
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'reason': 'Mini Mart sale on credit - ${_currentSale.length} items',
-          'date': DateTime.now().toIso8601String(),
-          'due_date': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
+          'date': DateTime.now().toIso8601String().split('T')[0],
+          'due_date': DateTime.now().add(const Duration(days: 30)).toIso8601String().split('T')[0],
           'status': 'pending',
           'department': 'mini_mart',
         };
         
         await _dataService.recordDebt(debt);
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created',
+          );
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+          );
+        }
       }
 
       // Clear sale
@@ -210,9 +251,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
       await _loadMiniMartData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error processing sale: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to process sale. Please check your connection and try again.',
+          onRetry: _processSale,
+        );
+      }
     }
   }
 
@@ -228,7 +274,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, child) {
         final user = authService.currentUser;
         final isReceptionist = (user?.roles.any((r) => r.name == 'receptionist') ?? false) ||

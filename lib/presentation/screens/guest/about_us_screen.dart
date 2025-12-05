@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
 
 class AboutUsScreen extends StatelessWidget {
   const AboutUsScreen({super.key});
@@ -44,15 +42,10 @@ class AboutUsScreen extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          CachedNetworkImage(
-            imageUrl: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200&q=80',
+          Image.asset(
+            'assets/images/Front View/Front View 1.JPG',
             fit: BoxFit.cover,
-            placeholder: (context, url) => Shimmer.fromColors(
-              baseColor: Colors.grey.shade300,
-              highlightColor: Colors.grey.shade100,
-              child: Container(color: Colors.grey.shade300),
-            ),
-            errorWidget: (context, url, error) => Container(
+            errorBuilder: (context, error, stackTrace) => Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Colors.green[300]!, Colors.green[600]!],
@@ -121,7 +114,7 @@ class AboutUsScreen extends StatelessWidget {
           _buildInfoCard(
             context,
             'Our Mission',
-            'To provide exceptional hospitality services that exceed our guests\' expectations while maintaining the highest standards of comfort, luxury, and personalized service.',
+            'To craft unforgettable luxury experiences by consistently delivering the highest standards of comfort, sophistication, and genuinely personalized service that anticipates every guest need',
             Icons.flag,
             Colors.blue,
           ),
@@ -129,7 +122,7 @@ class AboutUsScreen extends StatelessWidget {
           _buildInfoCard(
             context,
             'Our Vision',
-            'To be the leading luxury hospitality destination in Nigeria, known for our commitment to excellence, innovation, and creating unforgettable experiences for our guests.',
+            'To be the leading luxury hospitality destination in Ebonyi State, and in turn Nigeria, known for our commitment to excellence, innovation, and creating unforgettable experiences for our guests.',
             Icons.visibility,
             Colors.purple,
           ),
@@ -154,7 +147,7 @@ class AboutUsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'P-ZED Luxury Hotels & Suites was founded with a vision to redefine hospitality in Nigeria. Since our establishment, we have been committed to providing world-class accommodation and services that reflect the warmth and hospitality of Nigerian culture.',
+            'P-ZED Luxury Hotels & Suites was born from a singular ambition: to redefine luxury hospitality in the heart of the South-East, Nigeria. Our journey began in Ebonyi State, a place of vibrant culture and growing economic importance, where we saw the opportunity to establish a haven of world-class standards and authentic Nigerian warmth.',
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey[600],
@@ -163,7 +156,7 @@ class AboutUsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Our journey began with a simple belief: that every guest deserves to experience luxury, comfort, and exceptional service. Today, we continue to uphold these values while constantly innovating to meet the evolving needs of our valued guests.',
+            'We believe that true luxury is personal. Our founders envisioned a space where uncompromising comfort meets genuine, intuitive service. Since opening our doors, we have been committed not just to providing accommodation, but to crafting a legacy of memorable moments. We constantly invest in innovation, from smart technology integration to curated local partnerships, to ensure P-ZED remains the standard-bearer for sophisticated, evolving guest experiences in Nigeria.',
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey[600],

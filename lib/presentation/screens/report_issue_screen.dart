@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class ReportIssueScreen extends StatefulWidget {
   const ReportIssueScreen({super.key});
@@ -17,7 +19,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
   String? _selectedAssetId; // FIX: We will link to an asset, not a free-text location.
   String? _selectedPriority = 'Medium';
   bool _isLoading = false;
-  final List<Map<String, dynamic>> _mockReports = [];
+  final _dataService = DataService();
 
   final List<String> _priorities = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -25,25 +27,36 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
-      final report = {
-        'id': DateTime.now().millisecondsSinceEpoch,
-        'reported_by_id': authService.currentUser?.id,
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final currentUser = authService.currentUser;
+      
+      if (currentUser == null) {
+        throw Exception('User must be logged in to report issues');
+      }
+
+      // Save to database via DataService
+      await _dataService.createMaintenanceWorkOrder({
         'asset_id': _selectedAssetId,
+        'reported_by_id': currentUser.id,
         'issue_description': _descriptionController.text.trim(),
         'location': _locationController.text.trim(),
-        'priority': _selectedPriority,
-        'created_at': DateTime.now().toIso8601String(),
-      };
-      await Future.delayed(const Duration(milliseconds: 200));
-      _mockReports.insert(0, report);
+        'priority': _selectedPriority ?? 'Medium',
+        'status': 'Open',
+      });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('[Mock] Issue reported successfully!'), backgroundColor: Colors.green));
+        ErrorHandler.showSuccessMessage(context, 'Issue reported successfully!');
         context.pop(true); // Return true to signal a refresh
       }
     } catch (e) {
-      // ... error handling ...
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to submit issue report. Please try again.',
+          onRetry: _submitReport,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

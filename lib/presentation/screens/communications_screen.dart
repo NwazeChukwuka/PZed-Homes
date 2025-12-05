@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CommunicationsScreen extends StatefulWidget {
   const CommunicationsScreen({super.key});
@@ -14,37 +17,63 @@ class CommunicationsScreen extends StatefulWidget {
 class _CommunicationsScreenState extends State<CommunicationsScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
+  final _dataService = DataService();
+  final _supabase = Supabase.instance.client;
   final List<Map<String, dynamic>> _posts = [];
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _loadMockPosts();
+    _loadPosts();
   }
 
-  Future<void> _loadMockPosts() async {
+  Future<void> _loadPosts() async {
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 250));
-    final now = DateTime.now();
-    _posts.clear();
-    _posts.addAll([
-      {
-        'id': 'post1',
+    try {
+      // Always include the default "Welcome to PZED" announcement
+      final defaultPost = {
+        'id': 'welcome_post',
         'title': 'Welcome to P-ZED Luxury Hotels & Suites',
-        'content': 'Team, let\'s ensure premium experience for all guests today. ',
+        'content': 'Team, let\'s ensure premium experience for all guests today.',
         'author_name': 'Management',
-        'created_at': now.subtract(const Duration(days: 1)).toIso8601String(),
-      },
-      {
-        'id': 'post2',
-        'title': 'VIP Bar Inventory Reminder',
-        'content': 'Please reconcile VIP bar stock before 8PM.',
-        'author_name': 'Storekeeper',
-        'created_at': now.subtract(const Duration(hours: 6)).toIso8601String(),
-      },
-    ]);
-    setState(() => _isLoading = false);
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      // Load announcements from database
+      final dbPosts = await _dataService.getPosts(isAnnouncement: true);
+      
+      setState(() {
+        _posts.clear();
+        // Add default welcome post first
+        _posts.add(defaultPost);
+        // Add database posts
+        _posts.addAll(dbPosts.map((post) {
+          final profile = post['profiles'] as Map<String, dynamic>?;
+          return {
+            'id': post['id'],
+            'title': post['title'] ?? 'No title',
+            'content': post['content'] ?? '',
+            'author_name': profile?['full_name'] ?? 'Unknown',
+            'created_at': post['created_at'] ?? DateTime.now().toIso8601String(),
+          };
+        }).toList());
+        _isLoading = false;
+      });
+    } catch (e) {
+      // If database fails, at least show the welcome message
+      setState(() {
+        _posts.clear();
+        _posts.add({
+          'id': 'welcome_post',
+          'title': 'Welcome to P-ZED Luxury Hotels & Suites',
+          'content': 'Team, let\'s ensure premium experience for all guests today.',
+          'author_name': 'Management',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _showCreatePostDialog() async {
@@ -93,12 +122,12 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
               onPressed: () async {
                 if (_titleController.text.trim().isEmpty || 
                     _contentController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please fill in both title and message'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please fill in both title and message',
+                    );
+                  }
                   return;
                 }
 
@@ -110,34 +139,45 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     throw Exception('User not authenticated');
                   }
 
-                  final post = {
-                    'id': 'post_${DateTime.now().millisecondsSinceEpoch}',
+                  // Get user profile ID
+                  final profileResponse = await _supabase
+                      .from('profiles')
+                      .select('id')
+                      .eq('email', currentUser.email)
+                      .maybeSingle();
+
+                  final profileId = profileResponse?['id'] as String?;
+                  if (profileId == null) {
+                    throw Exception('User profile not found');
+                  }
+
+                  // Create post in database
+                  await _dataService.createPost({
+                    'author_profile_id': profileId,
                     'title': _titleController.text.trim(),
                     'content': _contentController.text.trim(),
-                    'author_name': currentUser.name,
-                    'created_at': DateTime.now().toIso8601String(),
-                  };
-                  setState(() => _posts.insert(0, post));
+                    'department': currentUser.role.name,
+                    'is_announcement': true,
+                  });
 
                   _titleController.clear();
                   _contentController.clear();
                   
                   if (mounted) {
                     Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('[Mock] Announcement posted successfully!'),
-                        backgroundColor: Colors.green,
-                      ),
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Announcement posted successfully!',
                     );
+                    // Reload posts
+                    await _loadPosts();
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('[Mock] Error posting announcement: $e'),
-                        backgroundColor: Colors.red,
-                      ),
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: 'Failed to post announcement. Please try again.',
                     );
                   }
                 }

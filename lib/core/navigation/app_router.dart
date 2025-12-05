@@ -3,7 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_landing_page.dart';
 import 'package:pzed_homes/presentation/screens/login_screen.dart';
@@ -48,11 +49,10 @@ class AppRouter {
       return await context.push<T>(location, extra: extra);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Navigation error: $e'),
-            backgroundColor: Colors.red,
-          ),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Navigation error occurred',
         );
       }
       return null;
@@ -64,11 +64,10 @@ class AppRouter {
       context.go(location, extra: extra);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Navigation error: $e'),
-            backgroundColor: Colors.red,
-          ),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Navigation error occurred',
         );
       }
     }
@@ -79,11 +78,10 @@ class AppRouter {
       context.pop(result);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Navigation error: $e'),
-            backgroundColor: Colors.red,
-          ),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Navigation error occurred',
         );
       }
     }
@@ -194,7 +192,7 @@ class AppRouter {
             path: '/dashboard',
             name: 'dashboard',
             builder: (context, state) {
-              final authService = Provider.of<MockAuthService>(context, listen: false);
+              final authService = Provider.of<AuthService>(context, listen: false);
               final user = authService.currentUser;
               final userRole = authService.isRoleAssumed 
                   ? (authService.assumedRole ?? user?.role) 
@@ -301,7 +299,7 @@ class AppRouter {
         builder: (context, state) {
           final booking = state.extra as Booking?;
           if (booking == null) {
-            final authService = Provider.of<MockAuthService>(context, listen: false);
+            final authService = Provider.of<AuthService>(context, listen: false);
             final user = authService.currentUser;
             final userRole = authService.isRoleAssumed 
                 ? (authService.assumedRole ?? user?.role) 
@@ -341,7 +339,7 @@ class AppRouter {
     ],
     redirect: (context, state) {
       try {
-        final authService = Provider.of<MockAuthService>(context, listen: false);
+        final authService = Provider.of<AuthService>(context, listen: false);
         
         // If still loading, show loading screen
         if (authService.isLoading) {
@@ -494,7 +492,7 @@ class RootDecider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, child) {
         // If still loading user info
         if (authService.isLoading) {

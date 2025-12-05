@@ -44,15 +44,10 @@ class ServicesScreen extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          CachedNetworkImage(
+          Image.asset(
             'assets/images/Front View/Front View 4.JPG',
             fit: BoxFit.cover,
-            placeholder: (context, url) => Shimmer.fromColors(
-              baseColor: Colors.grey.shade300,
-              highlightColor: Colors.grey.shade100,
-              child: Container(color: Colors.grey.shade300),
-            ),
-            errorWidget: (context, url, error) => Container(
+            errorBuilder: (context, error, stackTrace) => Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Colors.green[300]!, Colors.green[600]!],

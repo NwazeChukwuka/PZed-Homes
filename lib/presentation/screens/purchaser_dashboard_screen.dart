@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +17,7 @@ class PurchaserDashboardScreen extends StatefulWidget {
 
 class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> with SingleTickerProviderStateMixin {
   TabController? _tabController;
+  final _dataService = DataService();
   
   // Form controllers
   final _amountController = TextEditingController();
@@ -28,6 +31,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   double _totalBudget = 0.0;
   double _remainingBudget = 0.0;
   List<Map<String, dynamic>> _purchaseHistory = [];
+  List<Map<String, dynamic>> _pendingOrders = [];
   bool _isLoading = true;
 
   @override
@@ -45,7 +49,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   }
   
   void _updateTabController() {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
     final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
@@ -73,26 +77,40 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   Future<void> _loadBudgetData() async {
     try {
-      // Mock data for presentation
-      final budgetResponse = [
-        {'total_budget': 500000.0, 'remaining_budget': 275000.0}
-      ];
-      final purchasesResponse = [
-        {
-          'item_name': 'Heineken Crate',
-          'quantity': 5,
-          'unit': 'crates',
-          'amount_spent': 85000.0,
-          'supplier': 'Chinedu Suppliers',
-          'purchase_date': DateTime.now().toIso8601String(),
+      // Load purchase orders from database
+      final orders = await _dataService.getPurchaseOrders();
+      
+      // Calculate budget from orders (you might want to add a budget table)
+      double totalSpent = 0.0;
+      for (var order in orders) {
+        if (order['status'] == 'Confirmed' || order['status'] == 'Pending') {
+          totalSpent += ((order['total_cost'] as num?)?.toDouble() ?? 0.0) / 100; // Convert from kobo
         }
-      ];
+      }
+      
+      // For now, use a default budget - you can add a budget table later
+      _totalBudget = 500000.0; // Default budget
+      _remainingBudget = _totalBudget - totalSpent;
+      
+      // Convert purchase orders to history format
+      _purchaseHistory = orders.where((o) => o['status'] == 'Confirmed').map((order) {
+        final items = order['purchase_order_items'] as List?;
+        final firstItem = items?.isNotEmpty == true ? items![0] : null;
+        final stockItem = firstItem?['stock_items'] as Map<String, dynamic>?;
+        return {
+          'item_name': stockItem?['name'] ?? 'Multiple Items',
+          'quantity': items?.fold<int>(0, (sum, item) => sum + (item['quantity'] as int? ?? 0)) ?? 0,
+          'unit': 'units',
+          'amount_spent': ((order['total_cost'] as num?)?.toDouble() ?? 0.0) / 100,
+          'supplier': order['supplier_name'] ?? 'Unknown',
+          'purchase_date': order['created_at'] ?? DateTime.now().toIso8601String(),
+        };
+      }).toList();
+      
+      _pendingOrders = orders.where((o) => o['status'] == 'Pending').toList();
 
       if (mounted) {
         setState(() {
-          _totalBudget = (budgetResponse.first['total_budget'] as num?)?.toDouble() ?? 0.0;
-          _remainingBudget = (budgetResponse.first['remaining_budget'] as num?)?.toDouble() ?? 0.0;
-          _purchaseHistory = List<Map<String, dynamic>>.from(purchasesResponse);
           _isLoading = false;
         });
       }
@@ -100,9 +118,14 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       if (mounted) {
         setState(() => _isLoading = false);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading data: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load data. Please check your connection and try again.',
+          onRetry: _loadBudgetData,
+        );
+      }
     }
   }
 
@@ -110,39 +133,92 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     if (_amountController.text.isEmpty || 
         _itemNameController.text.isEmpty || 
         _quantityController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all required fields'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please fill in all required fields',
+        );
+      }
       return;
     }
 
     final amount = double.tryParse(_amountController.text);
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid amount'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please enter a valid amount',
+        );
+      }
       return;
     }
 
     if (amount > _remainingBudget) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Insufficient budget remaining'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Insufficient budget remaining',
+        );
+      }
       return;
     }
 
     try {
-      // Mock-only: update local state
-      setState(() {
-        _remainingBudget -= amount;
-        _purchaseHistory.insert(0, {
-          'item_name': _itemNameController.text.trim(),
-          'quantity': int.parse(_quantityController.text),
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final purchaserId = authService.currentUser?.id;
+      if (purchaserId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Get or create stock item
+      // For now, we'll need to find existing stock item or create one
+      // This is simplified - you might want to add a stock item selection UI
+      final stockItems = await _dataService.getInventoryItems();
+      final existingItem = stockItems.firstWhere(
+        (item) => item['name']?.toString().toLowerCase() == _itemNameController.text.trim().toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
+
+      String? stockItemId;
+      if (existingItem.isNotEmpty) {
+        stockItemId = existingItem['id']?.toString();
+      } else {
+        // Create new inventory item if it doesn't exist
+        await _dataService.addInventoryItem({
+          'name': _itemNameController.text.trim(),
+          'description': _notesController.text.trim(),
+          'current_stock': 0,
           'unit': _unitController.text.trim(),
-          'amount_spent': amount,
-          'supplier': _supplierController.text.trim(),
-          'purchase_date': DateTime.now().toIso8601String(),
+          'vip_bar_price': 0,
+          'outside_bar_price': 0,
+          'category': 'General',
+          'department': 'all',
         });
+        // Reload to get the new item ID
+        final updatedItems = await _dataService.getInventoryItems();
+        final newItem = updatedItems.firstWhere(
+          (item) => item['name']?.toString().toLowerCase() == _itemNameController.text.trim().toLowerCase(),
+        );
+        stockItemId = newItem['id']?.toString();
+      }
+
+      if (stockItemId == null) {
+        throw Exception('Failed to get or create stock item');
+      }
+
+      // Create purchase order
+      final totalCost = (amount * 100).toInt(); // Convert to kobo
+      await _dataService.createPurchaseOrder({
+        'purchaser_id': purchaserId,
+        'supplier_name': _supplierController.text.trim(),
+        'total_cost': totalCost,
+        'items': [
+          {
+            'stock_item_id': stockItemId,
+            'quantity': int.parse(_quantityController.text),
+            'unit_cost': ((amount / int.parse(_quantityController.text)) * 100).toInt(),
+          }
+        ],
       });
 
       // Clear form
@@ -153,21 +229,28 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       _supplierController.clear();
       _notesController.clear();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Purchase recorded successfully!'), backgroundColor: Colors.green),
-      );
-
-      await _loadBudgetData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Purchase order created successfully!',
+        );
+        await _loadBudgetData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error recording purchase: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to record purchase. Please try again.',
+          onRetry: _recordPurchase,
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context);
+    final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
     final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
     final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
@@ -179,7 +262,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Consumer<MockAuthService>(
+      body: Consumer<AuthService>(
         builder: (context, authService, child) {
           final user = authService.currentUser;
           final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);

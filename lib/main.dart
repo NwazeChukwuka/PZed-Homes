@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 import 'package:pzed_homes/core/state/app_state_manager.dart';
 import 'package:pzed_homes/core/connectivity/app_connectivity.dart';
@@ -22,24 +22,21 @@ Future<void> main() async {
     DeviceOrientation.landscapeRight,
   ]);
 
-  // Mock/Real mode initialization
-  const useMock = bool.fromEnvironment('USE_MOCK', defaultValue: true);
-  if (useMock) {
-    // Initialize with placeholders to avoid runtime assertions if any leftover references exist.
-    await Supabase.initialize(
-      url: 'https://mock.supabase.co',
-      anonKey: 'mock-anon-key',
-    );
-  } else {
-    final supabaseUrl = const String.fromEnvironment('SUPABASE_URL');
-    final supabaseAnonKey = const String.fromEnvironment('SUPABASE_ANON_KEY');
-    if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-      await Supabase.initialize(
-        url: supabaseUrl,
-        anonKey: supabaseAnonKey,
-      );
-    }
-  }
+  // Initialize Supabase for production
+  // Set these environment variables or replace with your actual credentials
+  const supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://idhebncfhiclruvqvmxb.supabase.co',
+  );
+  const supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkaGVibmNmaGljbHJ1dnF2bXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4ODYwMjIsImV4cCI6MjA3MzQ2MjAyMn0.khoiul_d7MLLlRJXA6duaxuyrmzPAx42qxudb7DpWQY',
+  );
+
+  await Supabase.initialize(
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
+  );
 
   runApp(const PzedHomesApp());
 }
@@ -51,7 +48,7 @@ class PzedHomesApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => MockAuthService()),
+        ChangeNotifierProvider(create: (context) => AuthService()),
         ChangeNotifierProvider(create: (context) => AppState()),
         ChangeNotifierProvider(create: (context) => AppStateManager()),
         ChangeNotifierProvider(create: (context) => AppConnectivity()),

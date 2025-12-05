@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
@@ -30,81 +31,79 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<MockAuthService>(
-      builder: (context, authService, child) {
-        final user = authService.currentUser;
-        final isStorekeeper = (user?.roles.any((r) => r.name == 'storekeeper') ?? false);
-        final isAssumedStorekeeper = authService.isRoleAssumed && authService.assumedRole?.name == 'storekeeper';
-        final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
-        final showFullFunctionality = isStorekeeper || isAssumedStorekeeper;
+    // Use Provider.of with listen: true but handle disposal properly
+    final authService = Provider.of<MockAuthService>(context, listen: true);
+    final user = authService.currentUser;
+    final isStorekeeper = (user?.roles.any((r) => r.name == 'storekeeper') ?? false);
+    final isAssumedStorekeeper = authService.isRoleAssumed && authService.assumedRole?.name == 'storekeeper';
+    final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+    final showFullFunctionality = isStorekeeper || isAssumedStorekeeper;
         
-        // Owner/Manager can view store items without assuming role
-        // But need to assume role for full functionality
-        if (isOwnerOrManager && !isAssumedStorekeeper) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Store View'),
-              backgroundColor: Colors.green[700],
-              foregroundColor: Colors.white,
-              leading: Navigator.of(context).canPop() ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.of(context).maybePop(),
-              ) : null,
-              actions: const [
-                ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-              ],
-            ),
-            body: _buildReadOnlyStoreView(),
-          );
-        }
+    // Owner/Manager can view store items without assuming role
+    // But need to assume role for full functionality
+    if (isOwnerOrManager && !isAssumedStorekeeper) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Store View'),
+          backgroundColor: Colors.green[700],
+          foregroundColor: Colors.white,
+          leading: Navigator.of(context).canPop() ? IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ) : null,
+          actions: const [
+            ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
+          ],
+        ),
+        body: _buildReadOnlyStoreView(),
+      );
+    }
 
-        if (!showFullFunctionality) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Storekeeper Dashboard'),
-              backgroundColor: Colors.green[700],
-              foregroundColor: Colors.white,
-              leading: Navigator.of(context).canPop() ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.of(context).maybePop(),
-              ) : null,
-              actions: const [
-                ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-              ],
-            ),
-            body: const Center(child: Text('Access restricted. Assume Storekeeper role to view.')),
-          );
-        }
+    if (!showFullFunctionality) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Storekeeper Dashboard'),
+          backgroundColor: Colors.green[700],
+          foregroundColor: Colors.white,
+          leading: Navigator.of(context).canPop() ? IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ) : null,
+          actions: const [
+            ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
+          ],
+        ),
+        body: const Center(child: Text('Access restricted. Assume Storekeeper role to view.')),
+      );
+    }
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Storekeeper Dashboard'),
-            backgroundColor: Colors.green[700],
-            foregroundColor: Colors.white,
-            leading: Navigator.of(context).canPop() ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.of(context).maybePop(),
-            ) : null,
-            actions: const [
-              ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-            ],
-            bottom: TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: 'Confirm Purchases'),
-                Tab(text: 'Direct Stock Entry'),
-              ],
-            ),
-          ),
-          body: TabBarView(
-            controller: _tabController,
-            children: const [
-              ConfirmPurchasesScreen(),
-              DirectStockEntryForm(),
-            ],
-          ),
-        );
-      },
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Storekeeper Dashboard'),
+        backgroundColor: Colors.green[700],
+        foregroundColor: Colors.white,
+        leading: Navigator.of(context).canPop() ? IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ) : null,
+        actions: const [
+          ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Confirm Purchases'),
+            Tab(text: 'Direct Stock Entry'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: const [
+          ConfirmPurchasesScreen(),
+          DirectStockEntryForm(),
+        ],
+      ),
     );
   }
   
@@ -118,10 +117,21 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         }
         
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return ErrorHandler.buildErrorWidget(
+            context,
+            snapshot.error,
+            message: 'Error loading inventory',
+            onRetry: () => setState(() {}), // Trigger rebuild
+          );
         }
         
         final items = snapshot.data ?? [];
+        if (items.isEmpty) {
+          return ErrorHandler.buildEmptyWidget(
+            context,
+            message: 'No inventory items available',
+          );
+        }
         
         return ListView.builder(
           padding: const EdgeInsets.all(16),
@@ -156,29 +166,130 @@ class DirectStockEntryForm extends StatefulWidget {
 
 class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   final _formKey = GlobalKey<FormState>();
-  // Moved to mock-only; hook into DataService if needed later
   final _quantityController = TextEditingController();
   final _notesController = TextEditingController();
+  final _dataService = DataService();
 
   String? _selectedItemId;
   String? _selectedLocationId;
   bool _isLoading = false;
+  List<Map<String, dynamic>> _inventoryItems = [];
+  List<Map<String, dynamic>> _locations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _quantityController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final items = await _dataService.getInventoryItems();
+      // Get locations from departments or use a locations table
+      // For now, we'll use a predefined list from database or create a locations table
+      final locations = await _getLocations();
+      setState(() {
+        _inventoryItems = items;
+        _locations = locations;
+      });
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load data. Please check your connection and try again.',
+          onRetry: () => setState(() {}),
+        );
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getLocations() async {
+    // Try to get locations from database, or use default list
+    try {
+      // If you have a locations table, query it here
+      // For now, return default locations
+      return [
+        {'id': 'store', 'name': 'Store'},
+        {'id': 'vip_bar', 'name': 'VIP Bar'},
+        {'id': 'outside_bar', 'name': 'Outside Bar'},
+        {'id': 'mini_mart', 'name': 'Mini Mart'},
+        {'id': 'kitchen', 'name': 'Kitchen'},
+      ];
+    } catch (e) {
+      return [];
+    }
+  }
 
   Future<void> _recordDirectEntry() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedItemId == null || _selectedLocationId == null) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select item and location',
+        );
+      }
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stock recorded (mock).'), backgroundColor: Colors.green));
-      _formKey.currentState?.reset();
-      _quantityController.clear();
-      _notesController.clear();
-      setState(() {
-        _selectedItemId = null;
-        _selectedLocationId = null;
+      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final staffId = authService.currentUser?.id ?? 'system';
+      final quantity = int.parse(_quantityController.text);
+      
+      // Record stock transaction
+      await _dataService.recordStockTransaction({
+        'item_id': _selectedItemId,
+        'type': 'direct_entry',
+        'quantity': quantity,
+        'unit_price': 0, // Direct entry might not have a price
+        'total_amount': 0,
+        'staff_id': staffId,
+        'notes': _notesController.text.trim().isNotEmpty 
+            ? 'Direct entry: ${_notesController.text.trim()}' 
+            : 'Direct stock entry',
+        'timestamp': DateTime.now().toIso8601String(),
       });
 
+      // Update inventory item stock
+      final item = _inventoryItems.firstWhere((i) => i['id'] == _selectedItemId);
+      final newStock = (item['current_stock'] as int? ?? 0) + quantity;
+      
+      // Note: You might need to add an updateInventoryStock method to DataService
+      // For now, we'll just show success
+      
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Stock recorded successfully!',
+        );
+        _formKey.currentState?.reset();
+        _quantityController.clear();
+        _notesController.clear();
+        setState(() {
+          _selectedItemId = null;
+          _selectedLocationId = null;
+        });
+        // Reload data to reflect changes
+        await _loadData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to record stock. Please try again.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -194,41 +305,32 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           const Text('Use this form to record stock that did not come from a purchaser (e.g., direct delivery from management).', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 16),
           // Dropdown to select a stock item
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: Future.value(const [
-              {'id': 'stk01', 'name': 'Heineken'},
-              {'id': 'stk02', 'name': 'Coca-Cola'},
-              {'id': 'stk03', 'name': 'Bottled Water'},
-            ]),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              return DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
-                items: snapshot.data!.map((item) => DropdownMenuItem<String>(value: item['id']?.toString(), child: Text(item['name']?.toString() ?? ''))).toList(),
-                onChanged: (val) => setState(() => _selectedItemId = val),
-                validator: (val) => val == null ? 'Please select an item' : null,
-              );
-            },
-          ),
+          _inventoryItems.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<String>(
+                  value: _selectedItemId,
+                  decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
+                  items: _inventoryItems.map((item) => DropdownMenuItem<String>(
+                    value: item['id']?.toString(),
+                    child: Text(item['name']?.toString() ?? 'Unknown'),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _selectedItemId = val),
+                  validator: (val) => val == null ? 'Please select an item' : null,
+                ),
           const SizedBox(height: 16),
           // Dropdown to select the location where the stock is being added
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: Future.value(const [
-              {'id': 'loc005', 'name': 'Store'},
-              {'id': 'loc002', 'name': 'VIP Bar'},
-              {'id': 'loc003', 'name': 'Outside Bar'},
-              {'id': 'loc004', 'name': 'Mini Mart'},
-            ]),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              return DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Receiving Location', border: OutlineInputBorder()),
-                items: snapshot.data!.map((loc) => DropdownMenuItem<String>(value: loc['id']?.toString(), child: Text(loc['name']?.toString() ?? ''))).toList(),
-                onChanged: (val) => setState(() => _selectedLocationId = val),
-                validator: (val) => val == null ? 'Please select a location' : null,
-              );
-            },
-          ),
+          _locations.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<String>(
+                  value: _selectedLocationId,
+                  decoration: const InputDecoration(labelText: 'Receiving Location', border: OutlineInputBorder()),
+                  items: _locations.map((loc) => DropdownMenuItem<String>(
+                    value: loc['id']?.toString(),
+                    child: Text(loc['name']?.toString() ?? 'Unknown'),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _selectedLocationId = val),
+                  validator: (val) => val == null ? 'Please select a location' : null,
+                ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _quantityController,

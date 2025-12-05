@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 
@@ -53,10 +54,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
     if (!canAccess) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Access restricted.'),
-            backgroundColor: Colors.red,
-          ));
+          ErrorHandler.showWarningMessage(
+            context,
+            'Access restricted.',
+          );
           Future.delayed(const Duration(milliseconds: 150), () {
             if (mounted) context.pop();
           });
@@ -95,17 +96,20 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
       if (kitchen.isNotEmpty) {
         setState(() => _sourceLocationId = kitchen['id'] as String);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Warning: Kitchen location not found'),
-          backgroundColor: Colors.orange,
-        ));
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Warning: Kitchen location not found',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error loading data: $e'),
-          backgroundColor: Colors.red,
-        ));
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load data. Please check your connection and try again.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -137,8 +141,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
         throw Exception('Insufficient stock. Available: $currentStock');
       }
 
-      // Mock-only: simulate dispatch
-      await Future.delayed(const Duration(milliseconds: 300));
+      // Get destination location name
+      final destination = _locations.firstWhere(
+        (l) => l['id'] == _selectedDestinationLocationId,
+        orElse: () => <String, dynamic>{},
+      );
+      final destinationName = destination['name'] as String? ?? 'Unknown';
+
+      // Create department transfer
+      await _dataService.createDepartmentTransfer({
+        'source_department': 'Kitchen',
+        'destination_department': destinationName,
+        'menu_item_id': _selectedStockItemId, // Using stock item as menu item for now
+        'quantity': quantity,
+        'dispatched_by_id': staffId,
+        'status': 'Pending',
+      });
 
       // Clear form and refresh
       _formKey.currentState?.reset();
@@ -147,19 +165,21 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
         _selectedStockItemId = null;
         _selectedDestinationLocationId = null;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Item dispatched successfully (mock).'),
-        backgroundColor: Colors.green,
-      ));
-
-      await _loadStockAndLocations();
+      
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Item dispatched successfully!',
+        );
+        await _loadStockAndLocations();
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ));
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to dispatch item. Please try again.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -309,30 +329,27 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
               ),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: Future.value(const [
-                {
-                  'destination_department': 'VIP Bar',
-                  'quantity': 12,
-                  'status': 'completed',
-                  'created_at': '2024-01-15T14:30:00',
-                },
-                {
-                  'destination_location_name': 'Outside Bar',
-                  'quantity': 8,
-                  'status': 'completed',
-                  'created_at': '2024-01-15T13:05:00',
-                },
-              ]),
+              future: _dataService.getDepartmentTransfers(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
+                if (snapshot.hasError) {
+                  return ErrorHandler.buildErrorWidget(
+                    context,
+                    snapshot.error,
+                    message: 'Error loading recent dispatches',
+                    onRetry: () => setState(() {}),
+                  );
+                }
+
                 final transfers = snapshot.data ?? [];
 
                 if (transfers.isEmpty) {
-                  return const Center(
-                    child: Text('No recent dispatches'),
+                  return ErrorHandler.buildEmptyWidget(
+                    context,
+                    message: 'No recent dispatches',
                   );
                 }
 
@@ -341,12 +358,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
                   itemCount: transfers.length,
                   itemBuilder: (context, index) {
                     final transfer = transfers[index];
+                    final menuItem = transfer['menu_items'] as Map<String, dynamic>?;
+                    final itemName = menuItem?['name'] ?? 'Unknown Item';
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
                         leading: const Icon(Icons.send, color: Colors.orange),
-                        title: Text('To: ${transfer['destination_department']?.toString() ?? transfer['destination_location_name']?.toString() ?? 'Unknown'}'),
-                        subtitle: Text('Qty: ${transfer['quantity']?.toString() ?? '0'} • Status: ${transfer['status']?.toString() ?? 'Unknown'}'),
+                        title: Text('To: ${transfer['destination_department'] ?? 'Unknown'}'),
+                        subtitle: Text('$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'),
                         trailing: Text(
                           transfer['created_at'] != null ? _formatDate(transfer['created_at'] as String) : '',
                           style: const TextStyle(fontSize: 12),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 /// Personalized dashboard for individual staff members
@@ -85,8 +86,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading data: $e')),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load dashboard data. Please check your connection and try again.',
+          onRetry: _loadData,
         );
       }
     }
@@ -285,9 +289,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       final cleanedAt = room['last_cleaned']?.toString();
       
       // Count occupied vs available
-      if (status == 'occupied') {
+      if (status == 'Occupied') {
         roomsOccupied++;
-      } else if (status == 'available' || status == 'clean') {
+      } else if (status == 'Vacant' || status == 'Dirty') {
         roomsAvailable++;
       }
       
@@ -1005,13 +1009,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 _departmentDebts[index]['paid_date'] = DateTime.now().toIso8601String();
               });
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Debt marked as paid'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              _loadData();
+              if (mounted) {
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Debt marked as paid',
+                );
+                _loadData();
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             child: const Text('Mark as Paid'),
@@ -1223,7 +1227,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
               final roomNumber = room['room_number'] ?? 'Unknown';
               final roomType = room['room_type'] ?? 'N/A';
               final status = room['status'] ?? 'unknown';
-              final isOccupied = status.toLowerCase() == 'occupied';
+              final isOccupied = status == 'Occupied';
               
               return ListTile(
                 leading: Icon(

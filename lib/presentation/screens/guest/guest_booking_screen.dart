@@ -36,12 +36,17 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final state = GoRouterState.of(context);
-    final extra = state.extra as Map<String, dynamic>?;
-    if (extra != null) {
-      roomType = extra['roomType'] as Map<String, dynamic>;
-      checkInDate = extra['checkInDate'] as DateTime;
-      checkOutDate = extra['checkOutDate'] as DateTime;
+    try {
+      final state = GoRouterState.of(context);
+      final extra = state.extra as Map<String, dynamic>?;
+      if (extra != null) {
+        roomType = extra['roomType'] as Map<String, dynamic>;
+        checkInDate = extra['checkInDate'] as DateTime;
+        checkOutDate = extra['checkOutDate'] as DateTime;
+      }
+    } catch (e) {
+      // If GoRouterState is not available, use fallback values from initState
+      // This can happen if the screen is accessed without router context
     }
   }
 
@@ -63,25 +68,25 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. First, check room availability
-      final availableRoom = await _findAvailableRoom();
-      if (availableRoom == null) {
+      // 1. Check room type availability (count by type, not specific room)
+      final isAvailable = await _checkRoomTypeAvailability();
+      if (!isAvailable) {
         throw Exception('Sorry, no rooms of this type are available for the selected dates.');
       }
 
       // 2. Create guest profile or get existing one
       final guestProfileId = await _getOrCreateGuestProfile();
 
-      // 3. Create pending booking
-      final bookingId = await _createPendingBooking(guestProfileId, availableRoom['id']);
+      // 3. Create booking WITHOUT room_id (receptionist will assign later)
+      final bookingId = await _createPendingBooking(guestProfileId);
 
       // 4. Process payment (mock implementation)
       final paymentSuccess = await _processMockPayment(bookingId);
       
       if (paymentSuccess) {
-        // 5. Update booking status to confirmed
-        await _confirmBooking(bookingId, availableRoom['id']);
-        _showSuccess('Payment successful! Your booking is confirmed.');
+        // 5. Update booking status to Pending Check-in (room will be assigned by receptionist)
+        await _confirmBooking(bookingId);
+        _showSuccess('Payment successful! Your booking is confirmed. A room will be assigned when you arrive.');
       } else {
         // Payment failed - delete the pending booking
         await _supabase.from('bookings').delete().eq('id', bookingId);
@@ -95,18 +100,46 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  Future<Map<String, dynamic>?> _findAvailableRoom() async {
+  Future<bool> _checkRoomTypeAvailability() async {
     try {
-      // Mock room availability - in production, this would check Supabase
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
+      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString();
+      if (roomTypeName == null) throw Exception('Invalid room type');
+
+      // Get total rooms of this type
+      final totalRooms = await _supabase
+          .from('rooms')
+          .select('id')
+          .eq('type', roomTypeName)
+          .eq('status', 'Vacant');
+
+      if ((totalRooms as List).isEmpty) {
+        return false; // No rooms of this type exist
+      }
+
+      // Count bookings for this room type during the selected dates
+      // Include bookings with room_id assigned AND bookings by requested_room_type
+      final conflictingBookings = await _supabase
+          .from('bookings')
+          .select('room_id, requested_room_type')
+          .or('status.eq.Pending Check-in,status.eq.Checked-in')
+          .lte('check_in_date', checkOutDate.toIso8601String())
+          .gte('check_out_date', checkInDate.toIso8601String());
+
+      // Count rooms directly assigned
+      final assignedRoomIds = (conflictingBookings as List)
+          .where((b) => b['room_id'] != null)
+          .map((b) => b['room_id'] as String)
+          .toSet();
+
+      // Count bookings by requested room type (without room_id)
+      final bookingsByType = (conflictingBookings as List)
+          .where((b) => b['room_id'] == null && b['requested_room_type'] == roomTypeName)
+          .length;
+
+      // Check if we have enough available rooms
+      final availableCount = (totalRooms as List).length - assignedRoomIds.length - bookingsByType;
       
-      // For demo purposes, always return a mock available room
-      return {
-        'id': 'room-${roomType['id']?.toString() ?? 'unknown'}-001',
-        'room_number': '${roomType['id']?.toString() ?? 'unknown'}01',
-        'room_type_id': roomType['id']?.toString() ?? 'unknown',
-        'status': 'Available',
-      };
+      return availableCount > 0;
     } catch (e) {
       throw Exception('Error checking room availability: $e');
     }
@@ -116,23 +149,54 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     final email = _emailController.text.trim();
     
     try {
-      // Mock guest profile creation - in production, this would use Supabase
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-      
-      // For demo purposes, always return a mock guest profile ID
-      return 'guest-${DateTime.now().millisecondsSinceEpoch}';
+      // Check if profile exists
+      final existing = await _supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+
+      if (existing != null) {
+        return existing['id'] as String;
+      }
+
+      // Create new profile
+      final response = await _supabase
+          .from('profiles')
+          .insert({
+            'full_name': _nameController.text.trim(),
+            'email': email,
+            'phone': _phoneController.text.trim(),
+          })
+          .select('id')
+          .single();
+
+      return response['id'] as String;
     } catch (e) {
       throw Exception('Error creating guest profile: $e');
     }
   }
 
-  Future<String> _createPendingBooking(String guestProfileId, String roomId) async {
+  Future<String> _createPendingBooking(String guestProfileId) async {
     try {
-      // Mock booking creation - in production, this would use Supabase
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
+      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Standard';
       
-      // For demo purposes, return a mock booking ID
-      return 'booking-${DateTime.now().millisecondsSinceEpoch}';
+      final response = await _supabase
+          .from('bookings')
+          .insert({
+            'guest_profile_id': guestProfileId,
+            'room_id': null, // Room will be assigned by receptionist
+            'requested_room_type': roomTypeName,
+            'check_in_date': checkInDate.toIso8601String(),
+            'check_out_date': checkOutDate.toIso8601String(),
+            'status': 'Pending Check-in',
+            'total_amount': _totalPrice,
+            'paid_amount': _totalPrice, // Payment received
+          })
+          .select('id')
+          .single();
+
+      return response['id'] as String;
     } catch (e) {
       throw Exception('Error creating booking: $e');
     }
@@ -172,13 +236,19 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  Future<void> _confirmBooking(String bookingId, String roomId) async {
+  Future<void> _confirmBooking(String bookingId) async {
     try {
-      // Mock booking confirmation - in production, this would use Supabase
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
+      // Update booking status to Pending Check-in (room will be assigned by receptionist)
+      // Don't update room status - rooms stay Vacant until check-in
+      await _supabase
+          .from('bookings')
+          .update({
+            'status': 'Pending Check-in',
+            'paid_amount': _totalPrice,
+          })
+          .eq('id', bookingId);
       
-      // For demo purposes, just simulate the confirmation
-      print('Booking confirmed: $bookingId for room: $roomId');
+      // Note: Room status remains 'Vacant' - receptionist will assign room and update status at check-in
     } catch (e) {
       throw Exception('Error confirming booking: $e');
     }
@@ -186,29 +256,30 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 5),
-      ),
+    ErrorHandler.handleError(
+      context,
+      Exception(message),
+      customMessage: message,
     );
   }
 
   void _showSuccess(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 5),
-      ),
+    ErrorHandler.showSuccessMessage(
+      context,
+      message,
+      duration: const Duration(seconds: 5),
     );
     
     // Navigate back to home after success
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
-        context.go('/guest');
+        try {
+          context.go('/guest');
+        } catch (e) {
+          // If GoRouter is not available, use Navigator as fallback
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       }
     });
   }

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/mock_auth_service.dart';
+import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
-import '../../data/mock_data.dart';
 
 class ComprehensiveFinanceScreen extends StatefulWidget {
   const ComprehensiveFinanceScreen({super.key});
@@ -118,9 +118,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         };
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading financial data: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load financial data. Please check your connection and try again.',
+          onRetry: _loadFinancialData,
+        );
+      }
     }
   }
 
@@ -337,9 +342,24 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               ),
             ),
             const SizedBox(height: 16),
-            ...MockData.getDepartmentPerformance().map((dept) => 
-              _buildDepartmentItem(dept),
-            ).toList(),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _dataService.getDepartmentPerformance(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                final depts = snapshot.data ?? [];
+                if (depts.isEmpty) {
+                  return const Center(child: Text('No department data available'));
+                }
+                return Column(
+                  children: depts.map((dept) => _buildDepartmentItem(dept)).toList(),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -968,11 +988,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       };
       
       await _dataService.addIncomeRecord(income);
-      _loadFinancialData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Income record saved successfully!');
+        _loadFinancialData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving income record: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save income record. Please try again.',
+          onRetry: _saveIncomeRecord,
+        );
+      }
     }
   }
 
@@ -989,11 +1017,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       };
       
       await _dataService.addExpense(expense);
-      _loadFinancialData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
+        _loadFinancialData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving expense: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save expense. Please try again.',
+          onRetry: _saveExpense,
+        );
+      }
     }
   }
 
@@ -1008,11 +1044,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       };
       
       await _dataService.addPayrollRecord(payroll);
-      _loadFinancialData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Payroll record saved successfully!');
+        _loadFinancialData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving payroll record: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save payroll record. Please try again.',
+          onRetry: _savePayrollRecord,
+        );
+      }
     }
   }
 
@@ -1033,11 +1077,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       };
       
       await _dataService.addCashDeposit(deposit);
-      _loadFinancialData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Cash deposit saved successfully!');
+        _loadFinancialData();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving cash deposit: $e')),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save cash deposit. Please try again.',
+          onRetry: _saveCashDeposit,
+        );
+      }
     }
   }
 
@@ -1072,12 +1124,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 _debts[index]['paid_date'] = DateTime.now().toIso8601String();
               });
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Debt marked as paid'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+              if (mounted) {
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Debt marked as paid',
+                );
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             child: const Text('Mark as Paid'),
@@ -1123,14 +1175,20 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   // Report generation methods
   void _generateDepartmentReport() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Department report generated successfully')),
-    );
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(
+        context,
+        'Department report generated successfully',
+      );
+    }
   }
 
   void _generateFinancialReport() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Financial report generated successfully')),
-    );
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(
+        context,
+        'Financial report generated successfully',
+      );
+    }
   }
 }

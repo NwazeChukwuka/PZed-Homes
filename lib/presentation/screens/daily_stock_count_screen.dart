@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class DailyStockCountScreen extends StatefulWidget {
   const DailyStockCountScreen({super.key});
@@ -49,18 +50,26 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         _isLoadingData = false;
       });
     } catch (e) {
-      setState(() => _isLoadingData = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading data: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _isLoadingData = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load stock data. Please check your connection and try again.',
+          onRetry: _loadData,
+        );
+      }
     }
   }
 
   Future<void> _submitCount() async {
     if (_selectedLocationId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a location.')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select a location',
+        );
+      }
       return;
     }
 
@@ -100,21 +109,26 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
           });
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Stock count submitted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Stock count submitted successfully!',
+          );
+        }
 
         // Clear controllers and reload data
         _controllers.forEach((key, value) => value.clear());
         await _loadData();
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to submit stock count. Please try again.',
+          onRetry: _submitCount,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

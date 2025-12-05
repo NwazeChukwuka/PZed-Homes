@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/mock_auth_service.dart';
+import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
 /// Bartender Shift Management Screen
@@ -73,10 +74,13 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading shift data: $e'), backgroundColor: Colors.red),
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load shift data. Please check your connection and try again.',
+          onRetry: _loadShiftData,
         );
       }
     }
@@ -84,9 +88,12 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
 
   Future<void> _startShift() async {
     if (_openingStockItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please record opening stock before starting shift'), backgroundColor: Colors.orange),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please record opening stock before starting shift',
+        );
+      }
       return;
     }
 
@@ -103,14 +110,15 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
       await _loadShiftData();
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Shift started successfully'), backgroundColor: Colors.green),
-        );
+        ErrorHandler.showSuccessMessage(context, 'Shift started successfully');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error starting shift: $e'), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to start shift. Please try again.',
+          onRetry: _startShift,
         );
       }
     }
@@ -118,9 +126,12 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
 
   Future<void> _endShift() async {
     if (_closingStockItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please record closing stock before ending shift'), backgroundColor: Colors.orange),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please record closing stock before ending shift',
+        );
+      }
       return;
     }
 
@@ -139,14 +150,15 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
       });
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Shift ended successfully'), backgroundColor: Colors.green),
-        );
+        ErrorHandler.showSuccessMessage(context, 'Shift ended successfully');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error ending shift: $e'), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to end shift. Please try again.',
+          onRetry: _endShift,
         );
       }
     }

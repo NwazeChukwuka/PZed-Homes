@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -84,15 +85,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Expense saved successfully!'))
-        );
+        ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
         context.pop();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red)
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save expense. Please try again.',
+          onRetry: _saveExpense,
         );
       }
     } finally {

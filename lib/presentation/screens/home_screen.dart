@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pzed_homes/presentation/widgets/room_card.dart';
 import 'package:pzed_homes/data/models/room_category.dart';
 import 'package:pzed_homes/data/mock_data.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,8 +36,11 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('[Mock] Error loading room types: $e'), backgroundColor: Colors.red),
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load room types. Please try again.',
+          onRetry: _loadRoomTypes,
         );
       }
     }

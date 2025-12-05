@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/screens/scanner_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
@@ -16,6 +18,7 @@ class PosScreen extends StatefulWidget {
 class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _dataService = DataService();
+  final _supabase = Supabase.instance.client;
   List<Map<String, dynamic>> _currentOrder = [];
   Map<String, dynamic>? _linkedBooking;
   bool _isLoading = false;
@@ -49,10 +52,15 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
         _isLoadingMenu = false;
       });
     } catch (e) {
-      setState(() => _isLoadingMenu = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading data: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _isLoadingMenu = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load menu items or guest list. Please check your connection and try again.',
+          onRetry: _loadInitialData,
+        );
+      }
     }
   }
 
@@ -84,9 +92,12 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
 
   Future<void> _showLinkGuestDialog() async {
     if (_checkedInGuests.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No checked-in guests found')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'No checked-in guests found',
+        );
+      }
       return;
     }
 
@@ -121,40 +132,86 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
 
   Future<void> _placeOrder() async {
     if (_linkedBooking == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please link a guest first')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please link a guest first',
+        );
+      }
       return;
     }
     
     if (_currentOrder.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add items to order')),
-      );
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please add items to order',
+        );
+      }
+      return;
+    }
+
+    // Check if staff is clocked in
+    final authService = Provider.of<AuthService>(context, listen: false);
+    if (!authService.canMakeTransactions()) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'You must clock in before making transactions',
+        );
+      }
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id ?? 'system';
       
-      // Mock-only: simulate adding charges
-      for (var _ in _currentOrder) {}
+      if (_linkedBooking == null) {
+        throw Exception('No booking linked to this order');
+      }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Order added to guest bill (mock).'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Create order charges for each item
+      for (var orderItem in _currentOrder) {
+        await _supabase.from('booking_charges').insert({
+          'booking_id': _linkedBooking!['id'],
+          'item_name': orderItem['name'],
+          'price': orderItem['price'],
+          'quantity': orderItem['quantity'],
+          'department': orderItem['department'] ?? 'restaurant',
+          'added_by': userId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Order added to ${_linkedBooking!['profiles']?['full_name']?.toString() ?? 'guest'}\'s bill',
+        );
+      }
 
       _clearOrder();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Order added to ${_linkedBooking!['profiles']?['full_name']?.toString() ?? 'guest'}\'s bill',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error placing order: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to place order. Please try again.',
+          onRetry: _placeOrder,
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -168,14 +225,21 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       if (foundItem.isNotEmpty) {
         _addItemToOrder(foundItem);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Item not found in menu')),
-        );
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Item not found in menu. Please check the barcode and try again.',
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error scanning barcode: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Error scanning barcode. Please try again.',
+        );
+      }
     }
   }
 

@@ -29,69 +29,77 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final state = GoRouterState.of(context);
-    final extra = state.extra as Map<String, dynamic>?;
-    if (extra != null) {
-      checkInDate = extra['checkInDate'] as DateTime;
-      checkOutDate = extra['checkOutDate'] as DateTime;
+    try {
+      final state = GoRouterState.of(context);
+      final extra = state.extra as Map<String, dynamic>?;
+      if (extra != null) {
+        checkInDate = extra['checkInDate'] as DateTime;
+        checkOutDate = extra['checkOutDate'] as DateTime;
+      }
+    } catch (e) {
+      // If GoRouterState is not available, use fallback values from initState
+      // This can happen if the screen is accessed without router context
     }
     _availableRoomsFuture = _fetchAvailableRooms();
   }
 
   Future<List<Map<String, dynamic>>> _fetchAvailableRooms() async {
     try {
-      // Mock room types data - in production, this would come from Supabase
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network delay
-      
-      final mockRoomTypes = [
-        {
-          'id': '1',
-          'type': 'Standard Room',
-          'price': 15000,
-          'description': 'Comfortable, affordable, and equipped with all the essentials for a pleasant stay.',
-          'image_url': 'https://i.postimg.cc/13GjSg2f/nigerian-hotel-room-1.jpg',
-          'available_count': 5,
-          'amenities': ['WiFi', 'Air Conditioning', 'TV', 'Mini Bar'],
-        },
-        {
-          'id': '2',
-          'type': 'Classic Room',
-          'price': 20000,
-          'description': 'A touch of elegance with enhanced amenities and more space to relax and unwind.',
-          'image_url': 'https://i.postimg.cc/yNnKkM0S/nigerian-hotel-classic-1.jpg',
-          'available_count': 3,
-          'amenities': ['WiFi', 'Air Conditioning', 'TV', 'Mini Bar', 'Balcony'],
-        },
-        {
-          'id': '3',
-          'type': 'Diplomatic Room',
-          'price': 25000,
-          'description': 'Spacious and refined, designed for the discerning traveler requiring extra comfort.',
-          'image_url': 'https://i.postimg.cc/WbFfKx58/nigerian-hotel-diplomatic-1.jpg',
-          'available_count': 2,
-          'amenities': ['WiFi', 'Air Conditioning', 'TV', 'Mini Bar', 'Balcony', 'Room Service'],
-        },
-        {
-          'id': '4',
-          'type': 'Deluxe Room',
-          'price': 30000,
-          'description': 'A premium experience with superior furnishings and breathtaking views.',
-          'image_url': 'https://i.postimg.cc/tJnB8t3P/nigerian-hotel-deluxe-1.jpg',
-          'available_count': 1,
-          'amenities': ['WiFi', 'Air Conditioning', 'TV', 'Mini Bar', 'Balcony', 'Room Service', 'Jacuzzi'],
-        },
-        {
-          'id': '5',
-          'type': 'Executive Suite',
-          'price': 50000,
-          'description': 'The pinnacle of luxury, featuring a separate living area and exclusive amenities.',
-          'image_url': 'https://i.postimg.cc/sxGYb7D8/nigerian-hotel-executive-1.jpg',
-          'available_count': 1,
-          'amenities': ['WiFi', 'Air Conditioning', 'TV', 'Mini Bar', 'Balcony', 'Room Service', 'Jacuzzi', 'Butler Service'],
-        },
-      ];
-      
-      return mockRoomTypes;
+      // Get conflicting bookings for the date range
+      // Include bookings with room_id assigned AND bookings by requested_room_type
+      final conflictingBookings = await _supabase
+          .from('bookings')
+          .select('room_id, requested_room_type, rooms(type)')
+          .or('status.eq.Pending Check-in,status.eq.Checked-in')
+          .lte('check_in_date', checkOutDate.toIso8601String())
+          .gte('check_out_date', checkInDate.toIso8601String());
+
+      // Count booked rooms by type
+      final bookedByType = <String, int>{};
+      for (var booking in conflictingBookings as List) {
+        // Count rooms directly assigned
+        if (booking['room_id'] != null) {
+          final room = booking['rooms'] as Map<String, dynamic>?;
+          if (room != null) {
+            final type = room['type'] as String? ?? '';
+            bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+          }
+        }
+        // Count bookings by requested room type (without room_id)
+        if (booking['room_id'] == null && booking['requested_room_type'] != null) {
+          final type = booking['requested_room_type'] as String? ?? '';
+          bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+        }
+      }
+
+      // Get all room types
+      final roomTypes = await _supabase
+          .from('room_types')
+          .select('*, rooms(count)')
+          .order('price');
+
+      // Calculate available count for each type
+      final result = <Map<String, dynamic>>[];
+      for (var type in roomTypes as List) {
+        final typeName = type['type'] as String? ?? '';
+        final totalRooms = (type['rooms'] as List?)?.length ?? 0;
+        final booked = bookedByType[typeName] ?? 0;
+        final available = totalRooms - booked;
+
+        if (available > 0) {
+          result.add({
+            'id': type['id'],
+            'type': typeName,
+            'price': type['price'] ?? 0,
+            'description': type['description'] ?? '',
+            'image_url': type['image_url'],
+            'available_count': available,
+            'amenities': type['amenities'] ?? [],
+          });
+        }
+      }
+
+      return result;
     } catch (e, st) {
       debugPrint('Error fetching available rooms: $e');
       debugPrintStack(stackTrace: st);

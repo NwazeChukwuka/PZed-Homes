@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class ManageWebsiteScreen extends StatefulWidget {
   const ManageWebsiteScreen({super.key});
@@ -33,9 +34,18 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
           .update({'media_url': newUrl, 'updated_at': DateTime.now().toIso8601String()})
           .eq('content_key', contentKey);
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image updated successfully!'), backgroundColor: Colors.green));
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Image updated successfully!');
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update image. Please try again.',
+          onRetry: () => _replaceImage(contentKey),
+        );
+      }
     }
   }
 
@@ -46,7 +56,25 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _supabase.from('site_media').stream(primaryKey: ['content_key']).order('title'),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return ErrorHandler.buildErrorWidget(
+              context,
+              snapshot.error,
+              message: 'Error loading website content',
+            );
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return ErrorHandler.buildEmptyWidget(
+              context,
+              message: 'No website content available',
+            );
+          }
+          
           final items = snapshot.data!;
           return ListView.builder(
             itemCount: items.length,

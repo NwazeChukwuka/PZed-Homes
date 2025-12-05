@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 
 class GuestHomeScreen extends StatefulWidget {
   const GuestHomeScreen({super.key});
@@ -45,16 +46,18 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> {
 
   void _searchAvailability() {
     if (_checkInDate == null || _checkOutDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select both check-in and check-out dates.')),
+      ErrorHandler.showWarningMessage(
+        context,
+        'Please select both check-in and check-out dates.',
       );
       return;
     }
 
     if (_checkOutDate!.isBefore(_checkInDate!) ||
         _checkOutDate!.isAtSameMomentAs(_checkInDate!)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Check-out date must be after the check-in date.')),
+      ErrorHandler.showWarningMessage(
+        context,
+        'Check-out date must be after the check-in date.',
       );
       return;
     }
