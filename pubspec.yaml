@@ -37,7 +37,7 @@ dependencies:
   latlong2: ^0.9.1
 
   # Mobile only, leave as is
-  video_player: ^2.10.1
+  video_player: ^2.9.0
   chewie: ^1.7.4
   image_picker: ^1.1.1
 
