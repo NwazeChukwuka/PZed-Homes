@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:pzed_homes/presentation/screens/guest/gallery_folder_screen.dart';
@@ -122,12 +123,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   List<Map<String, dynamic>> _getFallbackGalleryItems() {
     return [
       {
-        'media_url': 'assets/images/Front View/Front View 1.jpg',
+        'media_url': 'assets/images/Front View/Front View 1.JPG',
         'title': 'Front View',
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/VIP Bar/VIP Bar 1.jpg',
+        'media_url': 'assets/images/VIP Bar/VIP Bar 1.JPG',
         'title': 'VIP Bar',
         'is_video': false,
       },
@@ -137,7 +138,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/Reception/Reception 1.jpg',
+        'media_url': 'assets/images/Reception/Reception 1.JPG',
         'title': 'Reception',
         'is_video': false,
       },
@@ -565,7 +566,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'VIP Bar',
                         description: 'An exclusive lounge for premium drinks and a serene ambiance.',
-                        imageUrl: 'assets/images/VIP Bar/VIP Bar 1.jpg',
+                        imageUrl: 'assets/images/VIP Bar/VIP Bar 1.JPG',
                       ),
                     ),
                     AnimatedWrapper(
@@ -581,7 +582,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'Reception',
                         description: 'Our welcoming reception area with professional staff ready to assist you 24/7.',
-                        imageUrl: 'assets/images/Reception/Reception 1.jpg',
+                        imageUrl: 'assets/images/Reception/Reception 1.JPG',
                       ),
                     ),
                     AnimatedWrapper(
@@ -735,6 +736,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       'assets/images/Front View/Front View 1.JPG',
       'assets/images/Front View/Front View 2.JPG',
       'assets/images/Front View/Front View 3.jpg',
+      'assets/images/Front View/Front View 4.jpg',
+      'assets/images/Front View/Front View 5.JPG',
+      'assets/images/Front View/Front View 6.jpg',
     ];
 
     final PageController _pageController = PageController();
@@ -787,14 +791,34 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               });
             },
             itemBuilder: (context, index) {
+              final imagePath = heroImages[index];
               return Image.asset(
-                heroImages[index],
+                imagePath,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
+                  // Log error for debugging (only in debug mode)
+                  if (kDebugMode) {
+                    print('Failed to load image: $imagePath');
+                    print('Error: $error');
+                  }
                   return Container(
                     color: Colors.grey[200],
-                    child: const Center(
-                      child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                          if (kDebugMode)
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Text(
+                                'Failed: ${imagePath.split('/').last}',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   );
                 },

@@ -50,16 +50,53 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/
-    - assets/images/Standard Room/
-    - assets/images/Classic Room/
-    - assets/images/Diplomatic Room/
-    - assets/images/Deluxe Room/
-    - assets/images/Executive Room/
-    - assets/images/Front View/
-    - assets/images/VIP Bar/
-    - assets/images/Restaurant/
-    - assets/images/Reception/
-    - assets/images/Passage/
-    - assets/images/Outside bar/
+    # Explicitly list all images for Flutter web compatibility
+    # Standard Room
+    - assets/images/Standard Room/Standard 1.png
+    - assets/images/Standard Room/Standard 2.JPG
+    - assets/images/Standard Room/Standard 3.jpg
+    - assets/images/Standard Room/Standard 4.JPG
+    # Classic Room
+    - assets/images/Classic Room/Classic 1.JPG
+    - assets/images/Classic Room/Classic 2.png
+    - assets/images/Classic Room/Classic 3.JPG
+    - assets/images/Classic Room/Classic 4.JPG
+    - assets/images/Classic Room/Classic 5.jpg
+    # Diplomatic Room
+    - assets/images/Diplomatic Room/Diplomatic 1.png
+    - assets/images/Diplomatic Room/Diplomatic 2.JPG
+    - assets/images/Diplomatic Room/Diplomatic 3.jpg
+    # Deluxe Room
+    - assets/images/Deluxe Room/Deluxe 1.JPG
+    - assets/images/Deluxe Room/Deluxe 2.JPG
+    - assets/images/Deluxe Room/Deluxe 3.png
+    - assets/images/Deluxe Room/Deluxe 4.JPG
+    # Executive Room
+    - assets/images/Executive Room/Executive 1.png
+    - assets/images/Executive Room/Executive 2.png
+    - assets/images/Executive Room/Executive 3.jpg
+    # Front View
+    - assets/images/Front View/Front View 1.JPG
+    - assets/images/Front View/Front View 2.JPG
+    - assets/images/Front View/Front View 3.jpg
+    - assets/images/Front View/Front View 4.jpg
+    - assets/images/Front View/Front View 5.JPG
+    - assets/images/Front View/Front View 6.jpg
+    # VIP Bar
+    - assets/images/VIP Bar/VIP Bar 1.JPG
+    - assets/images/VIP Bar/VIP Bar 2.JPG
+    # Restaurant
+    - assets/images/Restaurant/Restaurant 1.jpg
+    # Reception
+    - assets/images/Reception/Reception 1.JPG
+    - assets/images/Reception/Reception 2.png
+    - assets/images/Reception/Reception 3.jpg
+    - assets/images/Reception/Reception 4.jpg
+    # Passage
+    - assets/images/Passage/Passage 1.jpg
+    # Outside bar
+    - assets/images/Outside bar/Outside Bar 1.JPG
+    - assets/images/Outside bar/Outside Bar 2.jpg
+    - assets/images/Outside bar/Outside Bar 3.JPG
+    # Logo
     - assets/images/PZED logo.png
