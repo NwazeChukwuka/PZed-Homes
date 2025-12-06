@@ -39,7 +39,7 @@ dependencies:
 
   # Mobile only, leave as is
   video_player: ^2.10.1
-  chewie: ^1.13.0
+  chewie: ^1.7.4
   image_picker: ^1.1.1
 
 dev_dependencies:
