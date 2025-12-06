@@ -19,4 +19,5 @@ flutter --version
 
 flutter pub get
 
-flutter build web
+# Build web with explicit asset inclusion
+flutter build web --release --web-renderer html

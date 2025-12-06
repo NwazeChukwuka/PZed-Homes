@@ -4,7 +4,7 @@ import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService with ChangeNotifier {
-  final _supabase = Supabase.instance.client;
+  SupabaseClient? _supabase;
   AppUser? _currentUser;
   bool _isLoading = true;
   bool _isLoggedIn = false;
@@ -26,8 +26,26 @@ class AuthService with ChangeNotifier {
   AppRole? get assumedRole => _assumedRole;
 
   AuthService() {
+    // Try to get Supabase instance, but handle if not initialized
+    try {
+      _supabase = Supabase.instance.client;
+      // If we get here, Supabase is initialized
+    } catch (e) {
+      // Supabase not initialized - set to null
+      _supabase = null;
+    }
+
+    // If Supabase is not initialized, set loading to false immediately
+    if (_supabase == null) {
+      _isLoading = false;
+      _isLoggedIn = false;
+      _currentUser = null;
+      notifyListeners();
+      return;
+    }
+
     // Check initial session synchronously first (fast check)
-    final initialSession = _supabase.auth.currentSession;
+    final initialSession = _supabase!.auth.currentSession;
     if (initialSession != null) {
       // User has a session - load their data asynchronously
       _isLoading = true;
@@ -41,7 +59,7 @@ class AuthService with ChangeNotifier {
     }
     
     // Listen to auth state changes (for future logins/logouts)
-    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) async {
+    _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
       // Skip if we're still in initial loading
       if (_isLoading && data.session == null && !_isLoggedIn) {
         return;
@@ -98,16 +116,24 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> _onUserLoggedIn(User user) async {
+    if (_supabase == null) {
+      _isLoading = false;
+      _isLoggedIn = false;
+      _currentUser = null;
+      notifyListeners();
+      return;
+    }
+
     try {
       // Optimize: Fetch profile and permissions in parallel
       // This reduces total wait time from 2 sequential queries to 1 parallel query
-      final profileFuture = _supabase
+      final profileFuture = _supabase!
           .from('profiles')
           .select()
           .eq('id', user.id)
           .single();
       
-      final permissionsFuture = _supabase
+      final permissionsFuture = _supabase!
           .from('access_delegations')
           .select('permission')
           .eq('user_id', user.id);
@@ -158,9 +184,12 @@ class AuthService with ChangeNotifier {
     required String fullName,
     required AppRole role, // Ignored - always creates guest
   }) async {
+    if (_supabase == null) {
+      return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
+    }
     try {
       // Force guest role - staff profiles can only be created by management via HR screen
-      await _supabase.auth.signUp(
+      await _supabase!.auth.signUp(
         email: email,
         password: password,
         data: {
@@ -178,8 +207,11 @@ class AuthService with ChangeNotifier {
     required String email,
     required String password,
   }) async {
+    if (_supabase == null) {
+      return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
+    }
     try {
-      await _supabase.auth.signInWithPassword(email: email, password: password);
+      await _supabase!.auth.signInWithPassword(email: email, password: password);
       return null;
     } on AuthException catch (e) {
       return e.message;
@@ -187,11 +219,12 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> logout() async {
+    if (_supabase == null) return;
     // Clock out if still clocked in
     if (_isClockedIn) {
       await clockOut();
     }
-    await _supabase.auth.signOut();
+    await _supabase!.auth.signOut();
     _currentUser = null;
     _isLoggedIn = false;
     _isClockedIn = false;
@@ -202,14 +235,14 @@ class AuthService with ChangeNotifier {
 
   // Check if user is currently clocked in (from database)
   Future<void> _checkClockInStatus() async {
-    if (_currentUser == null) return;
+    if (_currentUser == null || _supabase == null) return;
     
     try {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
       
       // Optimize: Only select needed fields to reduce data transfer
-      final response = await _supabase
+      final response = await _supabase!
           .from('attendance_records')
           .select('id, clock_in_time')
           .eq('profile_id', _currentUser!.id)
@@ -242,6 +275,9 @@ class AuthService with ChangeNotifier {
     if (_currentUser == null) {
       throw Exception('User must be logged in to clock in');
     }
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
     
     // Check if already clocked in today
     await _checkClockInStatus();
@@ -250,7 +286,7 @@ class AuthService with ChangeNotifier {
     }
     
     try {
-      final response = await _supabase
+      final response = await _supabase!
           .from('attendance_records')
           .insert({
             'profile_id': _currentUser!.id,
@@ -274,9 +310,12 @@ class AuthService with ChangeNotifier {
     if (_currentUser == null || !_isClockedIn || _currentAttendanceId == null) {
       throw Exception('You are not clocked in');
     }
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
     
     try {
-      await _supabase
+      await _supabase!
           .from('attendance_records')
           .update({
             'clock_out_time': DateTime.now().toIso8601String(),

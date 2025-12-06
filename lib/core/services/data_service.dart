@@ -112,13 +112,25 @@ class DataService {
     });
   }
 
+  // Room Types
+  Future<List<Map<String, dynamic>>> getRoomTypes() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('room_types')
+          .select()
+          .order('price');
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
   // Rooms
   Future<List<Map<String, dynamic>>> getRooms() async {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('rooms')
           .select()
-          .order('room_number');
+          .order('room_number')
+          .limit(500); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -140,7 +152,8 @@ class DataService {
           .select()
           .neq('roles', ['guest']) // Exclude guests
           .eq('status', 'Active') // Only active staff
-          .order('full_name');
+          .order('full_name')
+          .limit(500); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -151,7 +164,8 @@ class DataService {
       final response = await _supabase
           .from('inventory_items')
           .select()
-          .order('name');
+          .order('name')
+          .limit(1000); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
     });
   }

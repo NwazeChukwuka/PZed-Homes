@@ -16,6 +16,8 @@ import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dar
 import 'package:pzed_homes/presentation/screens/guest/gallery_viewer_screen.dart';
 import 'package:pzed_homes/data/models/gallery_item.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:pzed_homes/core/state/app_state.dart';
 
 class GuestLandingPage extends StatefulWidget {
   const GuestLandingPage({super.key});
@@ -46,12 +48,22 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   }
 
   Future<Map<String, dynamic>> _fetchSiteContent() async {
+    // Always return empty map by default - use assets first
+    // Only fetch from Supabase if available (non-blocking)
     try {
+      // Check if Supabase is initialized
+      try {
+        Supabase.instance.client;
+      } catch (e) {
+        // Supabase not initialized, use assets only
+        return {};
+      }
+
       final response = await Supabase.instance.client
           .from('site_media')
           .select()
           .timeout(
-            const Duration(seconds: 3),
+            const Duration(seconds: 2), // Shorter timeout - don't block UI
             onTimeout: () => throw TimeoutException('Site content request timed out'),
           );
       
@@ -61,7 +73,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           if (item is Map) {
             final key = item['content_key']?.toString();
             final value = item['media_url']?.toString();
-            if (key != null && value != null) {
+            // Only use Supabase URLs if they're valid and non-empty
+            if (key != null && value != null && value.isNotEmpty && value.startsWith('http')) {
               content[key] = value;
             }
           }
@@ -69,16 +82,25 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       }
       return content;
     } on TimeoutException catch (e) {
-      debugPrint('Site content request timed out: $e');
-      return {};
+      debugPrint('Site content request timed out (using assets): $e');
+      return {}; // Return empty - will use assets
     } catch (e) {
-      debugPrint('Error fetching site content: $e');
-      return {};
+      debugPrint('Error fetching site content (using assets): $e');
+      return {}; // Return empty - will use assets
     }
   }
 
   Future<List<Map<String, dynamic>>> _fetchGalleryItems() async {
+    // Use assets by default, only fetch from Supabase if available
     try {
+      // Check if Supabase is initialized
+      try {
+        Supabase.instance.client;
+      } catch (e) {
+        // Supabase not initialized, use assets only
+        return _getFallbackGalleryItems();
+      }
+
       // Try to get content first (with its own timeout)
       final content = await _contentFuture.timeout(
         const Duration(seconds: 1),
@@ -90,7 +112,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           .select()
           .order('sort_order')
           .timeout(
-            const Duration(seconds: 3),
+            const Duration(seconds: 2), // Shorter timeout - don't block UI
             onTimeout: () => throw TimeoutException('Gallery request timed out'),
           );
 
@@ -319,14 +341,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
 
   // Toggle theme mode
   void _toggleTheme() {
-    // This would be implemented with your theme provider
-    // For example: Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-    // For now, we'll just show a snackbar
     if (mounted) {
-      ErrorHandler.showInfoMessage(
-        context,
-        'Theme toggle will be implemented with theme provider',
-      );
+      final appState = Provider.of<AppState>(context, listen: false);
+      appState.toggleTheme();
     }
   }
 
@@ -407,12 +424,16 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 _showAuthDialog(context, isLogin: true);
               },
             ),
-            SwitchListTile(
-              title: const Text('Dark Mode'),
-              secondary: const Icon(Icons.dark_mode),
-              value: Theme.of(context).brightness == Brightness.dark,
-              onChanged: (bool value) {
-                _toggleTheme();
+            Consumer<AppState>(
+              builder: (context, appState, child) {
+                return SwitchListTile(
+                  title: const Text('Dark Mode'),
+                  secondary: const Icon(Icons.dark_mode),
+                  value: appState.isDarkMode,
+                  onChanged: (bool value) {
+                    _toggleTheme();
+                  },
+                );
               },
             ),
           ],
@@ -1185,43 +1206,96 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 child: PageView.builder(
                   itemCount: imageUrls.length,
                   itemBuilder: (context, index) {
-                    return CachedNetworkImage(
-                      imageUrl: imageUrls[index],
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Shimmer.fromColors(
-                        baseColor: Colors.grey.shade300,
-                        highlightColor: Colors.grey.shade100,
-                        child: Container(color: Colors.grey.shade300),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.green[200]!, Colors.green[400]!],
+                    final imagePath = imageUrls[index];
+                    // Check if it's a network URL or local asset
+                    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+                      return CachedNetworkImage(
+                        imageUrl: imagePath,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Shimmer.fromColors(
+                          baseColor: Colors.grey.shade300,
+                          highlightColor: Colors.grey.shade100,
+                          child: Container(color: Colors.grey.shade300),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Colors.green[200]!, Colors.green[400]!],
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Image.asset(
+                                'assets/images/PZED logo.png',
+                                height: 60,
+                                width: 60,
+                                fit: BoxFit.contain,
+                                color: Colors.white.withOpacity(0.8),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Image.asset(
-                              'assets/images/PZED logo.png',
-                              height: 60,
-                              width: 60,
-                              fit: BoxFit.contain,
-                              color: Colors.white.withOpacity(0.8),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              name,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
+                      );
+                    } else {
+                      // Local asset - use Image.asset
+                      return Image.asset(
+                        imagePath,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          if (kDebugMode) {
+                            print('Failed to load room image: $imagePath');
+                            print('Error: $error');
+                          }
+                          return Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.green[200]!, Colors.green[400]!],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    );
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Image.asset(
+                                  'assets/images/PZED logo.png',
+                                  height: 60,
+                                  width: 60,
+                                  fit: BoxFit.contain,
+                                  color: Colors.white.withOpacity(0.8),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  name,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.9),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (kDebugMode)
+                                  Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Text(
+                                      'Failed: ${imagePath.split('/').last}',
+                                      style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    }
                   },
                 ),
               ),

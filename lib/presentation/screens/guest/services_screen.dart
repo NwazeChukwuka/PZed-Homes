@@ -306,26 +306,48 @@ class ServicesScreen extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              height: 200,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              placeholder: (context, url) => Shimmer.fromColors(
-                baseColor: Colors.grey.shade300,
-                highlightColor: Colors.grey.shade100,
-                child: Container(height: 200, color: Colors.grey.shade300),
-              ),
-              errorWidget: (context, url, error) => Container(
-                height: 200,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [color.withOpacity(0.3), color.withOpacity(0.6)],
+            child: imageUrl.startsWith('http://') || imageUrl.startsWith('https://')
+                ? CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Shimmer.fromColors(
+                      baseColor: Colors.grey.shade300,
+                      highlightColor: Colors.grey.shade100,
+                      child: Container(height: 200, color: Colors.grey.shade300),
+                    ),
+                    errorWidget: (context, url, error) => Image.asset(
+                      imageUrl.replaceFirst(RegExp(r'https?://[^/]+'), 'assets'),
+                      height: 200,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [color.withOpacity(0.3), color.withOpacity(0.6)],
+                          ),
+                        ),
+                        child: Icon(icon, size: 60, color: Colors.white),
+                      ),
+                    ),
+                  )
+                : Image.asset(
+                    imageUrl,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 200,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [color.withOpacity(0.3), color.withOpacity(0.6)],
+                        ),
+                      ),
+                      child: Icon(icon, size: 60, color: Colors.white),
+                    ),
                   ),
-                ),
-                child: Icon(icon, size: 60, color: Colors.white),
-              ),
-            ),
           ),
           Padding(
             padding: const EdgeInsets.all(20),

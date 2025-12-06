@@ -1,12 +1,5 @@
 -- ==============================================
 -- P-ZED Homes Complete Database Schema for Supabase
--- FIXED VERSION - Addresses all disconnections
--- ==============================================
--- This file contains all the necessary tables, relationships, functions, and policies
--- for the P-ZED Homes Hotel Management System
--- 
--- IMPORTANT: This script includes DROP statements to safely update existing database
--- Run this entire script in Supabase SQL Editor to update your database
 -- ==============================================
 
 -- Enable necessary extensions
@@ -20,13 +13,14 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Drop Views
 DROP VIEW IF EXISTS public.daily_sales CASCADE;
 DROP VIEW IF EXISTS public.stock_levels CASCADE;
+DROP VIEW IF EXISTS public.low_stock_alerts CASCADE;
 DROP VIEW IF EXISTS public.room_occupancy CASCADE;
 DROP VIEW IF EXISTS public.bookings_needing_room_assignment CASCADE;
 
 -- Drop Functions
 DROP FUNCTION IF EXISTS public.get_daily_revenue(DATE);
 DROP FUNCTION IF EXISTS public.get_occupancy_rate();
-DROP FUNCTION IF EXISTS public.calculate_stock_level(UUID, UUID);
+DROP FUNCTION IF EXISTS public.calculate_stock_level(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.check_out_guest(UUID);
 DROP FUNCTION IF EXISTS public.check_in_guest(UUID);
 DROP FUNCTION IF EXISTS public.assign_room_to_booking(UUID, UUID);
@@ -34,8 +28,8 @@ DROP FUNCTION IF EXISTS public.get_available_room_types(text, text);
 DROP FUNCTION IF EXISTS public.confirm_purchase_order(uuid, uuid);
 DROP FUNCTION IF EXISTS public.perform_stock_transfer(uuid, uuid, uuid, int, uuid);
 DROP FUNCTION IF EXISTS public.has_delegated_permission(TEXT);
-DROP FUNCTION IF EXISTS public.update_updated_at_column();
-DROP FUNCTION IF EXISTS public.create_public_profile_for_new_user();
+DROP FUNCTION IF EXISTS public.update_updated_at_column() CASCADE;
+DROP FUNCTION IF EXISTS public.create_public_profile_for_new_user() CASCADE;
 DROP FUNCTION IF EXISTS public.create_staff_profile(TEXT, TEXT, TEXT, TEXT, TEXT);
 
 -- Drop Triggers
@@ -43,7 +37,7 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP TRIGGER IF EXISTS update_posts_updated_at ON public.posts;
 DROP TRIGGER IF EXISTS update_maintenance_work_orders_updated_at ON public.maintenance_work_orders;
 DROP TRIGGER IF EXISTS update_work_orders_updated_at ON public.work_orders;
-DROP TRIGGER IF EXISTS update_kitchen_orders_updated_at ON public.kitchen_orders;
+-- Note: kitchen_orders trigger will be dropped automatically when table is dropped with CASCADE
 DROP TRIGGER IF EXISTS update_assets_updated_at ON public.assets;
 DROP TRIGGER IF EXISTS update_expenses_updated_at ON public.expenses;
 DROP TRIGGER IF EXISTS update_inventory_items_updated_at ON public.inventory_items;
@@ -135,7 +129,7 @@ CREATE TABLE public.profiles (
     email TEXT, -- Optional, often helpful to mirror here
     roles TEXT[] DEFAULT '{guest}', -- Array of roles: 'owner', 'manager', 'receptionist', etc.
     status TEXT DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive', 'Resigned', 'Terminated', 'Suspended')),
-    department TEXT, -- e.g., 'Kitchen', 'Bar'
+    department TEXT, -- e.g., 'reception', 'vip_bar', 'outside_bar', 'restaurant', 'laundry', 'mini_mart', 'storekeeping', 'purchasing', 'general'
     avatar_url TEXT,
     address TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -310,7 +304,7 @@ CREATE TABLE public.menu_items (
     name TEXT NOT NULL,
     description TEXT,
     price INT8 NOT NULL, -- Stored in Kobo/Cents
-    department TEXT, -- 'Restaurant', 'Bar', 'Accommodation'
+    department TEXT, -- 'reception', 'vip_bar', 'outside_bar', 'restaurant', 'laundry', 'mini_mart', 'storekeeping', 'purchasing', 'general'
     category TEXT,
     category_id UUID REFERENCES public.categories(id),
     image_url TEXT,
@@ -747,7 +741,7 @@ USING (
 CREATE TABLE public.department_sales (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    department TEXT NOT NULL, -- 'Restaurant', 'Bar', 'Mini Mart', 'Accommodation'
+    department TEXT NOT NULL, -- 'reception', 'vip_bar', 'outside_bar', 'restaurant', 'laundry', 'mini_mart', 'storekeeping', 'purchasing', 'general'
     date DATE DEFAULT CURRENT_DATE,
     total_sales INT8 NOT NULL, -- Stored in Kobo/Cents
     total_cost INT8, -- Stored in Kobo/Cents (for profit calculation)
@@ -771,16 +765,29 @@ USING (
       'manager' = ANY(p.roles) OR 
       'owner' = ANY(p.roles) OR 
       'accountant' = ANY(p.roles) OR
-      (department = 'Restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
-      (department = 'Bar' AND 'bartender' = ANY(p.roles)) OR
-      (department = 'Mini Mart' AND 'receptionist' = ANY(p.roles))
+      (department = 'restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
+      (department = 'vip_bar' AND 'bartender' = ANY(p.roles)) OR
+      (department = 'outside_bar' AND 'bartender' = ANY(p.roles)) OR
+      (department = 'mini_mart' AND 'receptionist' = ANY(p.roles)) OR
+      (department = 'reception' AND 'receptionist' = ANY(p.roles)) OR
+      (department = 'laundry' AND 'laundry_attendant' = ANY(p.roles)) OR
+      (department = 'storekeeping' AND 'storekeeper' = ANY(p.roles)) OR
+      (department = 'purchasing' AND 'purchaser' = ANY(p.roles))
     )
   )
 );
 
 -- Only management can insert/update department sales
-CREATE POLICY "Management can manage sales" ON public.department_sales FOR INSERT, UPDATE 
-USING (
+CREATE POLICY "Management can insert sales" ON public.department_sales FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+CREATE POLICY "Management can update sales" ON public.department_sales FOR UPDATE USING (
   EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
@@ -826,8 +833,20 @@ USING (
   )
 );
 
-CREATE POLICY "Bartenders manage own shifts" ON public.bartender_shifts FOR INSERT, UPDATE 
-USING (
+CREATE POLICY "Bartenders can insert shifts" ON public.bartender_shifts FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      (bartender_id = auth.uid() AND 'bartender' = ANY(p.roles)) OR
+      'manager' = ANY(p.roles) OR
+      'owner' = ANY(p.roles)
+    )
+  )
+);
+
+CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDATE USING (
   EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
@@ -1354,8 +1373,8 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION public.create_staff_profile(
     p_email TEXT,
     p_full_name TEXT,
-    p_phone TEXT DEFAULT NULL,
     p_role TEXT,
+    p_phone TEXT DEFAULT NULL,
     p_department TEXT DEFAULT NULL
 )
 RETURNS UUID
@@ -1583,12 +1602,17 @@ INSERT INTO public.locations (name, type) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- Populate Departments
+-- Note: Department names use lowercase with underscores to match code usage
 INSERT INTO public.departments (name) VALUES 
-('General'), 
-('Kitchen'), 
-('Reception'), 
-('Housekeeping'), 
-('Maintenance')
+('reception'), 
+('vip_bar'), 
+('outside_bar'), 
+('restaurant'), 
+('laundry'), 
+('mini_mart'), 
+('storekeeping'), 
+('purchasing'), 
+('general')
 ON CONFLICT (name) DO NOTHING;
 
 -- Populate Expense Categories
@@ -1617,28 +1641,4 @@ GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
 -- ==============================================
 -- END OF SCHEMA
--- ==============================================
--- All disconnections have been fixed:
--- 1. ✅ Bookings can be created without room_id (room_type only)
--- 2. ✅ Status standardized to 'Pending Check-in' (not 'confirmed' or 'Pending Payment')
--- 3. ✅ Room status 'reserved' removed (only valid statuses allowed)
--- 4. ✅ Function to assign room to booking added (assign_room_to_booking)
--- 5. ✅ Check-in requires room assignment first
--- 6. ✅ Availability function accounts for bookings by type
--- 7. ✅ View for bookings needing room assignment
--- 
--- All missing tables have been added:
--- 8. ✅ income_records - For tracking all income sources
--- 9. ✅ payroll_records - For staff payroll management
--- 10. ✅ cash_deposits - For bank deposit tracking
--- 11. ✅ debts - For debt management
--- 12. ✅ mini_mart_items - Separate table for mini mart inventory (reception subdepartment)
--- 13. ✅ mini_mart_sales - Separate table for mini mart sales (reception subdepartment)
--- 14. ✅ department_sales - For tracking sales by department
--- 15. ✅ bartender_shifts - For bartender shift management
--- 16. ✅ staff_role_assignments - For role delegation/temporary assignments
--- 
--- DataService methods updated:
--- ✅ getStaffProfiles() now uses profiles table instead of staff_profiles
--- ✅ All methods now reference correct table names
 -- ==============================================

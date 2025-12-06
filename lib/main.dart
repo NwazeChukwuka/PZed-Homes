@@ -23,20 +23,26 @@ Future<void> main() async {
   ]);
 
   // Initialize Supabase for production
-  // Set these environment variables or replace with your actual credentials
+  // IMPORTANT: Set these as environment variables in Vercel Dashboard
+  // Go to: Project Settings → Environment Variables
+  // For local development, you can use --dart-define flags or set defaults
   const supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://idhebncfhiclruvqvmxb.supabase.co',
+    defaultValue: '', // Empty for local dev - will show error screen
   );
   const supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkaGVibmNmaGljbHJ1dnF2bXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4ODYwMjIsImV4cCI6MjA3MzQ2MjAyMn0.khoiul_d7MLLlRJXA6duaxuyrmzPAx42qxudb7DpWQY',
+    defaultValue: '', // Empty for local dev - will show error screen
   );
-
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  
+  // Only initialize if environment variables are provided
+  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
+    await Supabase.initialize(
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
+    );
+  }
+  // If not provided, the app will show an error screen instead of crashing
 
   runApp(const PzedHomesApp());
 }

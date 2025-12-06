@@ -63,3 +63,9 @@ test_supabase_connection.dart
 # Vercel build artifacts (downloaded during build)
 flutter/
 flutter_linux_*.tar.xz
+
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+.env.*.local
+*.env

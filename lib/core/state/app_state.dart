@@ -1,6 +1,7 @@
 // Location: lib/core/state/app_state.dart
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 /// Global application state management
@@ -132,12 +133,32 @@ class AppState extends ChangeNotifier {
 
   // User preferences persistence
   Future<void> _loadUserPreferences() async {
-    // TODO: Load from SharedPreferences or secure storage
-    // For now, using default values
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _isDarkMode = prefs.getBool('isDarkMode') ?? false;
+      _language = prefs.getString('language') ?? 'en';
+      _fontScale = prefs.getDouble('fontScale') ?? 1.0;
+      notifyListeners();
+    } catch (e) {
+      // If loading fails, use default values
+      if (kDebugMode) {
+        print('Error loading user preferences: $e');
+      }
+    }
   }
 
   Future<void> _saveUserPreferences() async {
-    // TODO: Save to SharedPreferences or secure storage
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isDarkMode', _isDarkMode);
+      await prefs.setString('language', _language);
+      await prefs.setDouble('fontScale', _fontScale);
+    } catch (e) {
+      // If saving fails, log error but don't throw
+      if (kDebugMode) {
+        print('Error saving user preferences: $e');
+      }
+    }
   }
 
   Future<void> _checkNetworkStatus() async {

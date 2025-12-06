@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/presentation/widgets/room_card.dart';
 import 'package:pzed_homes/data/models/room_category.dart';
-import 'package:pzed_homes/data/mock_data.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,13 +23,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadRoomTypes() async {
     try {
-      // Load from mock data
-      await Future.delayed(const Duration(milliseconds: 250));
-      final roomTypes = mockRoomCategories;
+      final dataService = DataService();
+      final roomTypes = await dataService.getRoomTypes();
 
       if (mounted) {
         setState(() {
-          _roomTypes = List<Map<String, dynamic>>.from(roomTypes);
+          // Transform room_types data to match RoomCategory format
+          _roomTypes = roomTypes.map((type) {
+            return {
+              'type': type['type'] ?? 'Unknown',
+              'price_ngn': (type['price'] as int? ?? 0) ~/ 100, // Convert from kobo to naira
+              'rooms': [], // Rooms are loaded separately
+              'images': type['image_url'] != null ? [type['image_url']] : [],
+            };
+          }).toList();
           _isLoading = false;
         });
       }

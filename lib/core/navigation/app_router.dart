@@ -36,6 +36,7 @@ import 'package:pzed_homes/presentation/screens/add_expense_screen.dart';
 import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/storekeeper_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/mini_mart_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -492,6 +493,22 @@ class RootDecider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if Supabase is initialized
+    // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
+    bool isSupabaseInitialized = false;
+    try {
+      final supabase = Supabase.instance.client;
+      // If we get here without exception, Supabase is initialized
+      isSupabaseInitialized = supabase != null;
+    } catch (e) {
+      // Supabase not initialized
+      isSupabaseInitialized = false;
+    }
+    
+    if (!isSupabaseInitialized) {
+      return _buildConfigErrorScreen();
+    }
+
     return Consumer<AuthService>(
       builder: (context, authService, child) {
         // If still loading user info
@@ -532,6 +549,67 @@ class RootDecider extends StatelessWidget {
             ? const DashboardScreen() 
             : const StaffDashboardScreen();
       },
+    );
+  }
+
+  Widget _buildConfigErrorScreen() {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Configuration Required',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Supabase environment variables are not configured.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'For local development, run:',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const SelectableText(
+                  'flutter run -d edge --dart-define=SUPABASE_URL=your_url --dart-define=SUPABASE_ANON_KEY=your_key',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Or set them in Vercel Dashboard for production deployment.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
