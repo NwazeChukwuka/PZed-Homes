@@ -1,5 +1,6 @@
 // Location: lib/main.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -34,6 +35,14 @@ Future<void> main() async {
     'SUPABASE_ANON_KEY',
     defaultValue: '', // Empty for local dev - will show error screen
   );
+  
+  // Debug: Print values to verify they're being read (check browser console)
+  if (kDebugMode) {
+    debugPrint('🔍 Supabase Config Check:');
+    debugPrint('URL length: ${supabaseUrl.length}');
+    debugPrint('Key length: ${supabaseAnonKey.length}');
+    debugPrint('URL starts with https: ${supabaseUrl.startsWith('https://')}');
+  }
   
   // Only initialize if environment variables are provided
   if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {

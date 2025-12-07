@@ -19,5 +19,22 @@ flutter --version
 
 flutter pub get
 
-# Build web with explicit asset inclusion
-flutter build web --release --web-renderer html
+# Build web with environment variables from Vercel
+# Vercel environment variables are available as shell variables during build
+# Check if variables are set (for debugging - won't fail if not set)
+if [ -z "$SUPABASE_URL" ]; then
+  echo "Warning: SUPABASE_URL environment variable is not set"
+else
+  echo "SUPABASE_URL is set (length: ${#SUPABASE_URL})"
+fi
+if [ -z "$SUPABASE_ANON_KEY" ]; then
+  echo "Warning: SUPABASE_ANON_KEY environment variable is not set"
+else
+  echo "SUPABASE_ANON_KEY is set (length: ${#SUPABASE_ANON_KEY})"
+fi
+
+# Build with dart-define flags
+# IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
+flutter build web --release --web-renderer html \
+  --dart-define=SUPABASE_URL=$SUPABASE_URL \
+  --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
