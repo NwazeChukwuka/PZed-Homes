@@ -496,6 +496,7 @@ class RootDecider extends StatelessWidget {
     // Check if Supabase is initialized
     // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
     bool isSupabaseInitialized = false;
+    String? initError;
     try {
       final supabase = Supabase.instance.client;
       // If we get here without exception, Supabase is initialized
@@ -503,12 +504,11 @@ class RootDecider extends StatelessWidget {
     } catch (e) {
       // Supabase not initialized
       isSupabaseInitialized = false;
+      initError = e.toString();
     }
     
-    if (!isSupabaseInitialized) {
-      return _buildConfigErrorScreen();
-    }
-
+    // For guest users, allow the app to work without Supabase (images from assets)
+    // Only require Supabase for authenticated features
     return Consumer<AuthService>(
       builder: (context, authService, child) {
         // If still loading user info
@@ -527,9 +527,42 @@ class RootDecider extends StatelessWidget {
           );
         }
 
-        // If user is not logged in, show guest landing page
+        // If user is not logged in, show guest landing page (works without Supabase)
         if (!authService.isLoggedIn) {
+          // Show warning banner if Supabase not configured, but still show guest page
+          if (!isSupabaseInitialized) {
+            return Stack(
+              children: [
+                const GuestLandingPage(),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    color: Colors.orange,
+                    padding: const EdgeInsets.all(8.0),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.warning, color: Colors.white, size: 16),
+                        SizedBox(width: 8),
+                        Text(
+                          'Supabase not configured - using local assets only',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
           return const GuestLandingPage();
+        }
+
+        // For authenticated users, Supabase is required
+        if (!isSupabaseInitialized) {
+          return _buildConfigErrorScreen(initError);
         }
 
         // If user is logged in, show appropriate dashboard
@@ -552,8 +585,12 @@ class RootDecider extends StatelessWidget {
     );
   }
 
-  Widget _buildConfigErrorScreen() {
+  Widget _buildConfigErrorScreen([String? error]) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Configuration Error'),
+        backgroundColor: Colors.red,
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -579,32 +616,92 @@ class RootDecider extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'For local development, run:',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const SelectableText(
-                  'flutter run -d edge --dart-define=SUPABASE_URL=your_url --dart-define=SUPABASE_ANON_KEY=your_key',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
+              if (error != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red[200]!),
                   ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Error Details:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        error,
+                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              const Text(
+                'Troubleshooting Steps:',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('1. Check Vercel Environment Variables:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text('   - Go to Vercel Dashboard → Settings → Environment Variables'),
+                    Text('   - Ensure variables are named exactly: SUPABASE_URL and SUPABASE_ANON_KEY'),
+                    Text('   - Ensure they are enabled for Production environment'),
+                    SizedBox(height: 12),
+                    Text('2. Check Browser Console (F12):', style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text('   - Look for "🔍 Supabase Config Check" messages'),
+                    Text('   - URL length should be > 0'),
+                    Text('   - Key length should be > 0'),
+                    SizedBox(height: 12),
+                    Text('3. Redeploy after setting variables:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text('   - Variables only apply to NEW deployments'),
+                    Text('   - Trigger a new deployment after adding variables'),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Or set them in Vercel Dashboard for production deployment.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'For local development:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    SelectableText(
+                      'flutter run -d edge --dart-define=SUPABASE_URL=your_url --dart-define=SUPABASE_ANON_KEY=your_key',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

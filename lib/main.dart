@@ -36,12 +36,17 @@ Future<void> main() async {
     defaultValue: '', // Empty for local dev - will show error screen
   );
   
-  // Debug: Print values to verify they're being read (check browser console)
-  if (kDebugMode) {
-    debugPrint('🔍 Supabase Config Check:');
-    debugPrint('URL length: ${supabaseUrl.length}');
-    debugPrint('Key length: ${supabaseAnonKey.length}');
-    debugPrint('URL starts with https: ${supabaseUrl.startsWith('https://')}');
+  // Debug: Always print values to verify they're being read (check browser console)
+  // This works in production too - check browser DevTools Console
+  print('🔍 Supabase Config Check:');
+  print('URL length: ${supabaseUrl.length}');
+  print('Key length: ${supabaseAnonKey.length}');
+  print('URL starts with https: ${supabaseUrl.startsWith('https://')}');
+  if (supabaseUrl.isNotEmpty) {
+    print('URL preview: ${supabaseUrl.substring(0, supabaseUrl.length > 30 ? 30 : supabaseUrl.length)}...');
+  }
+  if (supabaseAnonKey.isNotEmpty) {
+    print('Key preview: ${supabaseAnonKey.substring(0, supabaseAnonKey.length > 30 ? 30 : supabaseAnonKey.length)}...');
   }
   
   // Only initialize if environment variables are provided
