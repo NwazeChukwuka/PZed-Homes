@@ -26,6 +26,18 @@ class AuthService with ChangeNotifier {
   AppRole? get assumedRole => _assumedRole;
 
   AuthService() {
+    // Start with loading false for immediate UI render
+    // Guest users should see the page immediately
+    _isLoading = false;
+    _isLoggedIn = false;
+    _currentUser = null;
+    
+    // Check Supabase and session in background (non-blocking)
+    // This allows the app to render immediately
+    Future.microtask(() => _initializeAuth());
+  }
+
+  Future<void> _initializeAuth() async {
     // Try to get Supabase instance, but handle if not initialized
     try {
       _supabase = Supabase.instance.client;
@@ -33,25 +45,21 @@ class AuthService with ChangeNotifier {
     } catch (e) {
       // Supabase not initialized - set to null
       _supabase = null;
-    }
-
-    // If Supabase is not initialized, set loading to false immediately
-    if (_supabase == null) {
-      _isLoading = false;
-      _isLoggedIn = false;
-      _currentUser = null;
       notifyListeners();
       return;
     }
 
-    // Check initial session synchronously first (fast check)
-    final initialSession = _supabase!.auth.currentSession;
-    if (initialSession != null) {
-      // User has a session - load their data asynchronously
-      _isLoading = true;
-      _initializeAuthState(initialSession.user);
-    } else {
-      // No session - user is not logged in, clear loading immediately
+    // Check initial session (non-blocking)
+    try {
+      final initialSession = _supabase!.auth.currentSession;
+      if (initialSession != null) {
+        // User has a session - load their data asynchronously
+        _isLoading = true;
+        notifyListeners();
+        await _initializeAuthState(initialSession.user);
+      }
+    } catch (e) {
+      // If error, assume not logged in
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
@@ -59,7 +67,8 @@ class AuthService with ChangeNotifier {
     }
     
     // Listen to auth state changes (for future logins/logouts)
-    _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
+    if (_supabase != null) {
+      _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
       // Skip if we're still in initial loading
       if (_isLoading && data.session == null && !_isLoggedIn) {
         return;
@@ -90,17 +99,27 @@ class AuthService with ChangeNotifier {
         _isLoading = false;
         notifyListeners();
       }
-    });
+      });
+    }
   }
 
   Future<void> _initializeAuthState(User user) async {
     try {
-      // Load user data with timeout to prevent hanging
+      // Load user data with shorter timeout to prevent hanging
       await _onUserLoggedIn(user).timeout(
-        const Duration(seconds: 10),
+        const Duration(seconds: 5), // Reduced from 10 to 5 seconds
         onTimeout: () {
-          // If timeout, still mark as logged in
+          // If timeout, still mark as logged in but with limited user data
           _isLoggedIn = true;
+          // Create a minimal user object from auth user
+          _currentUser = AppUser(
+            id: user.id,
+            name: user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
+            email: user.email ?? '',
+            role: AppRole.guest,
+            roles: [AppRole.guest],
+            permissions: [],
+          );
         },
       );
       _isLoggedIn = true;
@@ -109,7 +128,7 @@ class AuthService with ChangeNotifier {
       _isLoggedIn = false;
       _currentUser = null;
     } finally {
-      // Always clear loading state
+      // Always clear loading state after max 5 seconds
       _isLoading = false;
       notifyListeners();
     }
@@ -138,11 +157,25 @@ class AuthService with ChangeNotifier {
           .select('permission')
           .eq('user_id', user.id);
 
-      // Wait for both queries in parallel
+      // Wait for both queries in parallel with timeout
       final results = await Future.wait([
         profileFuture as Future<dynamic>,
         permissionsFuture as Future<dynamic>,
-      ]);
+      ]).timeout(
+        const Duration(seconds: 5), // 5 second timeout
+        onTimeout: () {
+          // Return minimal data on timeout
+          return [
+            {
+              'id': user.id,
+              'full_name': user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
+              'email': user.email ?? '',
+              'roles': ['guest'],
+            },
+            <dynamic>[], // Empty permissions
+          ];
+        },
+      );
       final profileResponse = results[0] as Map<String, dynamic>?;
       final permissionsResponse = results[1] as List<dynamic>;
 
@@ -172,9 +205,17 @@ class AuthService with ChangeNotifier {
           _checkClockInStatus(); // Fire and forget - don't await
         }
       }
-    } catch (_) {
-      _currentUser = null;
-      _isLoggedIn = false;
+    } catch (e) {
+      // On error, create minimal user from auth data
+      _currentUser = AppUser(
+        id: user.id,
+        name: user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
+        email: user.email ?? '',
+        role: AppRole.guest,
+        roles: [AppRole.guest],
+        permissions: [],
+      );
+      _isLoggedIn = true; // Still mark as logged in
     }
   }
 
@@ -196,10 +237,22 @@ class AuthService with ChangeNotifier {
           'full_name': fullName,
           'roles': ['guest'], // Always guest - database trigger also enforces this
         },
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('Sign up request timed out. Please check your internet connection and try again.');
+        },
       );
+      
+      // Note: For sign up, user might need to verify email first
+      // So we don't wait for user data here - just return success
       return null;
+    } on TimeoutException catch (e) {
+      return e.message;
     } on AuthException catch (e) {
       return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred: ${e.toString()}';
     }
   }
 
@@ -211,10 +264,40 @@ class AuthService with ChangeNotifier {
       return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
     }
     try {
-      await _supabase!.auth.signInWithPassword(email: email, password: password);
+      // Add timeout to prevent infinite loading
+      await _supabase!.auth.signInWithPassword(
+        email: email,
+        password: password,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
+        },
+      );
+      
+      // Wait for auth state to update (with timeout)
+      // The auth state listener will call _onUserLoggedIn, but we need to wait a bit
+      // for the user data to be loaded
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Wait for user to be loaded (with timeout)
+      int attempts = 0;
+      while (_currentUser == null && attempts < 20) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        attempts++;
+      }
+      
+      if (_currentUser == null) {
+        return 'Login successful but user data could not be loaded. Please try again.';
+      }
+      
       return null;
+    } on TimeoutException catch (e) {
+      return e.message;
     } on AuthException catch (e) {
       return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred: ${e.toString()}';
     }
   }
 

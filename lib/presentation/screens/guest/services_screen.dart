@@ -45,7 +45,7 @@ class ServicesScreen extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Image.asset(
-            'assets/images/Front View/Front View 4.JPG',
+            'assets/images/Front View/Front View 4.jpg',
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => Container(
               decoration: BoxDecoration(
@@ -136,7 +136,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             '24/7 Room Service',
             'Enjoy round-the-clock room service with our extensive menu of local and international cuisine delivered to your door.',
-            'assets/images/Reception/Reception 3.JPG',
+            'assets/images/Reception/Reception 3.jpg',
             Icons.room_service,
             Colors.orange,
           ),
@@ -173,7 +173,7 @@ class ServicesScreen extends StatelessWidget {
             context,
             'Restaurant',
             'Savor a wide range of local and continental dishes prepared by our expert chefs in our elegant restaurant.',
-            'assets/images/Restaurant/Restaurant 1.JPG',
+            'assets/images/Restaurant/Restaurant 1.jpg',
             Icons.restaurant,
             Colors.red,
           ),

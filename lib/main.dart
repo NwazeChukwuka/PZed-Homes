@@ -15,49 +15,47 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set preferred orientations
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
+  // For web, skip orientation lock (not needed and blocks startup)
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
 
-  // Initialize Supabase for production
-  // IMPORTANT: Set these as environment variables in Vercel Dashboard
-  // Go to: Project Settings → Environment Variables
-  // For local development, you can use --dart-define flags or set defaults
+  // Initialize Supabase ASYNCHRONOUSLY (don't block app startup)
+  // This allows the app to render immediately while Supabase initializes in background
   const supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: '', // Empty for local dev - will show error screen
+    defaultValue: '',
   );
   const supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: '', // Empty for local dev - will show error screen
+    defaultValue: '',
   );
   
-  // Debug: Always print values to verify they're being read (check browser console)
-  // This works in production too - check browser DevTools Console
-  print('🔍 Supabase Config Check:');
-  print('URL length: ${supabaseUrl.length}');
-  print('Key length: ${supabaseAnonKey.length}');
-  print('URL starts with https: ${supabaseUrl.startsWith('https://')}');
-  if (supabaseUrl.isNotEmpty) {
-    print('URL preview: ${supabaseUrl.substring(0, supabaseUrl.length > 30 ? 30 : supabaseUrl.length)}...');
-  }
-  if (supabaseAnonKey.isNotEmpty) {
-    print('Key preview: ${supabaseAnonKey.substring(0, supabaseAnonKey.length > 30 ? 30 : supabaseAnonKey.length)}...');
+  // Only log in debug mode to reduce production overhead
+  if (kDebugMode) {
+    print('🔍 Supabase Config Check:');
+    print('URL length: ${supabaseUrl.length}');
+    print('Key length: ${supabaseAnonKey.length}');
   }
   
-  // Only initialize if environment variables are provided
+  // Initialize Supabase in background (non-blocking)
   if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-    await Supabase.initialize(
+    // Don't await - let it initialize in background
+    Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
-    );
+    ).catchError((e) {
+      // Silent fail - app will work without Supabase
+      if (kDebugMode) print('Supabase init error: $e');
+    });
   }
-  // If not provided, the app will show an error screen instead of crashing
 
+  // Start app immediately - don't wait for Supabase
   runApp(const PzedHomesApp());
 }
 

@@ -53,6 +53,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (mounted) {
         if (errorMessage == null) {
+          // Wait a bit more for user data to load after login
+          // The login method already waits, but give it a bit more time
+          int waitAttempts = 0;
+          while (authService.currentUser == null && waitAttempts < 10) {
+            await Future.delayed(const Duration(milliseconds: 300));
+            waitAttempts++;
+          }
+          
           final user = authService.currentUser;
           final isStaff = user != null && user.roles.any((role) => role != AppRole.guest);
 

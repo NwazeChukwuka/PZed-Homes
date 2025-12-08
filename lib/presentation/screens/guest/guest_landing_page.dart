@@ -28,8 +28,8 @@ class GuestLandingPage extends StatefulWidget {
 
 class _GuestLandingPageState extends State<GuestLandingPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  late final Future<Map<String, dynamic>> _contentFuture;
-  late final Future<List<Map<String, dynamic>>> _galleryFuture;
+  Future<Map<String, dynamic>>? _contentFuture;
+  Future<List<Map<String, dynamic>>>? _galleryFuture;
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
   int _guestCount = 1;
@@ -40,11 +40,139 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     'children': 0,
   };
 
+  // State for dynamic image replacement from Supabase
+  List<String> _heroImages = [];
+  Map<String, List<String>> _roomImages = {}; // roomType -> list of image URLs
+
   @override
   void initState() {
     super.initState();
-    _contentFuture = _fetchSiteContent();
-    _galleryFuture = _fetchGalleryItems();
+    
+    // Initialize with asset images IMMEDIATELY (synchronous)
+    _heroImages = [
+      'assets/images/Front View/Front View 1.JPG',
+      'assets/images/Front View/Front View 2.JPG',
+      'assets/images/Front View/Front View 3.jpg',
+      'assets/images/Front View/Front View 4.jpg',
+    ];
+    
+    _roomImages = {
+      'Standard Room': [
+        'assets/images/Standard Room/Standard 1.png',
+        'assets/images/Standard Room/Standard 2.JPG',
+        'assets/images/Standard Room/Standard 3.jpg',
+      ],
+      'Classic Room': [
+        'assets/images/Classic Room/Classic 1.JPG',
+        'assets/images/Classic Room/Classic 2.png',
+        'assets/images/Classic Room/Classic 3.JPG',
+      ],
+      'Diplomatic Room': [
+        'assets/images/Diplomatic Room/Diplomatic 1.png',
+        'assets/images/Diplomatic Room/Diplomatic 2.JPG',
+        'assets/images/Diplomatic Room/Diplomatic 3.jpg',
+      ],
+      'Deluxe Room': [
+        'assets/images/Deluxe Room/Deluxe 1.JPG',
+        'assets/images/Deluxe Room/Deluxe 2.JPG',
+        'assets/images/Deluxe Room/Deluxe 3.png',
+      ],
+      'Executive Suite': [
+        'assets/images/Executive Room/Executive 1.png',
+        'assets/images/Executive Room/Executive 2.png',
+        'assets/images/Executive Room/Executive 3.jpg',
+      ],
+    };
+
+    // Defer Supabase fetches - don't block initial render
+    // Fetch in background after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _contentFuture = _fetchSiteContent();
+      _galleryFuture = _fetchGalleryItems();
+      
+      // After 5 seconds, try to replace with Supabase images
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) {
+          _replaceWithSupabaseImages();
+        }
+      });
+    });
+  }
+
+  Future<void> _replaceWithSupabaseImages() async {
+    try {
+      // Check if Supabase is initialized
+      try {
+        Supabase.instance.client;
+      } catch (e) {
+        return; // Supabase not initialized, keep using assets
+      }
+
+      // Fetch gallery items from Supabase
+      final galleryItems = await Supabase.instance.client
+          .from('gallery_media')
+          .select()
+          .order('sort_order')
+          .timeout(const Duration(seconds: 3));
+
+      if (galleryItems == null || galleryItems.isEmpty) return;
+
+      // Group gallery items by category/room type
+      final Map<String, List<String>> supabaseRoomImages = {};
+      List<String> supabaseHeroImages = [];
+
+      for (var item in galleryItems) {
+        if (item is! Map) continue;
+        final mediaUrl = item['media_url']?.toString() ?? '';
+        final title = item['title']?.toString() ?? '';
+        
+        // Skip if not a valid URL
+        if (!mediaUrl.startsWith('http')) continue;
+
+        // Check if it's a hero image (Front View)
+        if (title.toLowerCase().contains('front view') || 
+            mediaUrl.toLowerCase().contains('front')) {
+          supabaseHeroImages.add(mediaUrl);
+        }
+
+        // Check for room images
+        final roomTypes = ['Standard', 'Classic', 'Diplomatic', 'Deluxe', 'Executive'];
+        for (var roomType in roomTypes) {
+          if (title.toLowerCase().contains(roomType.toLowerCase()) ||
+              mediaUrl.toLowerCase().contains(roomType.toLowerCase())) {
+            final key = '$roomType Room';
+            if (roomType == 'Executive') {
+              supabaseRoomImages['Executive Suite'] ??= [];
+              supabaseRoomImages['Executive Suite']!.add(mediaUrl);
+            } else {
+              supabaseRoomImages[key] ??= [];
+              supabaseRoomImages[key]!.add(mediaUrl);
+            }
+            break;
+          }
+        }
+      }
+
+      // Update state if we found Supabase images
+      if (mounted) {
+        setState(() {
+          // Only replace hero images if we found at least one
+          if (supabaseHeroImages.isNotEmpty) {
+            _heroImages = supabaseHeroImages.take(4).toList();
+          }
+
+          // Replace room images if found
+          for (var entry in supabaseRoomImages.entries) {
+            if (entry.value.isNotEmpty) {
+              _roomImages[entry.key] = entry.value.take(3).toList();
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error replacing with Supabase images: $e');
+      // Keep using asset images on error
+    }
   }
 
   Future<Map<String, dynamic>> _fetchSiteContent() async {
@@ -102,7 +230,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       }
 
       // Try to get content first (with its own timeout)
-      final content = await _contentFuture.timeout(
+      final content = await (_contentFuture ?? Future.value(<String, dynamic>{})).timeout(
         const Duration(seconds: 1),
         onTimeout: () => <String, dynamic>{},
       );
@@ -471,31 +599,23 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         ],
       ),
       body: FutureBuilder<Map<String, dynamic>>(
-        future: _contentFuture,
+        future: _contentFuture ?? Future.value(<String, dynamic>{}),
         builder: (context, contentSnapshot) {
           return FutureBuilder<List<Map<String, dynamic>>>(
-            future: _galleryFuture,
+            future: _galleryFuture ?? Future.value(_getFallbackGalleryItems()),
             builder: (context, gallerySnapshot) {
-              // Show loading indicator only if both futures are still loading
-              if (contentSnapshot.connectionState == ConnectionState.waiting && 
-                  gallerySnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              // Handle errors gracefully
-              if (contentSnapshot.hasError && gallerySnapshot.hasError) {
-                return ErrorHandler.buildErrorWidget(
-                  context,
-                  contentSnapshot.error ?? gallerySnapshot.error,
-                  message: 'Error loading page content',
-                );
-              }
-
-              // Get content with fallback
-              final content = contentSnapshot.data ?? {};
+              // CRITICAL: Don't wait for futures - show content immediately with fallback
+              // This ensures the page renders within 1-2 seconds instead of waiting for Supabase
               
-              // Get gallery items with fallback
-              final galleryItems = gallerySnapshot.data ?? _getFallbackGalleryItems();
+              // Use fallback data immediately, update when Supabase data arrives
+              final content = contentSnapshot.hasData 
+                  ? (contentSnapshot.data ?? {}) 
+                  : {}; // Empty map is fine - we use asset images
+              
+              // Get gallery items with fallback - don't wait
+              final galleryItems = gallerySnapshot.hasData 
+                  ? (gallerySnapshot.data ?? _getFallbackGalleryItems())
+                  : _getFallbackGalleryItems(); // Always have fallback ready
 
               return SingleChildScrollView(
                 child: Column(
@@ -517,7 +637,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Standard Room',
                         description: 'Comfortable, affordable, and equipped with all the essentials for a pleasant stay.',
                         price: 15000,
-                        imageUrls: [
+                        imageUrls: _roomImages['Standard Room'] ?? [
                           'assets/images/Standard Room/Standard 1.png',
                           'assets/images/Standard Room/Standard 2.JPG',
                           'assets/images/Standard Room/Standard 3.jpg',
@@ -530,7 +650,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Classic Room',
                         description: 'A touch of elegance with enhanced amenities and more space to relax and unwind.',
                         price: 20000,
-                        imageUrls: [
+                        imageUrls: _roomImages['Classic Room'] ?? [
                           'assets/images/Classic Room/Classic 1.JPG',
                           'assets/images/Classic Room/Classic 2.png',
                           'assets/images/Classic Room/Classic 3.JPG',
@@ -543,7 +663,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Diplomatic Room',
                         description: 'Spacious and refined, designed for the discerning traveler requiring extra comfort.',
                         price: 25000,
-                        imageUrls: [
+                        imageUrls: _roomImages['Diplomatic Room'] ?? [
                           'assets/images/Diplomatic Room/Diplomatic 1.png',
                           'assets/images/Diplomatic Room/Diplomatic 2.JPG',
                           'assets/images/Diplomatic Room/Diplomatic 3.jpg',
@@ -556,7 +676,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Deluxe Room',
                         description: 'A premium experience with superior furnishings and breathtaking views.',
                         price: 30000,
-                        imageUrls: [
+                        imageUrls: _roomImages['Deluxe Room'] ?? [
                           'assets/images/Deluxe Room/Deluxe 1.JPG',
                           'assets/images/Deluxe Room/Deluxe 2.JPG',
                           'assets/images/Deluxe Room/Deluxe 3.png',
@@ -569,7 +689,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Executive Suite',
                         description: 'The pinnacle of luxury, featuring a separate living area and exclusive amenities.',
                         price: 50000,
-                        imageUrls: [
+                        imageUrls: _roomImages['Executive Suite'] ?? [
                           'assets/images/Executive Room/Executive 1.png',
                           'assets/images/Executive Room/Executive 2.png',
                           'assets/images/Executive Room/Executive 3.jpg',
@@ -753,14 +873,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       desktop: 700.0,
     );
 
-    final List<String> heroImages = [
-      'assets/images/Front View/Front View 1.JPG',
-      'assets/images/Front View/Front View 2.JPG',
-      'assets/images/Front View/Front View 3.jpg',
-      'assets/images/Front View/Front View 4.jpg',
-      'assets/images/Front View/Front View 5.JPG',
-      'assets/images/Front View/Front View 6.jpg',
-    ];
+    // Use state-managed hero images (starts with assets, may be replaced by Supabase)
+    final List<String> heroImages = _heroImages;
 
     final PageController _pageController = PageController();
     int _currentPage = 0;

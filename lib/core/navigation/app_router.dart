@@ -511,53 +511,21 @@ class RootDecider extends StatelessWidget {
     // Only require Supabase for authenticated features
     return Consumer<AuthService>(
       builder: (context, authService, child) {
-        // If still loading user info
-        if (authService.isLoading) {
-          return const Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading...'),
-                ],
-              ),
-            ),
-          );
+        // PRIORITY: Show guest page immediately if not logged in
+        // Don't wait for auth check - render first, check auth in background
+        if (!authService.isLoggedIn) {
+          // If still loading auth, show guest page anyway (non-blocking)
+          if (authService.isLoading) {
+            // Show guest page immediately, auth will update in background
+            return _buildGuestPageWithWarning(isSupabaseInitialized);
+          }
+          return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is not logged in, show guest landing page (works without Supabase)
-        if (!authService.isLoggedIn) {
-          // Show warning banner if Supabase not configured, but still show guest page
-          if (!isSupabaseInitialized) {
-            return Stack(
-              children: [
-                const GuestLandingPage(),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    color: Colors.orange,
-                    padding: const EdgeInsets.all(8.0),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.warning, color: Colors.white, size: 16),
-                        SizedBox(width: 8),
-                        Text(
-                          'Supabase not configured - using local assets only',
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            );
-          }
-          return const GuestLandingPage();
+        // If still loading user info, show loading but with timeout
+        // Use a StatefulWidget to implement timeout
+        if (authService.isLoading) {
+          return _LoadingScreenWithTimeout();
         }
 
         // For authenticated users, Supabase is required
@@ -583,6 +551,37 @@ class RootDecider extends StatelessWidget {
             : const StaffDashboardScreen();
       },
     );
+  }
+
+  Widget _buildGuestPageWithWarning(bool isSupabaseInitialized) {
+    if (!isSupabaseInitialized) {
+      return Stack(
+        children: [
+          const GuestLandingPage(),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              color: Colors.orange,
+              padding: const EdgeInsets.all(8.0),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.warning, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text(
+                    'Supabase not configured - using local assets only',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return const GuestLandingPage();
   }
 
   Widget _buildConfigErrorScreen([String? error]) {
@@ -705,6 +704,59 @@ class RootDecider extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// Loading screen with timeout to prevent infinite loading
+class _LoadingScreenWithTimeout extends StatefulWidget {
+  const _LoadingScreenWithTimeout();
+
+  @override
+  State<_LoadingScreenWithTimeout> createState() => _LoadingScreenWithTimeoutState();
+}
+
+class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
+  bool _showTimeout = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // After 8 seconds, show timeout message
+    Future.delayed(const Duration(seconds: 8), () {
+      if (mounted) {
+        setState(() => _showTimeout = true);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            if (_showTimeout) ...[
+              const Text(
+                'Loading is taking longer than expected...',
+                style: TextStyle(color: Colors.orange),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  // Force show guest page
+                  context.go('/guest');
+                },
+                child: const Text('Continue as Guest'),
+              ),
+            ] else
+              const Text('Loading...'),
+          ],
         ),
       ),
     );
