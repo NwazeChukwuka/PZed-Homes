@@ -636,7 +636,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Standard Room',
                         description: 'Comfortable, affordable, and equipped with all the essentials for a pleasant stay.',
-                        price: 15000,
+                        price: 20000,
                         imageUrls: _roomImages['Standard Room'] ?? [
                           'assets/images/Standard Room/Standard 1.png',
                           'assets/images/Standard Room/Standard 2.JPG',
@@ -649,7 +649,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Classic Room',
                         description: 'A touch of elegance with enhanced amenities and more space to relax and unwind.',
-                        price: 20000,
+                        price: 25000,
                         imageUrls: _roomImages['Classic Room'] ?? [
                           'assets/images/Classic Room/Classic 1.JPG',
                           'assets/images/Classic Room/Classic 2.png',
@@ -662,7 +662,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Diplomatic Room',
                         description: 'Spacious and refined, designed for the discerning traveler requiring extra comfort.',
-                        price: 25000,
+                        price: 30000,
                         imageUrls: _roomImages['Diplomatic Room'] ?? [
                           'assets/images/Diplomatic Room/Diplomatic 1.png',
                           'assets/images/Diplomatic Room/Diplomatic 2.JPG',
@@ -675,7 +675,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Deluxe Room',
                         description: 'A premium experience with superior furnishings and breathtaking views.',
-                        price: 30000,
+                        price: 35000,
                         imageUrls: _roomImages['Deluxe Room'] ?? [
                           'assets/images/Deluxe Room/Deluxe 1.JPG',
                           'assets/images/Deluxe Room/Deluxe 2.JPG',
@@ -866,384 +866,10 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
 
   // Auto-scrolling hero section with front view images
   Widget _buildHeroSection(BuildContext context) {
-    final heroHeight = ResponsiveHelper.getResponsiveValue(
-      context,
-      mobile: 600.0,
-      tablet: 650.0,
-      desktop: 700.0,
-    );
-
-    // Use state-managed hero images (starts with assets, may be replaced by Supabase)
-    final List<String> heroImages = _heroImages;
-
-    final PageController _pageController = PageController();
-    int _currentPage = 0;
-    Timer? _timer;
-
-    // Auto-scroll functionality
-    void _startAutoScroll() {
-      _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
-        if (_currentPage < heroImages.length - 1) {
-          _currentPage++;
-        } else {
-          _currentPage = 0;
-        }
-        if (_pageController.hasClients) {
-          _pageController.animateToPage(
-            _currentPage,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeInOut,
-          );
-        }
-      });
-    }
-
-    @override
-    void dispose() {
-      _timer?.cancel();
-      _pageController.dispose();
-      super.dispose();
-    }
-
-    // Start auto-scroll when widget is built
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startAutoScroll();
-    });
-
-    return SizedBox(
-      height: heroHeight,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // PageView for auto-scrolling images
-          PageView.builder(
-            controller: _pageController,
-            itemCount: heroImages.length,
-            onPageChanged: (index) {
-              setState(() {
-                _currentPage = index;
-              });
-            },
-            itemBuilder: (context, index) {
-              final imagePath = heroImages[index];
-              return Image.asset(
-                imagePath,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  // Log error for debugging (only in debug mode)
-                  if (kDebugMode) {
-                    print('Failed to load image: $imagePath');
-                    print('Error: $error');
-                  }
-                  return Container(
-                    color: Colors.grey[200],
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                          if (kDebugMode)
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(
-                                'Failed: ${imagePath.split('/').last}',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          
-          // Page indicator
-          Positioned(
-            bottom: 20,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List<Widget>.generate(
-                heroImages.length,
-                (index) => Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _currentPage == index ? Colors.white : Colors.white.withOpacity(0.5),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          
-          // Dark overlay for better text readability
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.black.withOpacity(0.5),
-                  Colors.black.withOpacity(0.7)
-                ],
-              ),
-            ),
-          ),
-
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Welcome Text
-                Text(
-                  'Welcome to P-ZED Luxury Hotels & Suites',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: ResponsiveHelper.getResponsiveFontSize(
-                      context,
-                      mobile: 34,
-                      tablet: 38,
-                      desktop: 42,
-                    ),
-                    fontWeight: FontWeight.w800, 
-                    color: Colors.white, 
-                    shadows: [
-                      Shadow(
-                        blurRadius: 15.0,
-                        color: Colors.black.withOpacity(0.5),
-                        offset: const Offset(0, 4),
-                      )
-                    ]
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Your Comfort is Our Priority',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: ResponsiveHelper.getResponsiveFontSize(
-                      context,
-                      mobile: 20,
-                      tablet: 22,
-                      desktop: 24,
-                    ),
-                    color: Colors.white.withOpacity(0.9),
-                    fontWeight: FontWeight.w400,
-                    shadows: [
-                      Shadow(
-                        blurRadius: 10.0,
-                        color: Colors.black.withOpacity(0.3),
-                      )
-                    ]
-                  ),
-                ),
-                const SizedBox(height: 40),
-                
-                // Booking Card - Responsive width
-                Container(
-                  width: ResponsiveHelper.getResponsiveValue(
-                    context,
-                    mobile: double.infinity,
-                    tablet: 450,
-                    desktop: 500,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 25,
-                        offset: const Offset(0, 10),
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: _buildBookingCardContent(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return _HeroSectionWidget(heroImages: _heroImages);
   }
 
-  Widget _buildBookingCardContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.search, color: Colors.green[700], size: 20),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Check Availability',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Colors.green,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        
-        // Date Picker Fields
-        _buildDateField('Check-in Date', Icons.calendar_today, _checkInDate, (date) {
-          setState(() => _checkInDate = date);
-        }),
-        const SizedBox(height: 14),
-        _buildDateField('Check-out Date', Icons.calendar_today, _checkOutDate, (date) {
-          setState(() => _checkOutDate = date);
-        }),
-        const SizedBox(height: 14),
-        
-        // Guest Selector
-        _buildGuestSelector(),
-        const SizedBox(height: 24),
-        
-        // Search Button
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: _checkInDate != null && _checkOutDate != null 
-                ? [Colors.amber[600]!, Colors.amber[800]!]
-                : [Colors.grey[400]!, Colors.grey[500]!],
-            ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: _checkInDate != null && _checkOutDate != null ? [
-              BoxShadow(
-                color: Colors.amber[700]!.withOpacity(0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ] : [],
-          ),
-          child: ElevatedButton(
-            onPressed: _checkInDate != null && _checkOutDate != null ? _showAvailableRooms : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              minimumSize: const Size(double.infinity, 52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Check Availability',
-              style: TextStyle(
-                fontSize: 16, 
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDateField(String label, IconData icon, DateTime? selectedDate, Function(DateTime?) onDateSelected) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[300]!),
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.grey[50],
-      ),
-      child: TextFormField(
-        readOnly: true,
-        controller: TextEditingController(
-          text: selectedDate != null 
-              ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}'
-              : '',
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.grey[600]),
-          prefixIcon: Icon(icon, color: Colors.green[600], size: 20),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.all(16),
-          suffixIcon: IconButton(
-            icon: Icon(Icons.calendar_month, color: Colors.green[600]),
-            onPressed: () => _selectDate(context, onDateSelected),
-          ),
-        ),
-        onTap: () => _selectDate(context, onDateSelected),
-      ),
-    );
-  }
-
-  Widget _buildGuestSelector() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[300]!),
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.grey[50],
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.person, color: Colors.green[600], size: 20),
-          const SizedBox(width: 12),
-          const Text('Guests', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          const Spacer(),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.remove, size: 18),
-                  onPressed: _guestCount > 1 ? () {
-                    setState(() => _guestCount--);
-                  } : null,
-                  color: _guestCount > 1 ? Colors.green[600] : Colors.grey[400],
-                ),
-                Text('$_guestCount', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                IconButton(
-                  icon: const Icon(Icons.add, size: 18),
-                  onPressed: _guestCount < 10 ? () {
-                    setState(() => _guestCount++);
-                  } : null,
-                  color: _guestCount < 10 ? Colors.green[600] : Colors.grey[400],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed booking card methods - no longer needed since booking card was removed from hero section
 
   Widget _buildSectionHeader(BuildContext context, String title) {
     return Container(
@@ -1930,8 +1556,241 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         imageUrls: imageUrls,
         onBookNow: () {
           context.pop();
-          _showAvailableRooms();
+          // Navigate directly to availability screen with room type info
+          // Then user can select dates and proceed to booking
+          context.push('/guest/rooms', extra: {
+            'roomType': {
+              'name': name,
+              'price': price,
+              'description': description,
+            },
+          });
         },
+      ),
+    );
+  }
+}
+
+// Separate StatefulWidget for hero section to manage its own state
+class _HeroSectionWidget extends StatefulWidget {
+  final List<String> heroImages;
+
+  const _HeroSectionWidget({required this.heroImages});
+
+  @override
+  State<_HeroSectionWidget> createState() => _HeroSectionWidgetState();
+}
+
+class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
+  final PageController _pageController = PageController();
+  int _currentPage = 0;
+  Timer? _timer;
+  bool _isUserInteracting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startAutoScroll();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  // Auto-scroll functionality (pauses when user interacts)
+  void _startAutoScroll() {
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      // Don't auto-scroll if user is manually swiping
+      if (_isUserInteracting) return;
+      
+      if (_currentPage < widget.heroImages.length - 1) {
+        _currentPage++;
+      } else {
+        _currentPage = 0;
+      }
+      if (_pageController.hasClients) {
+        _pageController.animateToPage(
+          _currentPage,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+  void _onPageChanged(int index) {
+    setState(() {
+      _currentPage = index;
+    });
+  }
+
+  void _onUserInteraction() {
+    // Pause auto-scroll when user starts swiping
+    setState(() {
+      _isUserInteracting = true;
+    });
+    // Resume auto-scroll after 5 seconds of no interaction
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted) {
+        setState(() {
+          _isUserInteracting = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final heroHeight = ResponsiveHelper.getResponsiveValue(
+      context,
+      mobile: 600.0,
+      tablet: 650.0,
+      desktop: 700.0,
+    );
+
+    return SizedBox(
+      height: heroHeight,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // PageView for auto-scrolling images (allows manual swipe)
+          GestureDetector(
+            onPanStart: (_) => _onUserInteraction(),
+            onPanUpdate: (_) => _onUserInteraction(),
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: widget.heroImages.length,
+              onPageChanged: _onPageChanged,
+              itemBuilder: (context, index) {
+                final imagePath = widget.heroImages[index];
+                return Image.asset(
+                  imagePath,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    if (kDebugMode) {
+                      print('Failed to load image: $imagePath');
+                      print('Error: $error');
+                    }
+                    return Container(
+                      color: Colors.grey[200],
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                            if (kDebugMode)
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  'Failed: ${imagePath.split('/').last}',
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          
+          // Page indicator
+          Positioned(
+            bottom: 20,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List<Widget>.generate(
+                widget.heroImages.length,
+                (index) => Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _currentPage == index ? Colors.white : Colors.white.withOpacity(0.5),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          
+          // Dark overlay for better text readability
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.3),
+                  Colors.black.withOpacity(0.5),
+                  Colors.black.withOpacity(0.7)
+                ],
+              ),
+            ),
+          ),
+
+          // Content - Welcome text only (no booking card)
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Welcome Text
+                Text(
+                  'Welcome to P-ZED Luxury Hotels & Suites',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: ResponsiveHelper.getResponsiveFontSize(
+                      context,
+                      mobile: 34,
+                      tablet: 38,
+                      desktop: 42,
+                    ),
+                    fontWeight: FontWeight.w800, 
+                    color: Colors.white, 
+                    shadows: [
+                      Shadow(
+                        blurRadius: 15.0,
+                        color: Colors.black.withOpacity(0.5),
+                        offset: const Offset(0, 4),
+                      )
+                    ]
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Your Comfort is Our Priority',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: ResponsiveHelper.getResponsiveFontSize(
+                      context,
+                      mobile: 20,
+                      tablet: 22,
+                      desktop: 24,
+                    ),
+                    color: Colors.white.withOpacity(0.9),
+                    fontWeight: FontWeight.w400,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 10.0,
+                        color: Colors.black.withOpacity(0.3),
+                      )
+                    ]
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -129,23 +129,35 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
 
   List<GalleryItem> _getCategoryItems(String path, String prefix) {
     List<GalleryItem> items = [];
-    // Try to add up to 20 images per category
-    for (var i = 1; i <= 20; i++) {
-      final imagePath = 'assets/images/$path/$prefix$i.jpg';
-      try {
-        // Verify the asset exists before adding
-        final assetImage = AssetImage(imagePath);
-        assetImage.resolve(createLocalImageConfiguration(context));
-        items.add(GalleryItem(
-          url: imagePath,
-          title: '$prefix$i',
-        ));
-      } catch (e) {
-        // Stop adding if we hit a non-existent image
-        if (i == 1) continue; // Skip if first image doesn't exist
-        break;
-      }
+    
+    // Define the actual images that exist for each category
+    // Only include images that are actually in the assets folder (from pubspec.yaml)
+    final Map<String, List<String>> categoryImages = {
+      'Front View': ['Front View 1.JPG', 'Front View 2.JPG', 'Front View 3.jpg', 'Front View 4.jpg', 'Front View 5.JPG', 'Front View 6.jpg'],
+      'Reception': ['Reception 1.JPG', 'Reception 2.png', 'Reception 3.jpg', 'Reception 4.jpg'],
+      'VIP Bar': ['VIP Bar 1.JPG', 'VIP Bar 2.JPG'],
+      'Outside bar': ['Outside Bar 1.JPG', 'Outside Bar 2.jpg', 'Outside Bar 3.JPG'],
+      'Restaurant': ['Restaurant 1.jpg'],
+      'Passage': ['Passage 1.jpg'],
+      'Standard Room': ['Standard 1.png', 'Standard 2.JPG', 'Standard 3.jpg'],
+      'Classic Room': ['Classic 1.JPG', 'Classic 2.png', 'Classic 3.JPG'],
+      'Deluxe Room': ['Deluxe 1.JPG', 'Deluxe 2.JPG', 'Deluxe 3.png'],
+      'Diplomatic Room': ['Diplomatic 1.png', 'Diplomatic 2.JPG', 'Diplomatic 3.jpg'],
+      'Executive Room': ['Executive 1.png', 'Executive 2.png', 'Executive 3.jpg'],
+    };
+    
+    // Get the list of actual images for this category
+    final imageFiles = categoryImages[path] ?? [];
+    
+    // Only add items for images that actually exist
+    for (var imageFile in imageFiles) {
+      final imagePath = 'assets/images/$path/$imageFile';
+      items.add(GalleryItem(
+        url: imagePath,
+        title: imageFile.replaceAll(RegExp(r'\.[^.]*$'), ''), // Remove extension
+      ));
     }
+    
     return items;
   }
 }

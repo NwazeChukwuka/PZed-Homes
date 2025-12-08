@@ -15,8 +15,16 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   late DateTime checkInDate;
   late DateTime checkOutDate;
   Future<List<Map<String, dynamic>>>? _availableRoomsFuture;
-  final _supabase = Supabase.instance.client;
   bool _isRefreshing = false;
+
+  // Get Supabase client safely (returns null if not initialized)
+  SupabaseClient? get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -33,21 +41,39 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       final state = GoRouterState.of(context);
       final extra = state.extra as Map<String, dynamic>?;
       if (extra != null) {
-        checkInDate = extra['checkInDate'] as DateTime;
-        checkOutDate = extra['checkOutDate'] as DateTime;
+        // Check if dates are provided
+        if (extra['checkInDate'] != null) {
+          checkInDate = extra['checkInDate'] as DateTime;
+        }
+        if (extra['checkOutDate'] != null) {
+          checkOutDate = extra['checkOutDate'] as DateTime;
+        }
+        // Store room type if provided (from Book Now button)
+        if (extra['roomType'] != null) {
+          // Room type will be used when user selects dates
+        }
       }
     } catch (e) {
       // If GoRouterState is not available, use fallback values from initState
       // This can happen if the screen is accessed without router context
     }
-    _availableRoomsFuture = _fetchAvailableRooms();
+    // Only fetch if dates are set
+    if (checkInDate != null && checkOutDate != null) {
+      _availableRoomsFuture = _fetchAvailableRooms();
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchAvailableRooms() async {
+    // Check if Supabase is initialized
+    if (_supabase == null) {
+      // Return empty list - will show "Supabase not configured" message
+      return [];
+    }
+
     try {
       // Get conflicting bookings for the date range
       // Include bookings with room_id assigned AND bookings by requested_room_type
-      final conflictingBookings = await _supabase
+      final conflictingBookings = await _supabase!
           .from('bookings')
           .select('room_id, requested_room_type, rooms(type)')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
@@ -73,7 +99,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       }
 
       // Get all room types
-      final roomTypes = await _supabase
+      final roomTypes = await _supabase!
           .from('room_types')
           .select('*, rooms(count)')
           .order('price');
@@ -118,6 +144,33 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
     }
   }
 
+  Future<void> _selectDate(bool isCheckIn) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isCheckIn ? checkInDate : checkOutDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isCheckIn) {
+          checkInDate = picked;
+          // Ensure check-out is after check-in
+          if (checkOutDate.isBefore(checkInDate) || checkOutDate.isAtSameMomentAs(checkInDate)) {
+            checkOutDate = checkInDate.add(const Duration(days: 1));
+          }
+        } else {
+          checkOutDate = picked;
+          // Ensure check-out is after check-in
+          if (checkOutDate.isBefore(checkInDate) || checkOutDate.isAtSameMomentAs(checkInDate)) {
+            checkInDate = checkOutDate.subtract(const Duration(days: 1));
+          }
+        }
+        _availableRoomsFuture = _fetchAvailableRooms();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
@@ -134,9 +187,88 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refreshRooms,
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _availableRoomsFuture,
-          builder: (context, snapshot) {
+        child: Column(
+          children: [
+            // Date selection card
+            Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _selectDate(true),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Check-in',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat('MMM d, yyyy').format(checkInDate),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Colors.grey[300],
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _selectDate(false),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Check-out',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat('MMM d, yyyy').format(checkOutDate),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Rooms list
+            Expanded(
+              child: FutureBuilder<List<Map<String, dynamic>>>(
+                future: _availableRoomsFuture,
+                builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -173,6 +305,48 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
             }
             
             final availableRooms = snapshot.data;
+            
+            // Check if Supabase is not configured
+            if (_supabase == null) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.cloud_off,
+                        size: 64,
+                        color: Colors.orange,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Supabase Not Configured',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'This feature requires Supabase to be configured.\n'
+                        'Please set your Supabase credentials to view available rooms.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Go Back'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            
             if (availableRooms == null || availableRooms.isEmpty) {
               return Center(
                 child: Padding(
@@ -333,7 +507,10 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                 );
               },
             );
-          },
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

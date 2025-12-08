@@ -25,22 +25,19 @@ Future<void> main() async {
     ]);
   }
 
-  // Initialize Supabase ASYNCHRONOUSLY (don't block app startup)
-  // This allows the app to render immediately while Supabase initializes in background
-  const supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: '',
-  );
-  const supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: '',
-  );
+  // Get Supabase credentials from environment variables
+  // Vercel passes these via --dart-define flags in vercel_build.sh
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
   
   // Only log in debug mode to reduce production overhead
   if (kDebugMode) {
     print('🔍 Supabase Config Check:');
     print('URL length: ${supabaseUrl.length}');
     print('Key length: ${supabaseAnonKey.length}');
+    if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+      print('⚠️ Supabase not configured! Please set SUPABASE_URL and SUPABASE_ANON_KEY as environment variables');
+    }
   }
   
   // Initialize Supabase in background (non-blocking)

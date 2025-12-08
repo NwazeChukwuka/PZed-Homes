@@ -513,19 +513,15 @@ class RootDecider extends StatelessWidget {
       builder: (context, authService, child) {
         // PRIORITY: Show guest page immediately if not logged in
         // Don't wait for auth check - render first, check auth in background
+        // Even if isLoading is true, show guest page (non-blocking)
         if (!authService.isLoggedIn) {
-          // If still loading auth, show guest page anyway (non-blocking)
-          if (authService.isLoading) {
-            // Show guest page immediately, auth will update in background
-            return _buildGuestPageWithWarning(isSupabaseInitialized);
-          }
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If still loading user info, show loading but with timeout
-        // Use a StatefulWidget to implement timeout
+        // If user is logged in but still loading, show loading with short timeout
+        // After 3 seconds, force show dashboard anyway
         if (authService.isLoading) {
-          return _LoadingScreenWithTimeout();
+          return _LoadingScreenWithTimeout(maxWaitSeconds: 3);
         }
 
         // For authenticated users, Supabase is required
@@ -712,7 +708,8 @@ class RootDecider extends StatelessWidget {
 
 // Loading screen with timeout to prevent infinite loading
 class _LoadingScreenWithTimeout extends StatefulWidget {
-  const _LoadingScreenWithTimeout();
+  final int maxWaitSeconds;
+  const _LoadingScreenWithTimeout({this.maxWaitSeconds = 3});
 
   @override
   State<_LoadingScreenWithTimeout> createState() => _LoadingScreenWithTimeoutState();
@@ -720,14 +717,41 @@ class _LoadingScreenWithTimeout extends StatefulWidget {
 
 class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
   bool _showTimeout = false;
+  bool _forceShow = false;
 
   @override
   void initState() {
     super.initState();
-    // After 8 seconds, show timeout message
-    Future.delayed(const Duration(seconds: 8), () {
+    // After maxWaitSeconds, force show dashboard anyway
+    Future.delayed(Duration(seconds: widget.maxWaitSeconds), () {
       if (mounted) {
-        setState(() => _showTimeout = true);
+        setState(() {
+          _showTimeout = true;
+          _forceShow = true;
+        });
+        // Force navigation to dashboard after timeout
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            try {
+              final authService = Provider.of<AuthService>(context, listen: false);
+              final user = authService.currentUser;
+              final userRole = authService.isRoleAssumed 
+                  ? (authService.assumedRole ?? user?.role) 
+                  : user?.role;
+              
+              final isManagement = userRole == AppRole.owner || 
+                                   userRole == AppRole.manager || 
+                                   userRole == AppRole.supervisor ||
+                                   userRole == AppRole.accountant ||
+                                   userRole == AppRole.hr;
+              
+              context.go(isManagement ? '/dashboard' : '/dashboard');
+            } catch (e) {
+              // If navigation fails, just go to guest page
+              context.go('/guest');
+            }
+          }
+        });
       }
     });
   }

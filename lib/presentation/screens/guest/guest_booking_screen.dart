@@ -21,8 +21,16 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _supabase = Supabase.instance.client;
   bool _isLoading = false;
+
+  // Get Supabase client safely (returns null if not initialized)
+  SupabaseClient? get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -65,6 +73,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   Future<void> _handlePayment() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Check if Supabase is initialized
+    if (_supabase == null) {
+      ErrorHandler.handleError(
+        context,
+        Exception('Supabase is not configured. Please set your Supabase credentials in the .env file.'),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -89,7 +106,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         _showSuccess('Payment successful! Your booking is confirmed. A room will be assigned when you arrive.');
       } else {
         // Payment failed - delete the pending booking
-        await _supabase.from('bookings').delete().eq('id', bookingId);
+        await _supabase!.from('bookings').delete().eq('id', bookingId);
         _showError('Payment failed. Please try again.');
       }
 
@@ -101,12 +118,16 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   }
 
   Future<bool> _checkRoomTypeAvailability() async {
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
+
     try {
       final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString();
       if (roomTypeName == null) throw Exception('Invalid room type');
 
       // Get total rooms of this type
-      final totalRooms = await _supabase
+      final totalRooms = await _supabase!
           .from('rooms')
           .select('id')
           .eq('type', roomTypeName)
@@ -118,7 +139,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
       // Count bookings for this room type during the selected dates
       // Include bookings with room_id assigned AND bookings by requested_room_type
-      final conflictingBookings = await _supabase
+      final conflictingBookings = await _supabase!
           .from('bookings')
           .select('room_id, requested_room_type')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
@@ -146,11 +167,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   }
 
   Future<String> _getOrCreateGuestProfile() async {
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
+
     final email = _emailController.text.trim();
     
     try {
       // Check if profile exists
-      final existing = await _supabase
+      final existing = await _supabase!
           .from('profiles')
           .select('id')
           .eq('email', email)
@@ -161,7 +186,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       }
 
       // Create new profile
-      final response = await _supabase
+      final response = await _supabase!
           .from('profiles')
           .insert({
             'full_name': _nameController.text.trim(),
@@ -178,10 +203,14 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   }
 
   Future<String> _createPendingBooking(String guestProfileId) async {
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
+
     try {
       final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Standard';
       
-      final response = await _supabase
+      final response = await _supabase!
           .from('bookings')
           .insert({
             'guest_profile_id': guestProfileId,
@@ -237,10 +266,14 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   }
 
   Future<void> _confirmBooking(String bookingId) async {
+    if (_supabase == null) {
+      throw Exception('Supabase is not configured');
+    }
+
     try {
       // Update booking status to Pending Check-in (room will be assigned by receptionist)
       // Don't update room status - rooms stay Vacant until check-in
-      await _supabase
+      await _supabase!
           .from('bookings')
           .update({
             'status': 'Pending Check-in',

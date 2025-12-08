@@ -69,3 +69,4 @@ flutter_linux_*.tar.xz
 .env.local
 .env.*.local
 *.env
+.env.template
