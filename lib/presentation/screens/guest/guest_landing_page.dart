@@ -40,7 +40,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     'children': 0,
   };
 
-  // State for dynamic image replacement from Supabase
+  // Image paths - loaded from assets only
   List<String> _heroImages = [];
   Map<String, List<String>> _roomImages = {}; // roomType -> list of image URLs
 
@@ -89,90 +89,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _contentFuture = _fetchSiteContent();
       _galleryFuture = _fetchGalleryItems();
-      
-      // After 5 seconds, try to replace with Supabase images
-      Future.delayed(const Duration(seconds: 5), () {
-        if (mounted) {
-          _replaceWithSupabaseImages();
-        }
-      });
     });
-  }
-
-  Future<void> _replaceWithSupabaseImages() async {
-    try {
-      // Check if Supabase is initialized
-      try {
-        Supabase.instance.client;
-      } catch (e) {
-        return; // Supabase not initialized, keep using assets
-      }
-
-      // Fetch gallery items from Supabase
-      final galleryItems = await Supabase.instance.client
-          .from('gallery_media')
-          .select()
-          .order('sort_order')
-          .timeout(const Duration(seconds: 3));
-
-      if (galleryItems == null || galleryItems.isEmpty) return;
-
-      // Group gallery items by category/room type
-      final Map<String, List<String>> supabaseRoomImages = {};
-      List<String> supabaseHeroImages = [];
-
-      for (var item in galleryItems) {
-        if (item is! Map) continue;
-        final mediaUrl = item['media_url']?.toString() ?? '';
-        final title = item['title']?.toString() ?? '';
-        
-        // Skip if not a valid URL
-        if (!mediaUrl.startsWith('http')) continue;
-
-        // Check if it's a hero image (Front View)
-        if (title.toLowerCase().contains('front view') || 
-            mediaUrl.toLowerCase().contains('front')) {
-          supabaseHeroImages.add(mediaUrl);
-        }
-
-        // Check for room images
-        final roomTypes = ['Standard', 'Classic', 'Diplomatic', 'Deluxe', 'Executive'];
-        for (var roomType in roomTypes) {
-          if (title.toLowerCase().contains(roomType.toLowerCase()) ||
-              mediaUrl.toLowerCase().contains(roomType.toLowerCase())) {
-            final key = '$roomType Room';
-            if (roomType == 'Executive') {
-              supabaseRoomImages['Executive Suite'] ??= [];
-              supabaseRoomImages['Executive Suite']!.add(mediaUrl);
-            } else {
-              supabaseRoomImages[key] ??= [];
-              supabaseRoomImages[key]!.add(mediaUrl);
-            }
-            break;
-          }
-        }
-      }
-
-      // Update state if we found Supabase images
-      if (mounted) {
-        setState(() {
-          // Only replace hero images if we found at least one
-          if (supabaseHeroImages.isNotEmpty) {
-            _heroImages = supabaseHeroImages.take(4).toList();
-          }
-
-          // Replace room images if found
-          for (var entry in supabaseRoomImages.entries) {
-            if (entry.value.isNotEmpty) {
-              _roomImages[entry.key] = entry.value.take(3).toList();
-            }
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint('Error replacing with Supabase images: $e');
-      // Keep using asset images on error
-    }
   }
 
   Future<Map<String, dynamic>> _fetchSiteContent() async {
@@ -686,8 +603,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     AnimatedWrapper(
                       index: 4,
                       child: _buildRoomTypeShowcase(
-                        name: 'Executive Suite',
-                        description: 'The pinnacle of luxury, featuring a separate living area and exclusive amenities.',
+                        name: 'Executive Room',
+                        description: 'A generously sized room crafted for refined comfort, combining elegant finishes with enhanced space, ideal for work, privacy, and relaxation.',
                         price: 50000,
                         imageUrls: _roomImages['Executive Suite'] ?? [
                           'assets/images/Executive Room/Executive 1.png',
