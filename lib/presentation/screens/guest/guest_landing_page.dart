@@ -1846,50 +1846,65 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Description
-                    Text(
-                      widget.description,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[600],
-                        height: 1.5,
+                    // Scrollable content (Description and Features)
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Description
+                            Text(
+                              widget.description,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                                height: 1.5,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            // Features
+                            Text(
+                              'Room Features:',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _buildFeatureChip('WiFi', Icons.wifi),
+                                _buildFeatureChip('AC', Icons.ac_unit),
+                                _buildFeatureChip('TV', Icons.tv),
+                                _buildFeatureChip('Mini Bar', Icons.local_bar),
+                                _buildFeatureChip('Room Service', Icons.room_service),
+                                _buildFeatureChip('Safe', Icons.security),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
                     
-                    // Features
-                    Text(
-                      'Room Features:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[800],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildFeatureChip('WiFi', Icons.wifi),
-                        _buildFeatureChip('AC', Icons.ac_unit),
-                        _buildFeatureChip('TV', Icons.tv),
-                        _buildFeatureChip('Mini Bar', Icons.local_bar),
-                        _buildFeatureChip('Room Service', Icons.room_service),
-                        _buildFeatureChip('Safe', Icons.security),
-                      ],
-                    ),
-                    
-                    const Spacer(),
-                    
-                    // Price and Book button
+                    // Price and Book button (Fixed at bottom)
                     Row(
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
                                 'Starts from',
@@ -1905,6 +1920,8 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                                   fontWeight: FontWeight.bold,
                                   color: Colors.green[600],
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),

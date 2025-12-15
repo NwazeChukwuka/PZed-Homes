@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_booking_screen.dart';
+import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 
 class AvailableRoomsScreen extends StatefulWidget {
   const AvailableRoomsScreen({super.key});
@@ -174,6 +175,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   @override
   Widget build(BuildContext context) {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    final isMobile = ResponsiveHelper.isMobile(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -191,8 +193,18 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
           children: [
             // Date selection card
             Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(16),
+              margin: ResponsiveHelper.getResponsivePadding(
+                context,
+                mobile: const EdgeInsets.all(12),
+                tablet: const EdgeInsets.all(16),
+                desktop: const EdgeInsets.all(16),
+              ),
+              padding: ResponsiveHelper.getResponsivePadding(
+                context,
+                mobile: const EdgeInsets.all(12),
+                tablet: const EdgeInsets.all(16),
+                desktop: const EdgeInsets.all(16),
+              ),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
@@ -204,65 +216,135 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                   ),
                 ],
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => _selectDate(true),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Check-in',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
+              child: isMobile
+                  ? Column(
+                      children: [
+                        InkWell(
+                          onTap: () => _selectDate(true),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Check-in',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      DateFormat('MMM d, yyyy').format(checkInDate),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            DateFormat('MMM d, yyyy').format(checkInDate),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                        ),
+                        Divider(height: 1, thickness: 1, color: Colors.grey[300]),
+                        InkWell(
+                          onTap: () => _selectDate(false),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Check-out',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      DateFormat('MMM d, yyyy').format(checkOutDate),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => _selectDate(true),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Check-in',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  DateFormat('MMM d, yyyy').format(checkInDate),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey[300],
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => _selectDate(false),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Check-out',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  DateFormat('MMM d, yyyy').format(checkOutDate),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: Colors.grey[300],
-                  ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => _selectDate(false),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Check-out',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            DateFormat('MMM d, yyyy').format(checkOutDate),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
             // Rooms list
             Expanded(
@@ -391,8 +473,20 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                 final imageUrl = (roomType['image_url'] as String?) ?? '';
                 final availableCount = roomType['available_count'] as int? ?? 0;
 
+                final imageHeight = ResponsiveHelper.getResponsiveValue(
+                  context,
+                  mobile: 180.0,
+                  tablet: 200.0,
+                  desktop: 220.0,
+                );
+
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin: ResponsiveHelper.getResponsivePadding(
+                    context,
+                    mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    tablet: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    desktop: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
                   clipBehavior: Clip.antiAlias,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -413,13 +507,13 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                           if (imageUrl.isNotEmpty)
                             Image.network(
                               imageUrl,
-                              height: 200,
+                              height: imageHeight,
                               width: double.infinity,
                               fit: BoxFit.cover,
                               loadingBuilder: (context, child, loadingProgress) {
                                 if (loadingProgress == null) return child;
                                 return Container(
-                                  height: 200,
+                                  height: imageHeight,
                                   color: Colors.grey[300],
                                   child: Center(
                                     child: CircularProgressIndicator(
@@ -433,7 +527,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                               },
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
-                                  height: 200,
+                                  height: imageHeight,
                                   color: Colors.grey[300],
                                   alignment: Alignment.center,
                                   child: const Icon(Icons.image_not_supported, size: 48, color: Colors.grey),
@@ -442,7 +536,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                             )
                           else
                             Container(
-                              height: 200,
+                              height: imageHeight,
                               color: Colors.grey[300],
                               alignment: Alignment.center,
                               child: Image.asset(
@@ -455,48 +549,181 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                             ),
                           
                           Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: ResponsiveHelper.getResponsivePadding(
+                              context,
+                              mobile: const EdgeInsets.all(12),
+                              tablet: const EdgeInsets.all(16),
+                              desktop: const EdgeInsets.all(16),
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
+                                // Room Type Name - with overflow handling
                                 Text(
                                   '${roomType['type']}',
-                                  style: const TextStyle(
-                                    fontSize: 18,
+                                  style: TextStyle(
+                                    fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                      context,
+                                      mobile: 16,
+                                      tablet: 18,
+                                      desktop: 20,
+                                    ),
                                     fontWeight: FontWeight.bold,
                                   ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      availableCount > 0 
-                                          ? '$availableCount room${availableCount > 1 ? 's' : ''} available'
-                                          : 'Sold out',
-                                      style: TextStyle(
-                                        color: availableCount > 0 ? Colors.green : Colors.red,
+                                
+                                // Description if available
+                                if (roomType['description'] != null && 
+                                    (roomType['description'] as String).isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    roomType['description'] as String,
+                                    style: TextStyle(
+                                      fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                        context,
+                                        mobile: 12,
+                                        tablet: 13,
+                                        desktop: 14,
                                       ),
+                                      color: Colors.grey[600],
                                     ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          currencyFormatter.format(price),
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                
+                                // Amenities if available
+                                if (roomType['amenities'] != null && 
+                                    (roomType['amenities'] as List).isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: (roomType['amenities'] as List)
+                                        .take(3) // Limit to 3 amenities on mobile
+                                        .map<Widget>((amenity) {
+                                      final amenityStr = amenity.toString();
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[200],
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          amenityStr,
+                                          style: TextStyle(
+                                            fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                              context,
+                                              mobile: 10,
+                                              tablet: 11,
+                                              desktop: 12,
+                                            ),
+                                            color: Colors.grey[700],
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        const Text(
-                                          '/ night',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                                
+                                const SizedBox(height: 8),
+                                
+                                // Availability and Price
+                                isMobile
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            availableCount > 0 
+                                                ? '$availableCount room${availableCount > 1 ? 's' : ''} available'
+                                                : 'Sold out',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: availableCount > 0 ? Colors.green : Colors.red,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  currencyFormatter.format(price),
+                                                  style: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.green,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Text(
+                                                '/ night',
+                                                style: TextStyle(fontSize: 12),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              availableCount > 0 
+                                                  ? '$availableCount room${availableCount > 1 ? 's' : ''} available'
+                                                  : 'Sold out',
+                                              style: TextStyle(
+                                                fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                                  context,
+                                                  mobile: 14,
+                                                  tablet: 15,
+                                                  desktop: 16,
+                                                ),
+                                                color: availableCount > 0 ? Colors.green : Colors.red,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                currencyFormatter.format(price),
+                                                style: TextStyle(
+                                                  fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                                    context,
+                                                    mobile: 16,
+                                                    tablet: 18,
+                                                    desktop: 20,
+                                                  ),
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.green,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const Text(
+                                                '/ night',
+                                                style: TextStyle(fontSize: 12),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                               ],
                             ),
                           ),

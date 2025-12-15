@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 
 class GuestBookingScreen extends StatefulWidget {
   const GuestBookingScreen({super.key});
@@ -335,205 +336,415 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         title: const Text('Confirm Your Booking'),
         backgroundColor: Colors.green[700],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth > 1200;
-          final isTablet = constraints.maxWidth > 600;
-          
-          return SingleChildScrollView(
-            child: Padding(
-              padding: EdgeInsets.all(isDesktop ? 32.0 : isTablet ? 24.0 : 16.0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isDesktop ? 800 : 600,
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: ResponsiveContainer(
+                maxWidth: ResponsiveHelper.isDesktop(context) ? 800 : 600,
+                padding: ResponsiveHelper.getResponsivePadding(
+                  context,
+                  mobile: const EdgeInsets.all(16),
+                  tablet: const EdgeInsets.all(24),
+                  desktop: const EdgeInsets.all(32),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+              // Booking Summary
+              Card(
+                elevation: 2,
+                child: Padding(
+                  padding: ResponsiveHelper.getResponsivePadding(
+                    context,
+                    mobile: const EdgeInsets.all(12),
+                    tablet: const EdgeInsets.all(16),
+                    desktop: const EdgeInsets.all(16),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Booking Summary
-                      Card(
-                        elevation: 2,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Booking Summary',
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _buildSummaryRow('Room Type', roomType['name']?.toString() ?? 'Unknown Room'),
-                              _buildSummaryRow('Check-in', dateFormat.format(checkInDate)),
-                              _buildSummaryRow('Check-out', dateFormat.format(checkOutDate)),
-                              _buildSummaryRow('Nights', _nightsCount.toString()),
-                              const Divider(height: 24),
-                              _buildSummaryRow(
-                                'Total Amount',
-                                currencyFormatter.format(_totalPrice),
-                                isTotal: true,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // Guest Information Form
                       Text(
-                        'Guest Information',
+                        'Booking Summary',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Form(
-                        key: _formKey,
-                        child: Column(
-                          children: [
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: const InputDecoration(
-                                labelText: 'Full Name',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.person),
-                              ),
-                              validator: (val) => val?.trim().isEmpty == true 
-                                  ? 'Please enter your name' 
-                                  : null,
-                              textInputAction: TextInputAction.next,
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'Email Address',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.email),
-                              ),
-                              keyboardType: TextInputType.emailAddress,
-                              validator: (val) {
-                                if (val?.trim().isEmpty == true) {
-                                  return 'Please enter your email';
-                                }
-                                if (!val!.contains('@')) {
-                                  return 'Please enter a valid email';
-                                }
-                                return null;
-                              },
-                              textInputAction: TextInputAction.next,
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _phoneController,
-                              decoration: const InputDecoration(
-                                labelText: 'Phone Number',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.phone),
-                              ),
-                              keyboardType: TextInputType.phone,
-                              validator: (val) => val?.trim().isEmpty == true 
-                                  ? 'Please enter your phone number' 
-                                  : null,
-                              textInputAction: TextInputAction.done,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // Payment Button
-                      _isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _handlePayment,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green[700],
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  textStyle: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.lock),
-                                    const SizedBox(width: 8),
-                                    Text('Pay ${currencyFormatter.format(_totalPrice)}'),
-                                  ],
-                                ),
-                              ),
-                            ),
-
-                      const SizedBox(height: 16),
-                      
-                      // Security notice
-                      Text(
-                        'Your payment is secured and encrypted with Paystack',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      
-                      const SizedBox(height: 8),
-                      
-                      // Payment methods
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        children: [
-                          Icon(Icons.credit_card, size: 16, color: Colors.grey),
-                          const SizedBox(width: 4),
-                          Flexible(
-                            child: Text(
-                              'Card • Bank Transfer • USSD',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                          fontSize: ResponsiveHelper.getResponsiveFontSize(
+                            context,
+                            mobile: 18,
+                            tablet: 20,
+                            desktop: 22,
                           ),
-                        ],
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                        context,
+                        mobile: 12,
+                        tablet: 16,
+                        desktop: 16,
+                      )),
+                      _buildSummaryRow(context, 'Room Type', roomType['name']?.toString() ?? 'Unknown Room'),
+                      _buildSummaryRow(context, 'Check-in', dateFormat.format(checkInDate)),
+                      _buildSummaryRow(context, 'Check-out', dateFormat.format(checkOutDate)),
+                      _buildSummaryRow(context, 'Nights', _nightsCount.toString()),
+                      Divider(height: ResponsiveHelper.getResponsiveValue(
+                        context,
+                        mobile: 20,
+                        tablet: 24,
+                        desktop: 24,
+                      )),
+                      _buildSummaryRow(
+                        context,
+                        'Total Amount',
+                        currencyFormatter.format(_totalPrice),
+                        isTotal: true,
                       ),
                     ],
                   ),
                 ),
               ),
+
+              SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                context,
+                mobile: 20,
+                tablet: 24,
+                desktop: 24,
+              )),
+
+              // Guest Information Form
+              Text(
+                'Guest Information',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: ResponsiveHelper.getResponsiveFontSize(
+                    context,
+                    mobile: 18,
+                    tablet: 20,
+                    desktop: 22,
+                  ),
+                ),
+              ),
+              SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                context,
+                mobile: 12,
+                tablet: 16,
+                desktop: 16,
+              )),
+
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Full Name',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.person),
+                        contentPadding: ResponsiveHelper.getResponsivePadding(
+                          context,
+                          mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                          tablet: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                          desktop: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                        ),
+                      ),
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 14,
+                          tablet: 15,
+                          desktop: 16,
+                        ),
+                      ),
+                      validator: (val) => val?.trim().isEmpty == true 
+                          ? 'Please enter your name' 
+                          : null,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                      context,
+                      mobile: 12,
+                      tablet: 16,
+                      desktop: 16,
+                    )),
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: InputDecoration(
+                        labelText: 'Email Address',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.email),
+                        contentPadding: ResponsiveHelper.getResponsivePadding(
+                          context,
+                          mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                          tablet: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                          desktop: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                        ),
+                      ),
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 14,
+                          tablet: 15,
+                          desktop: 16,
+                        ),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (val) {
+                        if (val?.trim().isEmpty == true) {
+                          return 'Please enter your email';
+                        }
+                        if (!val!.contains('@')) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                      context,
+                      mobile: 12,
+                      tablet: 16,
+                      desktop: 16,
+                    )),
+                    TextFormField(
+                      controller: _phoneController,
+                      decoration: InputDecoration(
+                        labelText: 'Phone Number',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.phone),
+                        contentPadding: ResponsiveHelper.getResponsivePadding(
+                          context,
+                          mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                          tablet: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                          desktop: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                        ),
+                      ),
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 14,
+                          tablet: 15,
+                          desktop: 16,
+                        ),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (val) => val?.trim().isEmpty == true 
+                          ? 'Please enter your phone number' 
+                          : null,
+                      textInputAction: TextInputAction.done,
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                context,
+                mobile: 24,
+                tablet: 32,
+                desktop: 32,
+              )),
+
+                    SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                      context,
+                      mobile: 20,
+                      tablet: 24,
+                      desktop: 24,
+                    )),
+                    
+                    // Security notice
+                    Text(
+                      'Your payment is secured and encrypted with Paystack',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey,
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 11,
+                          tablet: 12,
+                          desktop: 13,
+                        ),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    
+                    SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                      context,
+                      mobile: 6,
+                      tablet: 8,
+                      desktop: 8,
+                    )),
+                    
+                    // Payment methods
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.credit_card,
+                          size: ResponsiveHelper.getResponsiveValue(
+                            context,
+                            mobile: 14,
+                            tablet: 16,
+                            desktop: 16,
+                          ),
+                          color: Colors.grey,
+                        ),
+                        SizedBox(width: ResponsiveHelper.getResponsiveValue(
+                          context,
+                          mobile: 4,
+                          tablet: 4,
+                          desktop: 4,
+                        )),
+                        Flexible(
+                          child: Text(
+                            'Card • Bank Transfer • USSD',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey,
+                              fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                context,
+                                mobile: 11,
+                                tablet: 12,
+                                desktop: 13,
+                              ),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    // Bottom padding to ensure content is scrollable above button
+                    SizedBox(height: ResponsiveHelper.getResponsiveValue(
+                      context,
+                      mobile: 100,
+                      tablet: 80,
+                      desktop: 60,
+                    )),
+                  ],
+                ),
+              ),
             ),
-          );
-        },
+          ),
+          
+          // Sticky Payment Button at bottom
+          Container(
+            padding: ResponsiveHelper.getResponsivePadding(
+              context,
+              mobile: const EdgeInsets.all(12),
+              tablet: const EdgeInsets.all(16),
+              desktop: const EdgeInsets.all(20),
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _handlePayment,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[700],
+                              foregroundColor: Colors.white,
+                              padding: ResponsiveHelper.getResponsivePadding(
+                                context,
+                                mobile: const EdgeInsets.symmetric(vertical: 14),
+                                tablet: const EdgeInsets.symmetric(vertical: 16),
+                                desktop: const EdgeInsets.symmetric(vertical: 18),
+                              ),
+                              textStyle: TextStyle(
+                                fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                  context,
+                                  mobile: 16,
+                                  tablet: 18,
+                                  desktop: 20,
+                                ),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.lock,
+                                  size: ResponsiveHelper.getResponsiveValue(
+                                    context,
+                                    mobile: 18,
+                                    tablet: 20,
+                                    desktop: 22,
+                                  ),
+                                ),
+                                SizedBox(width: ResponsiveHelper.getResponsiveValue(
+                                  context,
+                                  mobile: 6,
+                                  tablet: 8,
+                                  desktop: 8,
+                                )),
+                                Flexible(
+                                  child: Text('Pay ${currencyFormatter.format(_totalPrice)}'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isTotal = false}) {
+  Widget _buildSummaryRow(BuildContext context, String label, String value, {bool isTotal = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: EdgeInsets.symmetric(
+        vertical: ResponsiveHelper.getResponsiveValue(
+          context,
+          mobile: 4.0,
+          tablet: 5.0,
+          desktop: 6.0,
+        ),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                fontSize: ResponsiveHelper.getResponsiveFontSize(
+                  context,
+                  mobile: isTotal ? 14 : 13,
+                  tablet: isTotal ? 15 : 14,
+                  desktop: isTotal ? 16 : 15,
+                ),
+              ),
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              fontSize: isTotal ? 16 : null,
-              color: isTotal ? Colors.green : null,
+          Flexible(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                fontSize: ResponsiveHelper.getResponsiveFontSize(
+                  context,
+                  mobile: isTotal ? 16 : 14,
+                  tablet: isTotal ? 18 : 15,
+                  desktop: isTotal ? 20 : 16,
+                ),
+                color: isTotal ? Colors.green : null,
+              ),
+              textAlign: TextAlign.end,
             ),
           ),
         ],
