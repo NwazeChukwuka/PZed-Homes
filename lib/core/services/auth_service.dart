@@ -14,6 +14,9 @@ class AuthService with ChangeNotifier {
   bool _isRoleAssumed = false;
   AppRole? _assumedRole;
   StreamSubscription<AuthState>? _authStateSubscription;
+  
+  // Track if user data is currently loading
+  Completer<void>? _userDataCompleter;
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
@@ -26,169 +29,117 @@ class AuthService with ChangeNotifier {
   AppRole? get assumedRole => _assumedRole;
 
   AuthService() {
-    // Start with loading false for immediate UI render
-    // Guest users should see the page immediately
     _isLoading = false;
     _isLoggedIn = false;
     _currentUser = null;
     
-    // Check Supabase and session in background (non-blocking)
-    // This allows the app to render immediately
     Future.microtask(() => _initializeAuth());
   }
 
   Future<void> _initializeAuth() async {
-    // Try to get Supabase instance, but handle if not initialized
     try {
       _supabase = Supabase.instance.client;
-      // If we get here, Supabase is initialized
     } catch (e) {
-      // Supabase not initialized - set to null
       _supabase = null;
       notifyListeners();
       return;
     }
 
-    // Check initial session (non-blocking)
     try {
       final initialSession = _supabase!.auth.currentSession;
       if (initialSession != null) {
-        // User has a session - load their data asynchronously
         _isLoading = true;
         notifyListeners();
-        await _initializeAuthState(initialSession.user);
+        await _loadUserData(initialSession.user);
       }
     } catch (e) {
-      // If error, assume not logged in
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
       notifyListeners();
     }
     
-    // Listen to auth state changes (for future logins/logouts)
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
-      // Skip if we're still in initial loading
-      if (_isLoading && data.session == null && !_isLoggedIn) {
-        return;
-      }
-      
-      // Only set loading if we're actually changing state
-      final wasLoggedIn = _isLoggedIn;
-      final hasSession = data.session != null;
-      
-      if (wasLoggedIn != hasSession) {
-        _isLoading = true;
-        notifyListeners();
-      }
-
-      final session = data.session;
-      if (session != null) {
-        await _onUserLoggedIn(session.user);
-        _isLoggedIn = true;
-      } else {
-        _currentUser = null;
-        _isLoggedIn = false;
-        _isClockedIn = false;
-        _clockInTime = null;
-        _currentAttendanceId = null;
-      }
-
-      if (wasLoggedIn != hasSession) {
-        _isLoading = false;
-        notifyListeners();
-      }
+        // Skip if we're currently loading user data to avoid race conditions
+        if (_userDataCompleter != null && !_userDataCompleter!.isCompleted) {
+          return;
+        }
+        
+        final session = data.session;
+        if (session != null && session.user != null) {
+          // Only reload if we don't have a current user or user ID changed
+          if (_currentUser == null || _currentUser!.id != session.user.id) {
+            _isLoading = true;
+            notifyListeners();
+            await _loadUserData(session.user);
+          }
+        } else {
+          // User logged out
+          _currentUser = null;
+          _isLoggedIn = false;
+          _isClockedIn = false;
+          _clockInTime = null;
+          _currentAttendanceId = null;
+          _isLoading = false;
+          notifyListeners();
+        }
       });
     }
   }
 
-  Future<void> _initializeAuthState(User user) async {
-    try {
-      // Load user data with shorter timeout to prevent hanging
-      await _onUserLoggedIn(user).timeout(
-        const Duration(seconds: 5), // Reduced from 10 to 5 seconds
-        onTimeout: () {
-          // If timeout, still mark as logged in but with limited user data
-          _isLoggedIn = true;
-          // Create a minimal user object from auth user
-          _currentUser = AppUser(
-            id: user.id,
-            name: user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
-            email: user.email ?? '',
-            role: AppRole.guest,
-            roles: [AppRole.guest],
-            permissions: [],
-          );
-        },
-      );
-      _isLoggedIn = true;
-    } catch (e) {
-      // On error, assume not logged in
-      _isLoggedIn = false;
-      _currentUser = null;
-    } finally {
-      // Always clear loading state after max 5 seconds
-      _isLoading = false;
-      notifyListeners();
+  /// Centralized method to load user data with proper timeout handling
+  Future<void> _loadUserData(User user) async {
+    // Create or reuse completer
+    if (_userDataCompleter != null && !_userDataCompleter!.isCompleted) {
+      // Already loading, wait for existing load
+      return _userDataCompleter!.future;
     }
-  }
-
-  Future<void> _onUserLoggedIn(User user) async {
+    
+    _userDataCompleter = Completer<void>();
+    
     if (_supabase == null) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
+      _userDataCompleter!.complete();
       notifyListeners();
       return;
     }
 
     try {
-      // Optimize: Fetch profile and permissions in parallel
-      // This reduces total wait time from 2 sequential queries to 1 parallel query
+      // Fetch profile and permissions in parallel with individual timeouts
       final profileFuture = _supabase!
           .from('profiles')
           .select()
           .eq('id', user.id)
-          .single();
+          .single()
+          .timeout(const Duration(seconds: 8));
       
       final permissionsFuture = _supabase!
           .from('access_delegations')
           .select('permission')
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .timeout(const Duration(seconds: 8));
 
-      // Wait for both queries in parallel with timeout
-      final results = await Future.wait([
-        profileFuture as Future<dynamic>,
-        permissionsFuture as Future<dynamic>,
-      ]).timeout(
-        const Duration(seconds: 5), // 5 second timeout
-        onTimeout: () {
-          // Return minimal data on timeout
-          return [
-            {
-              'id': user.id,
-              'full_name': user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
-              'email': user.email ?? '',
-              'roles': ['guest'],
-            },
-            <dynamic>[], // Empty permissions
-          ];
-        },
-      );
+      final results = await Future.wait<dynamic>([
+        profileFuture,
+        permissionsFuture,
+      ]);
+
       final profileResponse = results[0] as Map<String, dynamic>?;
       final permissionsResponse = results[1] as List<dynamic>;
 
       if (profileResponse != null) {
-        // Handle roles as array - get the first role for now
-        final roles = (profileResponse['roles'] as List<dynamic>? ?? []);
+        final roles = (profileResponse['roles'] as List<dynamic>? ?? ['guest']);
         final primaryRole = roles.isNotEmpty 
             ? AppRole.values.byName(roles.first as String)
             : AppRole.guest;
             
-        final permissions = permissionsResponse.map((p) => p['permission'] as String).toList();
+        final permissions = permissionsResponse
+            .map((p) => p['permission'] as String)
+            .toList();
 
-        // Create the AppUser with roles AND permissions
         _currentUser = AppUser(
           id: profileResponse['id'],
           name: profileResponse['full_name'],
@@ -198,24 +149,28 @@ class AuthService with ChangeNotifier {
           permissions: permissions,
         );
         
-        // Check clock-in status in background (non-blocking for login flow)
-        // Only check if user is not management (management doesn't need to clock in)
-        // Don't await - let it run in background
+        _isLoggedIn = true;
+        
+        // Check clock-in status for non-management in background
         if (!isManagementRole()) {
-          _checkClockInStatus(); // Fire and forget - don't await
+          unawaited(_checkClockInStatus());
         }
+      } else {
+        throw Exception('Profile not found');
       }
+      
+      _isLoading = false;
+      _userDataCompleter!.complete();
+      notifyListeners();
+      
     } catch (e) {
-      // On error, create minimal user from auth data
-      _currentUser = AppUser(
-        id: user.id,
-        name: user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'User',
-        email: user.email ?? '',
-        role: AppRole.guest,
-        roles: [AppRole.guest],
-        permissions: [],
-      );
-      _isLoggedIn = true; // Still mark as logged in
+      // On any error, clear user and fail
+      _currentUser = null;
+      _isLoggedIn = false;
+      _isLoading = false;
+      _userDataCompleter!.completeError(e);
+      notifyListeners();
+      rethrow;
     }
   }
 
@@ -223,19 +178,19 @@ class AuthService with ChangeNotifier {
     required String email,
     required String password,
     required String fullName,
-    required AppRole role, // Ignored - always creates guest
+    required AppRole role,
   }) async {
     if (_supabase == null) {
       return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
     }
+    
     try {
-      // Force guest role - staff profiles can only be created by management via HR screen
       await _supabase!.auth.signUp(
         email: email,
         password: password,
         data: {
           'full_name': fullName,
-          'roles': ['guest'], // Always guest - database trigger also enforces this
+          'roles': ['guest'],
         },
       ).timeout(
         const Duration(seconds: 15),
@@ -244,8 +199,6 @@ class AuthService with ChangeNotifier {
         },
       );
       
-      // Note: For sign up, user might need to verify email first
-      // So we don't wait for user data here - just return success
       return null;
     } on TimeoutException catch (e) {
       return e.message;
@@ -263,60 +216,141 @@ class AuthService with ChangeNotifier {
     if (_supabase == null) {
       return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
     }
+    
     try {
-      // Add timeout to prevent infinite loading
-      await _supabase!.auth.signInWithPassword(
+      // Set loading state immediately
+      _isLoading = true;
+      notifyListeners();
+      
+      // Step 1: Authenticate (fast - usually <2 seconds)
+      final response = await _supabase!.auth.signInWithPassword(
         email: email,
         password: password,
       ).timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 10),
         onTimeout: () {
           throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
         },
       );
       
-      // Wait for auth state to update (with timeout)
-      // The auth state listener will call _onUserLoggedIn, but we need to wait a bit
-      // for the user data to be loaded
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Wait for user to be loaded (with timeout)
-      int attempts = 0;
-      while (_currentUser == null && attempts < 20) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        attempts++;
+      if (response.user == null) {
+        throw Exception('Login failed: No user returned');
       }
       
-      if (_currentUser == null) {
-        return 'Login successful but user data could not be loaded. Please try again.';
+      // Step 2: Start loading user data BUT with a race condition handler
+      // We'll wait up to 3 seconds for user data, then return success anyway
+      final userDataFuture = _loadUserData(response.user!);
+      
+      try {
+        // Wait maximum 3 seconds for user data
+        await userDataFuture.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            // User data is taking too long, but auth succeeded
+            // Return success and let data load in background
+            if (kDebugMode) {
+              print('⚠️ User data loading slowly, proceeding with login...');
+            }
+          },
+        );
+      } on TimeoutException {
+        // Timeout is expected - data is just slow, continue with polling
+        if (kDebugMode) {
+          print('⚠️ User data loading slowly, proceeding with login...');
+        }
+      } catch (e) {
+        // Real error (not timeout) - log but continue to polling
+        // If it's a critical error, polling will catch it
+        if (kDebugMode) {
+          print('⚠️ User data load error (will retry): $e');
+        }
       }
       
-      return null;
+      // At this point, either:
+      // 1. User data loaded successfully (best case)
+      // 2. User data is still loading in background (acceptable)
+      // 3. User data failed but we'll retry via auth state listener
+      
+      // Check if we got user data within the 3 second window
+      if (_currentUser != null) {
+        // Success - we have full user data
+        return null;
+      } else {
+        // User data still loading or failed - wait a bit more
+        // Give it 2 more attempts (total 5 seconds max)
+        for (int i = 0; i < 2; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+          if (_currentUser != null) {
+            return null; // Got it!
+          }
+        }
+        
+        // After 5 seconds total, if still no user data, fail
+        if (_currentUser == null) {
+          await _supabase!.auth.signOut();
+          _isLoading = false;
+          notifyListeners();
+          throw Exception('Failed to load user data. Please try again.');
+        }
+      }
+      
+      return null; // Success
+      
     } on TimeoutException catch (e) {
+      _isLoading = false;
+      _isLoggedIn = false;
+      _currentUser = null;
+      notifyListeners();
       return e.message;
     } on AuthException catch (e) {
+      _isLoading = false;
+      _isLoggedIn = false;
+      _currentUser = null;
+      notifyListeners();
       return e.message;
     } catch (e) {
-      return 'An unexpected error occurred: ${e.toString()}';
+      _isLoading = false;
+      _isLoggedIn = false;
+      _currentUser = null;
+      notifyListeners();
+      return 'Login failed: ${e.toString()}';
+    }
+  }
+
+  /// Wait for user data to be available (with timeout)
+  Future<bool> waitForUserData({Duration timeout = const Duration(seconds: 5)}) async {
+    if (_currentUser != null) return true;
+    if (_userDataCompleter == null) return false;
+    
+    try {
+      await _userDataCompleter!.future.timeout(timeout);
+      return _currentUser != null;
+    } catch (e) {
+      return false;
     }
   }
 
   Future<void> logout() async {
     if (_supabase == null) return;
-    // Clock out if still clocked in
+    
     if (_isClockedIn) {
-      await clockOut();
+      try {
+        await clockOut();
+      } catch (e) {
+        // Continue with logout even if clock out fails
+      }
     }
+    
     await _supabase!.auth.signOut();
     _currentUser = null;
     _isLoggedIn = false;
     _isClockedIn = false;
     _clockInTime = null;
     _currentAttendanceId = null;
+    _userDataCompleter = null;
     notifyListeners();
   }
 
-  // Check if user is currently clocked in (from database)
   Future<void> _checkClockInStatus() async {
     if (_currentUser == null || _supabase == null) return;
     
@@ -324,7 +358,6 @@ class AuthService with ChangeNotifier {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
       
-      // Optimize: Only select needed fields to reduce data transfer
       final response = await _supabase!
           .from('attendance_records')
           .select('id, clock_in_time')
@@ -346,14 +379,12 @@ class AuthService with ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      // If error, assume not clocked in
       _isClockedIn = false;
       _currentAttendanceId = null;
       _clockInTime = null;
     }
   }
 
-  // Clock in - saves to Supabase
   Future<void> clockIn() async {
     if (_currentUser == null) {
       throw Exception('User must be logged in to clock in');
@@ -362,7 +393,6 @@ class AuthService with ChangeNotifier {
       throw Exception('Supabase is not configured');
     }
     
-    // Check if already clocked in today
     await _checkClockInStatus();
     if (_isClockedIn) {
       throw Exception('You are already clocked in today');
@@ -388,7 +418,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // Clock out - updates Supabase record
   Future<void> clockOut() async {
     if (_currentUser == null || !_isClockedIn || _currentAttendanceId == null) {
       throw Exception('You are not clocked in');
@@ -414,10 +443,8 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // Check if user is management (doesn't need to clock in)
   bool isManagementRole() {
     if (_currentUser == null) return false;
-    // Consider assumed role if one is set
     final role = _isRoleAssumed ? (_assumedRole ?? _currentUser!.role) : _currentUser!.role;
     return role == AppRole.owner ||
            role == AppRole.manager ||
@@ -426,17 +453,11 @@ class AuthService with ChangeNotifier {
            role == AppRole.hr;
   }
 
-  // Check if user can make transactions
   bool canMakeTransactions() {
-    // Management can always make transactions
     if (isManagementRole()) return true;
-    
-    // Junior staff must be clocked in
     return _isClockedIn;
   }
 
-  // Role assumption (for compatibility with MockAuthService)
-  // In production, this can be used for temporary role delegation
   void assumeRole(AppRole role) {
     _isRoleAssumed = true;
     _assumedRole = role;
@@ -449,12 +470,10 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
-  // Alias for compatibility with MockAuthService
   void returnToOriginalRole() {
     clearAssumedRole();
   }
 
-  // Get suggested role based on current route/section
   static AppRole? getSuggestedRoleForRoute(String route) {
     if (route.contains('/inventory')) return AppRole.bartender;
     if (route.contains('/housekeeping') || route.contains('/mini_mart')) return AppRole.receptionist;
@@ -466,7 +485,6 @@ class AuthService with ChangeNotifier {
     return null;
   }
 
-  // Get role display name
   static String getRoleDisplayName(AppRole role) {
     switch (role) {
       case AppRole.bartender:

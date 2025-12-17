@@ -9,6 +9,7 @@ import 'package:pzed_homes/data/models/user.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+  
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -21,92 +22,104 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isSigningUp = false;
   bool _isLoading = false;
-  bool _isNavigating = false; // Add navigation guard
+  bool _obscurePassword = true;
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_isNavigating) return; // Prevent concurrent navigation
+    if (_isLoading) return; // Prevent double submission
 
     setState(() => _isLoading = true);
-    final authService = Provider.of<AuthService>(context, listen: false);
     
-    print('DEBUG: Login attempt started for email: ${_emailController.text}');
-    print('DEBUG: Is signing up: $_isSigningUp');
+    final authService = Provider.of<AuthService>(context, listen: false);
 
     try {
       String? errorMessage;
+      
       if (_isSigningUp) {
-        // Sign up always creates guest users first
         errorMessage = await authService.signUp(
-          email: _emailController.text,
+          email: _emailController.text.trim(),
           password: _passwordController.text,
-          fullName: _fullNameController.text,
+          fullName: _fullNameController.text.trim(),
           role: AppRole.guest,
         );
+        
+        if (mounted && errorMessage == null) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Account created successfully! Please check your email to verify your account before logging in.',
+            duration: const Duration(seconds: 4),
+          );
+          
+          // Switch to login mode
+          setState(() {
+            _isSigningUp = false;
+            _passwordController.clear();
+            _fullNameController.clear();
+          });
+        }
       } else {
         // Login attempt
         errorMessage = await authService.login(
-          email: _emailController.text,
+          email: _emailController.text.trim(),
           password: _passwordController.text,
         );
-      }
-
-      if (mounted) {
-        if (errorMessage == null) {
-          // Wait a bit more for user data to load after login
-          // The login method already waits, but give it a bit more time
-          int waitAttempts = 0;
-          while (authService.currentUser == null && waitAttempts < 10) {
-            await Future.delayed(const Duration(milliseconds: 300));
-            waitAttempts++;
+        
+        if (mounted && errorMessage == null) {
+          // Login successful - wait a moment for user data if needed
+          if (authService.currentUser == null) {
+            // User data might still be loading, wait up to 2 more seconds
+            final gotUserData = await authService.waitForUserData(
+              timeout: const Duration(seconds: 2),
+            );
+            
+            if (!gotUserData) {
+              await authService.logout();
+              ErrorHandler.handleError(
+                context,
+                Exception('User data not loaded'),
+                customMessage: 'Login successful but user data could not be loaded. Please try again.',
+              );
+              return;
+            }
           }
           
           final user = authService.currentUser;
-          final isStaff = user != null && user.roles.any((role) => role != AppRole.guest);
-
+          
+          if (user == null) {
+            // This should never happen now, but handle it just in case
+            await authService.logout();
+            ErrorHandler.handleError(
+              context,
+              Exception('User data not loaded'),
+              customMessage: 'Login successful but user data could not be loaded. Please try again.',
+            );
+            return;
+          }
+          
+          // Check if user has staff access
+          final isStaff = user.roles.any((role) => role != AppRole.guest);
+          
           if (isStaff) {
-            // Staff access granted - clear form and navigate to dashboard
+            // Staff access granted
             _clearForm();
             
-            // Set navigation guard
-            setState(() => _isNavigating = true);
-            
-            // Navigate immediately - no artificial delay
-            if (mounted && _isNavigating) {
-                try {
-                  // Use GoRouter's go method - this replaces the current route stack
-                  context.go('/dashboard');
-                
-                // Show success message after navigation (non-blocking)
-                Future.microtask(() {
-                  if (mounted) {
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      'Login successful! Welcome to P-ZED Luxury Hotels & Suites Staff Portal.',
-                      duration: const Duration(seconds: 2),
-                    );
-                  }
-                });
-                } catch (e) {
-                  // If navigation fails, try to go to root and then dashboard
-                  try {
-                    context.go('/');
-                    Future.microtask(() {
-                      if (mounted) {
-                        context.go('/dashboard');
-                      }
-                    });
-                  } catch (e2) {
-                    // Silent fail - navigation will happen via auth state change
-                  }
-              } finally {
+            // Navigate to dashboard
+            if (mounted) {
+              context.go('/dashboard');
+              
+              // Show success message after navigation
+              Future.microtask(() {
                 if (mounted) {
-                  setState(() => _isNavigating = false);
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Welcome to P-ZED Luxury Hotels & Suites Staff Portal!',
+                    duration: const Duration(seconds: 2),
+                  );
                 }
-              }
+              });
             }
           } else {
-            // Guest users are denied access
+            // Guest users denied access
             await authService.logout();
             if (mounted) {
               ErrorHandler.handleError(
@@ -116,27 +129,29 @@ class _LoginScreenState extends State<LoginScreen> {
               );
             }
           }
-        } else {
-          if (mounted) {
-            ErrorHandler.handleError(
-              context,
-              Exception(errorMessage),
-              customMessage: errorMessage,
-            );
-          }
-        }
-        if (mounted) {
-          setState(() => _isLoading = false);
         }
       }
+      
+      // Handle error message
+      if (mounted && errorMessage != null) {
+        ErrorHandler.handleError(
+          context,
+          Exception(errorMessage),
+          customMessage: errorMessage,
+        );
+      }
+      
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: 'An unexpected error occurred during login. Please try again.',
+          customMessage: 'An unexpected error occurred. Please try again.',
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -145,10 +160,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.clear();
     _passwordController.clear();
     _fullNameController.clear();
-    setState(() {
-      _isSigningUp = false;
-      _isLoading = false;
-    });
   }
 
   @override
@@ -176,13 +187,30 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'P-ZED Luxury Hotels & Suites Staff Portal',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                Icon(
+                  Icons.hotel,
+                  size: 80,
+                  color: Colors.green[800],
                 ),
                 const SizedBox(height: 16),
-                
+                const Text(
+                  'P-ZED Luxury Hotels & Suites',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Staff Portal',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 40),
 
                 if (_isSigningUp) ...[
                   TextFormField(
@@ -192,7 +220,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.person),
                     ),
-                    validator: (val) => val!.isEmpty ? 'Enter your full name' : null,
+                    textInputAction: TextInputAction.next,
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Enter your full name';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -205,9 +239,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     prefixIcon: Icon(Icons.email),
                   ),
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
                   validator: (val) {
-                    if (val!.isEmpty) return 'Enter an email';
-                    if (!val.contains('@')) return 'Enter a valid email';
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Enter an email';
+                    }
+                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(val)) {
+                      return 'Enter a valid email';
+                    }
                     return null;
                   },
                 ),
@@ -215,38 +254,88 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 TextFormField(
                   controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() => _obscurePassword = !_obscurePassword);
+                      },
+                    ),
                   ),
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _submit(),
                   validator: (val) {
-                    if (val!.isEmpty) return 'Enter a password';
-                    if (val.length < 6) return 'Password must be 6+ characters';
+                    if (val == null || val.isEmpty) {
+                      return 'Enter a password';
+                    }
+                    if (val.length < 6) {
+                      return 'Password must be at least 6 characters';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 32),
 
                 _isLoading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const Center(
+                        child: Column(
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('Please wait...'),
+                          ],
+                        ),
+                      )
                     : ElevatedButton(
                         onPressed: _submit,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green[800],
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          textStyle: const TextStyle(fontSize: 16),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         child: Text(_isSigningUp ? 'Sign Up' : 'Login'),
                       ),
 
                 const SizedBox(height: 16),
+                
                 TextButton(
-                  onPressed: () => setState(() => _isSigningUp = !_isSigningUp),
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          setState(() {
+                            _isSigningUp = !_isSigningUp;
+                            // Clear form when switching modes
+                            _formKey.currentState?.reset();
+                          });
+                        },
                   child: Text(
-                    _isSigningUp ? 'Have an account? Login' : "Don't have an account? Sign up",
-                    style: TextStyle(color: Colors.green[800]),
+                    _isSigningUp
+                        ? 'Already have an account? Login'
+                        : "Don't have an account? Sign up",
+                    style: TextStyle(
+                      color: _isLoading ? Colors.grey : Colors.green[800],
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                Text(
+                  'Staff access only',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
                   ),
                 ),
               ],
