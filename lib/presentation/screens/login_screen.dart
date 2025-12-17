@@ -65,28 +65,10 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         
         if (mounted && errorMessage == null) {
-          // Login successful - wait a moment for user data if needed
-          if (authService.currentUser == null) {
-            // User data might still be loading, wait up to 2 more seconds
-            final gotUserData = await authService.waitForUserData(
-              timeout: const Duration(seconds: 2),
-            );
-            
-            if (!gotUserData) {
-              await authService.logout();
-              ErrorHandler.handleError(
-                context,
-                Exception('User data not loaded'),
-                customMessage: 'Login successful but user data could not be loaded. Please try again.',
-              );
-              return;
-            }
-          }
-          
+          // Login successful - user data is already loaded
           final user = authService.currentUser;
           
           if (user == null) {
-            // This should never happen now, but handle it just in case
             await authService.logout();
             ErrorHandler.handleError(
               context,

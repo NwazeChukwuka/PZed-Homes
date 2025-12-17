@@ -218,11 +218,10 @@ class AuthService with ChangeNotifier {
     }
     
     try {
-      // Set loading state immediately
       _isLoading = true;
       notifyListeners();
       
-      // Step 1: Authenticate (fast - usually <2 seconds)
+      // Step 1: Authenticate - fail immediately if wrong credentials
       final response = await _supabase!.auth.signInWithPassword(
         email: email,
         password: password,
@@ -237,61 +236,13 @@ class AuthService with ChangeNotifier {
         throw Exception('Login failed: No user returned');
       }
       
-      // Step 2: Start loading user data BUT with a race condition handler
-      // We'll wait up to 3 seconds for user data, then return success anyway
-      final userDataFuture = _loadUserData(response.user!);
+      // Step 2: Load user data - fail immediately if it fails
+      await _loadUserData(response.user!);
       
-      try {
-        // Wait maximum 3 seconds for user data
-        await userDataFuture.timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            // User data is taking too long, but auth succeeded
-            // Return success and let data load in background
-            if (kDebugMode) {
-              print('⚠️ User data loading slowly, proceeding with login...');
-            }
-          },
-        );
-      } on TimeoutException {
-        // Timeout is expected - data is just slow, continue with polling
-        if (kDebugMode) {
-          print('⚠️ User data loading slowly, proceeding with login...');
-        }
-      } catch (e) {
-        // Real error (not timeout) - log but continue to polling
-        // If it's a critical error, polling will catch it
-        if (kDebugMode) {
-          print('⚠️ User data load error (will retry): $e');
-        }
-      }
-      
-      // At this point, either:
-      // 1. User data loaded successfully (best case)
-      // 2. User data is still loading in background (acceptable)
-      // 3. User data failed but we'll retry via auth state listener
-      
-      // Check if we got user data within the 3 second window
-      if (_currentUser != null) {
-        // Success - we have full user data
-        return null;
-      } else {
-        // User data still loading or failed - wait a bit more
-        // Give it 2 more attempts (total 5 seconds max)
-        for (int i = 0; i < 2; i++) {
-          await Future.delayed(const Duration(seconds: 1));
-          if (_currentUser != null) {
-            return null; // Got it!
-          }
-        }
-        
-        // After 5 seconds total, if still no user data, fail
-        if (_currentUser == null) {
-          await _supabase!.auth.signOut();
-          _isLoading = false;
-          notifyListeners();
-          throw Exception('Failed to load user data. Please try again.');
-        }
+      // Step 3: Verify we have user data
+      if (_currentUser == null) {
+        await _supabase!.auth.signOut();
+        throw Exception('Failed to load user data');
       }
       
       return null; // Success
@@ -317,18 +268,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// Wait for user data to be available (with timeout)
-  Future<bool> waitForUserData({Duration timeout = const Duration(seconds: 5)}) async {
-    if (_currentUser != null) return true;
-    if (_userDataCompleter == null) return false;
-    
-    try {
-      await _userDataCompleter!.future.timeout(timeout);
-      return _currentUser != null;
-    } catch (e) {
-      return false;
-    }
-  }
 
   Future<void> logout() async {
     if (_supabase == null) return;
