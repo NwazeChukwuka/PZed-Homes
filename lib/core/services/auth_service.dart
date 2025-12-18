@@ -15,8 +15,8 @@ class AuthService with ChangeNotifier {
   AppRole? _assumedRole;
   StreamSubscription<AuthState>? _authStateSubscription;
   
-  // Track if user data is currently loading
-  Completer<void>? _userDataCompleter;
+  // Track if user data is currently loading to prevent concurrent loads
+  bool _isLoadingUserData = false;
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
@@ -62,7 +62,7 @@ class AuthService with ChangeNotifier {
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
         // Skip if we're currently loading user data to avoid race conditions
-        if (_userDataCompleter != null && !_userDataCompleter!.isCompleted) {
+        if (_isLoadingUserData) {
           return;
         }
         
@@ -88,39 +88,38 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// Centralized method to load user data with proper timeout handling
+  /// Centralized method to load user data
   Future<void> _loadUserData(User user) async {
-    // Create or reuse completer
-    if (_userDataCompleter != null && !_userDataCompleter!.isCompleted) {
-      // Already loading, wait for existing load
-      return _userDataCompleter!.future;
+    // Prevent concurrent loads
+    if (_isLoadingUserData) {
+      return;
     }
     
-    _userDataCompleter = Completer<void>();
+    _isLoadingUserData = true;
     
     if (_supabase == null) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
-      _userDataCompleter!.complete();
+      _isLoadingUserData = false;
       notifyListeners();
-      return;
+      throw Exception('Supabase is not configured');
     }
 
     try {
-      // Fetch profile and permissions in parallel with individual timeouts
+      // Fetch profile and permissions in parallel with timeouts
       final profileFuture = _supabase!
           .from('profiles')
           .select()
           .eq('id', user.id)
           .single()
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 5));
       
       final permissionsFuture = _supabase!
           .from('access_delegations')
           .select('permission')
           .eq('user_id', user.id)
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 5));
 
       final results = await Future.wait<dynamic>([
         profileFuture,
@@ -130,45 +129,44 @@ class AuthService with ChangeNotifier {
       final profileResponse = results[0] as Map<String, dynamic>?;
       final permissionsResponse = results[1] as List<dynamic>;
 
-      if (profileResponse != null) {
-        final roles = (profileResponse['roles'] as List<dynamic>? ?? ['guest']);
-        final primaryRole = roles.isNotEmpty 
-            ? AppRole.values.byName(roles.first as String)
-            : AppRole.guest;
-            
-        final permissions = permissionsResponse
-            .map((p) => p['permission'] as String)
-            .toList();
-
-        _currentUser = AppUser(
-          id: profileResponse['id'],
-          name: profileResponse['full_name'],
-          email: profileResponse['email'] ?? '',
-          role: primaryRole,
-          roles: roles.map((role) => AppRole.values.byName(role as String)).toList(),
-          permissions: permissions,
-        );
-        
-        _isLoggedIn = true;
-        
-        // Check clock-in status for non-management in background
-        if (!isManagementRole()) {
-          unawaited(_checkClockInStatus());
-        }
-      } else {
+      if (profileResponse == null) {
         throw Exception('Profile not found');
       }
+
+      final roles = (profileResponse['roles'] as List<dynamic>? ?? ['guest']);
+      final primaryRole = roles.isNotEmpty 
+          ? AppRole.values.byName(roles.first as String)
+          : AppRole.guest;
+          
+      final permissions = permissionsResponse
+          .map((p) => p['permission'] as String)
+          .toList();
+
+      _currentUser = AppUser(
+        id: profileResponse['id'],
+        name: profileResponse['full_name'],
+        email: profileResponse['email'] ?? '',
+        role: primaryRole,
+        roles: roles.map((role) => AppRole.values.byName(role as String)).toList(),
+        permissions: permissions,
+      );
       
+      _isLoggedIn = true;
       _isLoading = false;
-      _userDataCompleter!.complete();
+      _isLoadingUserData = false;
       notifyListeners();
+      
+      // Check clock-in status for non-management in background
+      if (!isManagementRole()) {
+        unawaited(_checkClockInStatus());
+      }
       
     } catch (e) {
       // On any error, clear user and fail
       _currentUser = null;
       _isLoggedIn = false;
       _isLoading = false;
-      _userDataCompleter!.completeError(e);
+      _isLoadingUserData = false;
       notifyListeners();
       rethrow;
     }
@@ -221,31 +219,43 @@ class AuthService with ChangeNotifier {
       _isLoading = true;
       notifyListeners();
       
-      // Step 1: Authenticate - fail immediately if wrong credentials
-      final response = await _supabase!.auth.signInWithPassword(
-        email: email,
-        password: password,
-      ).timeout(
-        const Duration(seconds: 10),
+      // Wrap entire login in timeout to prevent infinite hangs
+      return await (() async {
+        // Step 1: Authenticate - fail immediately if wrong credentials
+        final response = await _supabase!.auth.signInWithPassword(
+          email: email,
+          password: password,
+        ).timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
+          },
+        );
+        
+        if (response.user == null) {
+          throw Exception('Login failed: No user returned');
+        }
+        
+        // Step 2: Load user data - fail immediately if it fails
+        await _loadUserData(response.user!);
+        
+        // Step 3: Verify we have user data
+        if (_currentUser == null) {
+          await _supabase!.auth.signOut();
+          throw Exception('Failed to load user data');
+        }
+        
+        return null; // Success
+      })().timeout(
+        const Duration(seconds: 15),
         onTimeout: () {
-          throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
+          _isLoading = false;
+          _isLoggedIn = false;
+          _currentUser = null;
+          notifyListeners();
+          throw TimeoutException('Login timed out. Please try again.');
         },
       );
-      
-      if (response.user == null) {
-        throw Exception('Login failed: No user returned');
-      }
-      
-      // Step 2: Load user data - fail immediately if it fails
-      await _loadUserData(response.user!);
-      
-      // Step 3: Verify we have user data
-      if (_currentUser == null) {
-        await _supabase!.auth.signOut();
-        throw Exception('Failed to load user data');
-      }
-      
-      return null; // Success
       
     } on TimeoutException catch (e) {
       _isLoading = false;
@@ -286,7 +296,7 @@ class AuthService with ChangeNotifier {
     _isClockedIn = false;
     _clockInTime = null;
     _currentAttendanceId = null;
-    _userDataCompleter = null;
+    _isLoadingUserData = false;
     notifyListeners();
   }
 
