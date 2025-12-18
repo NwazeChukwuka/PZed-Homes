@@ -102,20 +102,39 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       // Get all room types
       final roomTypes = await _supabase!
           .from('room_types')
-          .select('*, rooms(count)')
+          .select()
           .order('price');
+
+      // Get all vacant rooms and group by type
+      final allRooms = await _supabase!
+          .from('rooms')
+          .select('type_id, type, status')
+          .eq('status', 'Vacant');
+
+      // Count rooms by type_id
+      final roomsByTypeId = <String, int>{};
+      final typeNameByTypeId = <String, String>{};
+      for (var room in allRooms as List) {
+        final typeId = room['type_id'] as String? ?? '';
+        final typeName = room['type'] as String? ?? '';
+        if (typeId.isNotEmpty) {
+          roomsByTypeId[typeId] = (roomsByTypeId[typeId] ?? 0) + 1;
+          typeNameByTypeId[typeId] = typeName;
+        }
+      }
 
       // Calculate available count for each type
       final result = <Map<String, dynamic>>[];
       for (var type in roomTypes as List) {
+        final typeId = type['id'] as String? ?? '';
         final typeName = type['type'] as String? ?? '';
-        final totalRooms = (type['rooms'] as List?)?.length ?? 0;
+        final totalRooms = roomsByTypeId[typeId] ?? 0;
         final booked = bookedByType[typeName] ?? 0;
         final available = totalRooms - booked;
 
         if (available > 0) {
           result.add({
-            'id': type['id'],
+            'id': typeId,
             'type': typeName,
             'price': type['price'] ?? 0,
             'description': type['description'] ?? '',
