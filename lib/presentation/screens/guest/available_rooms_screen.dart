@@ -180,10 +180,14 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
         final available = totalRooms - booked;
 
         if (available > 0) {
+          // Convert price from kobo to naira (divide by 100)
+          final priceInKobo = type['price'] as int? ?? 0;
+          final priceInNaira = priceInKobo ~/ 100;
+          
           result.add({
             'id': typeId,
             'type': typeName,
-            'price': type['price'] ?? 0,
+            'price': priceInNaira, // Store in naira for frontend display
             'description': type['description'] ?? '',
             'image_url': type['image_url'],
             'available_count': available,
@@ -538,6 +542,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
               itemCount: availableRooms.length,
               itemBuilder: (context, index) {
                 final roomType = availableRooms[index];
+                // Price is already in naira (converted in _fetchAvailableRooms)
                 final price = (roomType['price'] is int) 
                     ? roomType['price'] as int 
                     : int.tryParse('${roomType['price']}') ?? 0;

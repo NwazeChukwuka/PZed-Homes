@@ -220,8 +220,8 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
             'check_in_date': checkInDate.toIso8601String(),
             'check_out_date': checkOutDate.toIso8601String(),
             'status': 'Pending Check-in',
-            'total_amount': _totalPrice,
-            'paid_amount': _totalPrice, // Payment received
+            'total_amount': _totalPrice * 100, // Convert naira to kobo for database
+            'paid_amount': _totalPrice * 100, // Convert naira to kobo for database
           })
           .select('id')
           .single();
