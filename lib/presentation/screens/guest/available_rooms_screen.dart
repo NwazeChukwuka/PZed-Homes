@@ -181,8 +181,21 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
 
         if (available > 0) {
           // Convert price from kobo to naira (divide by 100)
-          final priceInKobo = type['price'] as int? ?? 0;
+          // Supabase INT8 returns as num, so handle both int and num types
+          final priceValue = type['price'];
+          int priceInKobo = 0;
+          if (priceValue is int) {
+            priceInKobo = priceValue;
+          } else if (priceValue is num) {
+            priceInKobo = priceValue.toInt();
+          } else {
+            priceInKobo = int.tryParse('$priceValue') ?? 0;
+          }
+          
+          // Convert kobo to naira (divide by 100)
           final priceInNaira = priceInKobo ~/ 100;
+          
+          debugPrint('Room type: $typeName, Price in kobo: $priceInKobo, Price in naira: $priceInNaira');
           
           result.add({
             'id': typeId,
@@ -542,10 +555,19 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
               itemCount: availableRooms.length,
               itemBuilder: (context, index) {
                 final roomType = availableRooms[index];
-                // Price is already in naira (converted in _fetchAvailableRooms)
-                final price = (roomType['price'] is int) 
+                // Price should already be in naira (converted in _fetchAvailableRooms)
+                // But add safety check: if price > 100000, it's likely still in kobo, so divide by 100
+                var price = (roomType['price'] is int) 
                     ? roomType['price'] as int 
-                    : int.tryParse('${roomType['price']}') ?? 0;
+                    : (roomType['price'] is num)
+                        ? (roomType['price'] as num).toInt()
+                        : int.tryParse('${roomType['price']}') ?? 0;
+                
+                // Safety check: if price seems too high (likely still in kobo), convert it
+                if (price > 100000) {
+                  price = price ~/ 100;
+                  debugPrint('Price was too high, converted from kobo: ${price * 100} -> $price');
+                }
                 final imageUrl = (roomType['image_url'] as String?) ?? '';
                 final availableCount = roomType['available_count'] as int? ?? 0;
 
