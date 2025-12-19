@@ -81,45 +81,56 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
     }
 
     try {
+      // Validate dates
+      if (checkInDate.isAfter(checkOutDate) || checkInDate.isAtSameMomentAs(checkOutDate)) {
+        throw Exception('Check-out date must be after check-in date');
+      }
+
       // Get conflicting bookings for the date range
-      // Include bookings with room_id assigned AND bookings by requested_room_type
+      // A booking conflicts if: booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
       final conflictingBookings = await _supabase!
           .from('bookings')
           .select('room_id, requested_room_type')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
-          .lte('check_in_date', checkOutDate.toIso8601String())
-          .gte('check_out_date', checkInDate.toIso8601String());
+          .lt('check_in_date', checkOutDate.toIso8601String())
+          .gt('check_out_date', checkInDate.toIso8601String());
 
       // Get room types for booked rooms
       final bookedRoomIds = <String>{};
       for (var booking in conflictingBookings as List) {
-        if (booking['room_id'] != null) {
-          bookedRoomIds.add(booking['room_id'] as String);
+        final roomId = booking['room_id'];
+        if (roomId != null && roomId is String) {
+          bookedRoomIds.add(roomId);
         }
       }
 
       // Get room types for directly assigned rooms
       final bookedByType = <String, int>{};
       if (bookedRoomIds.isNotEmpty) {
-        // Query all rooms and filter in code (more reliable than .in_())
-        final allBookedRooms = await _supabase!
-            .from('rooms')
-            .select('id, type');
-        
-        for (var room in allBookedRooms as List) {
-          final roomId = room['id'] as String? ?? '';
-          if (bookedRoomIds.contains(roomId)) {
-            final type = room['type'] as String? ?? '';
-            if (type.isNotEmpty) {
-              bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+        // Query all rooms and filter in code (more efficient than querying one by one)
+        try {
+          final allRoomsForBookings = await _supabase!
+              .from('rooms')
+              .select('id, type');
+          
+          for (var room in allRoomsForBookings as List) {
+            final roomId = room['id'] as String? ?? '';
+            if (bookedRoomIds.contains(roomId)) {
+              final type = room['type'] as String? ?? '';
+              if (type.isNotEmpty) {
+                bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+              }
             }
           }
+        } catch (e) {
+          debugPrint('Error fetching booked rooms: $e');
+          // Continue - bookedByType will remain empty
         }
       }
 
       // Count bookings by requested room type (without room_id)
       for (var booking in conflictingBookings as List) {
-        if (booking['room_id'] == null && booking['requested_room_type'] != null) {
+        if (booking['room_id'] == null) {
           final type = booking['requested_room_type'] as String? ?? '';
           if (type.isNotEmpty) {
             bookedByType[type] = (bookedByType[type] ?? 0) + 1;
@@ -133,21 +144,23 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
           .select()
           .order('price');
 
-      // Get all vacant rooms and group by type
+      if (roomTypes.isEmpty) {
+        debugPrint('No room types found in database');
+        return [];
+      }
+
+      // Get all vacant rooms and group by type_id
       final allRooms = await _supabase!
           .from('rooms')
           .select('type_id, type, status')
           .eq('status', 'Vacant');
 
-      // Count rooms by type_id
+      // Count rooms by type_id (must match room_types.id)
       final roomsByTypeId = <String, int>{};
-      final typeNameByTypeId = <String, String>{};
       for (var room in allRooms as List) {
-        final typeId = room['type_id'] as String? ?? '';
-        final typeName = room['type'] as String? ?? '';
-        if (typeId.isNotEmpty) {
+        final typeId = room['type_id'] as String?;
+        if (typeId != null && typeId.isNotEmpty) {
           roomsByTypeId[typeId] = (roomsByTypeId[typeId] ?? 0) + 1;
-          typeNameByTypeId[typeId] = typeName;
         }
       }
 
@@ -156,6 +169,12 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       for (var type in roomTypes as List) {
         final typeId = type['id'] as String? ?? '';
         final typeName = type['type'] as String? ?? '';
+        
+        if (typeId.isEmpty || typeName.isEmpty) {
+          debugPrint('Skipping room type with missing id or name: $type');
+          continue;
+        }
+
         final totalRooms = roomsByTypeId[typeId] ?? 0;
         final booked = bookedByType[typeName] ?? 0;
         final available = totalRooms - booked;
