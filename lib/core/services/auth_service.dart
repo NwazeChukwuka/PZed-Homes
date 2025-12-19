@@ -17,6 +17,8 @@ class AuthService with ChangeNotifier {
   
   // Track if user data is currently loading to prevent concurrent loads
   bool _isLoadingUserData = false;
+  // Track if we're currently performing a login to prevent auth state listener interference
+  bool _isLoggingIn = false;
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
@@ -36,11 +38,34 @@ class AuthService with ChangeNotifier {
     Future.microtask(() => _initializeAuth());
   }
 
+  /// Ensure Supabase is initialized with retry mechanism
+  Future<bool> _ensureSupabaseInitialized({int maxRetries = 5, Duration retryDelay = const Duration(milliseconds: 500)}) async {
+    if (_supabase != null) {
+      return true;
+    }
+
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        _supabase = Supabase.instance.client;
+        if (_supabase != null) {
+          return true;
+        }
+      } catch (e) {
+        // Supabase not ready yet, wait and retry
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+        }
+      }
+    }
+
+    _supabase = null;
+    return false;
+  }
+
   Future<void> _initializeAuth() async {
-    try {
-      _supabase = Supabase.instance.client;
-    } catch (e) {
-      _supabase = null;
+    // Try to get Supabase with retry
+    final isInitialized = await _ensureSupabaseInitialized();
+    if (!isInitialized) {
       notifyListeners();
       return;
     }
@@ -61,8 +86,8 @@ class AuthService with ChangeNotifier {
     
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
-        // Skip if we're currently loading user data to avoid race conditions
-        if (_isLoadingUserData) {
+        // Skip if we're currently logging in or loading user data to avoid race conditions
+        if (_isLoggingIn || _isLoadingUserData) {
           return;
         }
         
@@ -72,7 +97,13 @@ class AuthService with ChangeNotifier {
           if (_currentUser == null || _currentUser!.id != session.user.id) {
             _isLoading = true;
             notifyListeners();
-            await _loadUserData(session.user);
+            try {
+              await _loadUserData(session.user);
+            } catch (e) {
+              // Silently handle errors from auth state listener
+              _isLoading = false;
+              notifyListeners();
+            }
           }
         } else {
           // User logged out
@@ -178,7 +209,9 @@ class AuthService with ChangeNotifier {
     required String fullName,
     required AppRole role,
   }) async {
-    if (_supabase == null) {
+    // Ensure Supabase is initialized before attempting signup
+    final isInitialized = await _ensureSupabaseInitialized();
+    if (!isInitialized) {
       return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
     }
     
@@ -211,70 +244,88 @@ class AuthService with ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    if (_supabase == null) {
+    // Ensure Supabase is initialized before attempting login
+    final isInitialized = await _ensureSupabaseInitialized();
+    if (!isInitialized) {
       return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
     }
     
+    // Prevent concurrent login attempts
+    if (_isLoggingIn) {
+      return 'Login already in progress. Please wait.';
+    }
+
+    _isLoggingIn = true;
+    _isLoading = true;
+    notifyListeners();
+    
     try {
-      _isLoading = true;
-      notifyListeners();
-      
-      // Wrap entire login in timeout to prevent infinite hangs
-      return await (() async {
-        // Step 1: Authenticate - fail immediately if wrong credentials
-        final response = await _supabase!.auth.signInWithPassword(
-          email: email,
-          password: password,
-        ).timeout(
-          const Duration(seconds: 8),
-          onTimeout: () {
-            throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
-          },
-        );
-        
-        if (response.user == null) {
-          throw Exception('Login failed: No user returned');
-        }
-        
-        // Step 2: Load user data - fail immediately if it fails
-        await _loadUserData(response.user!);
-        
-        // Step 3: Verify we have user data
-        if (_currentUser == null) {
-          await _supabase!.auth.signOut();
-          throw Exception('Failed to load user data');
-        }
-        
-        return null; // Success
-      })().timeout(
-        const Duration(seconds: 15),
+      // Step 1: Authenticate with timeout
+      final response = await _supabase!.auth.signInWithPassword(
+        email: email,
+        password: password,
+      ).timeout(
+        const Duration(seconds: 10),
         onTimeout: () {
-          _isLoading = false;
-          _isLoggedIn = false;
-          _currentUser = null;
-          notifyListeners();
-          throw TimeoutException('Login timed out. Please try again.');
+          throw TimeoutException('Login request timed out. Please check your internet connection and try again.');
         },
       );
+      
+      if (response.user == null) {
+        throw Exception('Login failed: No user returned');
+      }
+      
+      // Step 2: Load user data with timeout
+      await _loadUserData(response.user!).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          throw TimeoutException('Loading user data timed out. Please try again.');
+        },
+      );
+      
+      // Step 3: Verify we have user data
+      if (_currentUser == null) {
+        await _supabase!.auth.signOut();
+        throw Exception('Failed to load user data');
+      }
+      
+      // Give listeners time to update
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      return null; // Success
       
     } on TimeoutException catch (e) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
+      _isLoggingIn = false;
       notifyListeners();
       return e.message;
     } on AuthException catch (e) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
+      _isLoggingIn = false;
       notifyListeners();
       return e.message;
     } catch (e) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
+      _isLoggingIn = false;
       notifyListeners();
-      return 'Login failed: ${e.toString()}';
+      
+      // Provide more specific error messages
+      final errorString = e.toString();
+      if (errorString.contains('Profile not found')) {
+        return 'User profile not found. Please contact support.';
+      } else if (errorString.contains('timeout') || errorString.contains('Timeout')) {
+        return 'Request timed out. Please check your internet connection and try again.';
+      } else {
+        return 'Login failed: ${errorString.contains("Invalid login credentials") ? "Invalid email or password" : errorString}';
+      }
+    } finally {
+      _isLoggingIn = false;
     }
   }
 
@@ -297,6 +348,8 @@ class AuthService with ChangeNotifier {
     _clockInTime = null;
     _currentAttendanceId = null;
     _isLoadingUserData = false;
+    _isLoggingIn = false;
+    _isLoading = false;
     notifyListeners();
   }
 

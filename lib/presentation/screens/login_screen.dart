@@ -65,6 +65,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         
         if (mounted && errorMessage == null) {
+          // Wait a moment for state to update after login completes
+          await Future.delayed(const Duration(milliseconds: 200));
+          
           // Login successful - user data is already loaded
           final user = authService.currentUser;
           
