@@ -38,28 +38,37 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!mounted) return;
+    
     try {
       final state = GoRouterState.of(context);
       final extra = state.extra as Map<String, dynamic>?;
       if (extra != null) {
         // Check if dates are provided
         if (extra['checkInDate'] != null) {
-          checkInDate = extra['checkInDate'] as DateTime;
+          final date = extra['checkInDate'];
+          if (date is DateTime) {
+            checkInDate = date;
+          } else if (date is String) {
+            checkInDate = DateTime.parse(date);
+          }
         }
         if (extra['checkOutDate'] != null) {
-          checkOutDate = extra['checkOutDate'] as DateTime;
-        }
-        // Store room type if provided (from Book Now button)
-        if (extra['roomType'] != null) {
-          // Room type will be used when user selects dates
+          final date = extra['checkOutDate'];
+          if (date is DateTime) {
+            checkOutDate = date;
+          } else if (date is String) {
+            checkOutDate = DateTime.parse(date);
+          }
         }
       }
     } catch (e) {
-      // If GoRouterState is not available, use fallback values from initState
-      // This can happen if the screen is accessed without router context
+      debugPrint('Error getting dates from router: $e');
+      // Use fallback values from initState
     }
-    // Only fetch if dates are set
-    if (checkInDate != null && checkOutDate != null) {
+    
+    // Always fetch rooms (will use default dates if not provided)
+    if (mounted) {
       _availableRoomsFuture = _fetchAvailableRooms();
     }
   }
@@ -76,26 +85,45 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       // Include bookings with room_id assigned AND bookings by requested_room_type
       final conflictingBookings = await _supabase!
           .from('bookings')
-          .select('room_id, requested_room_type, rooms(type)')
+          .select('room_id, requested_room_type')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
           .lte('check_in_date', checkOutDate.toIso8601String())
           .gte('check_out_date', checkInDate.toIso8601String());
 
-      // Count booked rooms by type
-      final bookedByType = <String, int>{};
+      // Get room types for booked rooms
+      final bookedRoomIds = <String>{};
       for (var booking in conflictingBookings as List) {
-        // Count rooms directly assigned
         if (booking['room_id'] != null) {
-          final room = booking['rooms'] as Map<String, dynamic>?;
-          if (room != null) {
+          bookedRoomIds.add(booking['room_id'] as String);
+        }
+      }
+
+      // Get room types for directly assigned rooms
+      final bookedByType = <String, int>{};
+      if (bookedRoomIds.isNotEmpty) {
+        // Query all rooms and filter in code (more reliable than .in_())
+        final allBookedRooms = await _supabase!
+            .from('rooms')
+            .select('id, type');
+        
+        for (var room in allBookedRooms as List) {
+          final roomId = room['id'] as String? ?? '';
+          if (bookedRoomIds.contains(roomId)) {
             final type = room['type'] as String? ?? '';
-            bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+            if (type.isNotEmpty) {
+              bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+            }
           }
         }
-        // Count bookings by requested room type (without room_id)
+      }
+
+      // Count bookings by requested room type (without room_id)
+      for (var booking in conflictingBookings as List) {
         if (booking['room_id'] == null && booking['requested_room_type'] != null) {
           final type = booking['requested_room_type'] as String? ?? '';
-          bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+          if (type.isNotEmpty) {
+            bookedByType[type] = (bookedByType[type] ?? 0) + 1;
+          }
         }
       }
 
@@ -148,8 +176,13 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       return result;
     } catch (e, st) {
       debugPrint('Error fetching available rooms: $e');
-      debugPrintStack(stackTrace: st);
-      throw Exception('Failed to load available rooms. Please try again.');
+      debugPrint('Stack trace: $st');
+      // Return more detailed error for debugging
+      if (e is Exception) {
+        debugPrint('Exception details: ${e.toString()}');
+      }
+      // Re-throw with more context
+      throw Exception('Failed to load available rooms: ${e.toString()}');
     }
   }
 
