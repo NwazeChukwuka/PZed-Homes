@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:go_router/go_router.dart';
@@ -153,7 +153,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
       final userId = authService.currentUser?.id ?? 'system';
       
       // Get or create guest profile

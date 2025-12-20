@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/data/models/user.dart';

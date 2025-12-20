@@ -1,5 +1,6 @@
-import 'package:pzed_homes/data/data.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/data/models/room.dart';
+import 'package:pzed_homes/data/models/menu_item.dart';
 
 // Time filters - now includes yearly and custom
 enum TimePeriod { today, thisWeek, thisMonth, lastMonth, yearly, custom }
@@ -53,6 +54,11 @@ class CategoryAmount {
 
 class ReportingService {
   final _supabase = Supabase.instance.client;
+  
+  // Cache for room types to avoid repeated queries
+  Map<String, int>? _roomTypePrices;
+  DateTime? _roomTypeCacheTime;
+  static const _cacheExpiryMinutes = 5;
 
   // --- Keep existing methods for backward compatibility ---
   ReportData generateReport(
@@ -113,10 +119,13 @@ class ReportingService {
   }
 
   int _calculateTotalRevenue(List<Map<String, dynamic>> filteredBookings) {
+    // This method is used in the old generateReport method
+    // For backward compatibility, we'll use a synchronous approach
+    // but it requires room prices to be pre-loaded
     return filteredBookings.fold(0, (total, booking) {
       final roomType = booking['roomType'] as String;
-      final roomPrice = mockRoomCategories
-          .firstWhere((cat) => cat['type'] == roomType)['price_ngn'] as int;
+      // Try to get price from cache, otherwise use 0
+      final roomPrice = _roomTypePrices?[roomType] ?? 0;
 
       final extras = (booking['extraCharges'] as List)
           .fold<int>(0, (sum, charge) => sum + (charge['price'] as int));
@@ -181,10 +190,17 @@ class ReportingService {
 
       final expenseItems = expenseResponse as List<Map<String, dynamic>>;
 
-      // 3. Calculate totals from the detailed lists with proper room pricing
+      // 3. Load room type prices if not cached
+      if (_roomTypePrices == null || 
+          _roomTypeCacheTime == null ||
+          DateTime.now().difference(_roomTypeCacheTime!).inMinutes > _cacheExpiryMinutes) {
+        await _loadRoomTypePrices();
+      }
+      
+      // 4. Calculate totals from the detailed lists with proper room pricing
       final totalRevenue = revenueItems.fold<int>(0, (sum, booking) {
         final roomType = booking['rooms']['type'] as String;
-        final roomPrice = _getRoomPrice(roomType);
+        final roomPrice = _roomTypePrices?[roomType] ?? 0;
         final extras = ((booking['extra_charges'] ?? []) as List)
             .fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
         return sum + roomPrice + extras;
@@ -195,7 +211,7 @@ class ReportingService {
         (sum, expense) => sum + ((expense['amount'] ?? 0) as int),
       );
 
-      // Generate breakdown data
+      // Generate breakdown data (room prices are already loaded)
       final revenueBreakdown = _generateRevenueBreakdown(revenueItems);
       final expenseBreakdown = _generateExpenseBreakdown(expenseItems);
 
@@ -216,9 +232,11 @@ class ReportingService {
   List<CategoryAmount> _generateRevenueBreakdown(List<Map<String, dynamic>> revenueItems) {
     final breakdown = <String, int>{};
     
+    // Room prices should already be loaded by the caller
+    // If not, use 0 as fallback
     for (var booking in revenueItems) {
       final roomType = booking['rooms']['type'] as String;
-      final roomPrice = _getRoomPrice(roomType);
+      final roomPrice = _roomTypePrices?[roomType] ?? 0;
       breakdown[roomType] = (breakdown[roomType] ?? 0) + roomPrice;
       
       // Add extra charges
@@ -248,16 +266,44 @@ class ReportingService {
         .toList();
   }
 
-  // Helper to get room price from your mock data or database
-  int _getRoomPrice(String roomType) {
+  // Helper to get room price from database
+  // Fetches and caches room type prices
+  Future<int> _getRoomPrice(String roomType) async {
     try {
-      final category = mockRoomCategories.firstWhere(
-        (cat) => cat['type'] == roomType,
-        orElse: () => {'price_ngn': 0},
-      );
-      return (category['price_ngn'] as int?) ?? 0;
+      // Check if cache is valid
+      if (_roomTypePrices == null || 
+          _roomTypeCacheTime == null ||
+          DateTime.now().difference(_roomTypeCacheTime!).inMinutes > _cacheExpiryMinutes) {
+        await _loadRoomTypePrices();
+      }
+      
+      // Return price from cache, default to 0 if not found
+      return _roomTypePrices?[roomType] ?? 0;
     } catch (e) {
       return 0;
+    }
+  }
+  
+  // Load room type prices from database
+  Future<void> _loadRoomTypePrices() async {
+    try {
+      final response = await _supabase
+          .from('room_types')
+          .select('type, price');
+      
+      _roomTypePrices = {};
+      for (var row in response) {
+        final type = row['type'] as String;
+        final price = row['price'] as int;
+        // Convert from kobo to naira for display (divide by 100)
+        // But keep in kobo for calculations
+        _roomTypePrices![type] = price;
+      }
+      _roomTypeCacheTime = DateTime.now();
+    } catch (e) {
+      // If loading fails, use empty map
+      _roomTypePrices = {};
+      _roomTypeCacheTime = DateTime.now();
     }
   }
 

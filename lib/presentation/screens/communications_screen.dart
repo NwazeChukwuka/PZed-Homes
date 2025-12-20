@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -132,7 +132,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                 }
 
                 try {
-                  final authService = Provider.of<MockAuthService>(context, listen: false);
+                  final authService = Provider.of<AuthService>(context, listen: false);
                   final currentUser = authService.currentUser;
                   
                   if (currentUser == null) {
@@ -198,7 +198,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final canPost = authService.currentUser?.role == AppRole.manager || 
                      authService.currentUser?.role == AppRole.owner;
 

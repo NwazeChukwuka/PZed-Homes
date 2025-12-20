@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -41,7 +41,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
   }
 
   Future<void> _checkAccessAndLoad() async {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
     final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
@@ -122,7 +122,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
       final quantity = int.parse(_quantityController.text);
 
@@ -203,7 +203,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<MockAuthService>(
+    return Consumer<AuthService>(
       builder: (context, authService, child) {
         final user = authService.currentUser;
         final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);

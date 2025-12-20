@@ -90,7 +90,7 @@ class AppStateManager extends ChangeNotifier {
   Future<void> _loadUserData() async {
     try {
       if (_useMock || _supabase == null) {
-        return; // In mock mode, rely on MockAuthService for user state
+        return; // In mock mode, rely on AuthService for user state
       }
       final user = _supabase!.auth.currentUser;
       if (user != null) {

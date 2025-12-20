@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
-import '../../core/services/mock_auth_service.dart';
+import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
@@ -98,7 +98,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
     }
 
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser?.id ?? 'unknown';
       
       await _dataService.startShift(

@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -51,7 +51,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final staffId = user?.id ?? 'unknown';
     final userRole = authService.isRoleAssumed 
@@ -360,7 +360,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context);
+    final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
     final userRole = authService.isRoleAssumed 
         ? (authService.assumedRole ?? user?.role) 
@@ -492,7 +492,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Widget _buildPersonalView() {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final userRole = authService.isRoleAssumed 
         ? (authService.assumedRole ?? user?.role) 

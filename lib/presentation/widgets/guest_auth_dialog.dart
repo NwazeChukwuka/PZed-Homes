@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/password_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart'; // This imports the correct AppRole
@@ -83,7 +83,7 @@ class _AuthFormState extends State<AuthForm> {
     if (!_formKey.currentState!.validate()) return;
     
     setState(() => _isLoading = true);
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     String? error;
 
     try {

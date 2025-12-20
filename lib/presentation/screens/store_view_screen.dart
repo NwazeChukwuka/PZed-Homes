@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
-import '../../core/services/mock_auth_service.dart';
+import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
@@ -79,7 +79,7 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<MockAuthService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
 

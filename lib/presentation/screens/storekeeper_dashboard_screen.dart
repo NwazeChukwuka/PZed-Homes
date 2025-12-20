@@ -1,7 +1,7 @@
 // Location: lib/presentation/screens/storekeeper_dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -32,7 +32,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   @override
   Widget build(BuildContext context) {
     // Use Provider.of with listen: true but handle disposal properly
-    final authService = Provider.of<MockAuthService>(context, listen: true);
+    final authService = Provider.of<AuthService>(context, listen: true);
     final user = authService.currentUser;
     final isStorekeeper = (user?.roles.any((r) => r.name == 'storekeeper') ?? false);
     final isAssumedStorekeeper = authService.isRoleAssumed && authService.assumedRole?.name == 'storekeeper';
@@ -242,7 +242,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
 
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser?.id ?? 'system';
       final quantity = int.parse(_quantityController.text);
       

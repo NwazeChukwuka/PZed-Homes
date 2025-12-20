@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:pzed_homes/core/services/mock_auth_service.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 
 class DailyStockCountScreen extends StatefulWidget {
@@ -75,7 +75,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<MockAuthService>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
       final List<Map<String, dynamic>> transactions = [];
 
