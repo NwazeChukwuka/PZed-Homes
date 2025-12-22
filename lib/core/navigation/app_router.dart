@@ -324,6 +324,43 @@ class AppRouter {
         name: 'profile',
         builder: (context, state) {
           final userProfile = state.extra as Map<String, dynamic>?;
+          
+          // If no profile data passed, load current user's profile from database
+          if (userProfile == null || userProfile.isEmpty) {
+            final authService = Provider.of<AuthService>(context, listen: false);
+            final currentUser = authService.currentUser;
+            
+            if (currentUser != null) {
+              // Return a FutureBuilder to load profile from database
+              return FutureBuilder<Map<String, dynamic>>(
+                future: _loadUserProfile(currentUser.id),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  
+                  if (snapshot.hasError || !snapshot.hasData) {
+                    // Fallback to currentUser data if database query fails
+                    return UserProfileScreen(
+                      userProfile: {
+                        'id': currentUser.id,
+                        'full_name': currentUser.name,
+                        'email': currentUser.email,
+                        'roles': currentUser.roles.map((r) => r.name).toList(),
+                        'role': currentUser.role.name,
+                        'status': 'Active',
+                      },
+                    );
+                  }
+                  
+                  return UserProfileScreen(userProfile: snapshot.data!);
+                },
+              );
+            }
+          }
+          
           return UserProfileScreen(userProfile: userProfile ?? const {});
         },
       ),
@@ -484,6 +521,24 @@ class AppRouter {
       case AppRole.guest:
         return false; // Guests don't have staff access
     }
+  }
+}
+
+/// Helper function to load user profile from database
+Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
+  try {
+    final supabase = Supabase.instance.client;
+    final response = await supabase
+        .from('profiles')
+        .select()
+        .eq('id', userId)
+        .single()
+        .timeout(const Duration(seconds: 5));
+    
+    return Map<String, dynamic>.from(response);
+  } catch (e) {
+    // Return empty map if query fails - will be handled by fallback
+    return {};
   }
 }
 

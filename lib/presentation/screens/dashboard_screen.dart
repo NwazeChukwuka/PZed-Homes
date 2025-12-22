@@ -524,17 +524,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _showFrontDeskCalendarDialog() {
+  void _showFrontDeskCalendarDialog() async {
     final DateTime start = DateTime.now();
     final List<DateTime> days = List.generate(7, (i) => DateTime(start.year, start.month, start.day + i));
 
-    // Collect unique rooms from bookings (fallback to sample if empty)
+    // Collect unique rooms from bookings
     final Set<String> roomSet = {
       ..._bookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? 'Room ?'))
     }..removeWhere((e) => e.isEmpty);
-    final List<String> rooms = roomSet.isNotEmpty
-        ? (roomSet.toList()..sort())
-        : List.generate(10, (i) => 'Room ${100 + i}');
+    
+    // If no rooms from bookings, load all rooms from database
+    List<String> rooms = [];
+    if (roomSet.isNotEmpty) {
+      rooms = roomSet.toList()..sort();
+    } else {
+      // Load all rooms from database
+      try {
+        final allRooms = await _dataService.getRooms();
+        final roomNumbers = allRooms
+            .map((r) => r['room_number']?.toString() ?? '')
+            .where((rn) => rn.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        rooms = roomNumbers;
+      } catch (e) {
+        // If database query fails, show empty state
+        rooms = [];
+      }
+    }
 
     Color statusColor(String status) {
       switch (status.toLowerCase()) {
@@ -634,16 +652,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const Divider(color: Colors.white24, height: 1),
                             Expanded(
-                              child: ListView.builder(
-                                itemCount: rooms.length,
-                                itemBuilder: (context, i) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    border: Border(bottom: BorderSide(color: Colors.white24.withOpacity(0.2))),
-                                  ),
-                                  child: Text(rooms[i], style: const TextStyle(color: Colors.white)),
-                                ),
-                              ),
+                              child: rooms.isEmpty
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(24.0),
+                                        child: Text(
+                                          'No rooms available',
+                                          style: TextStyle(color: Colors.white70),
+                                        ),
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: rooms.length,
+                                      itemBuilder: (context, i) => Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          border: Border(bottom: BorderSide(color: Colors.white24.withOpacity(0.2))),
+                                        ),
+                                        child: Text(rooms[i], style: const TextStyle(color: Colors.white)),
+                                      ),
+                                    ),
                             ),
                       ],
                     ),
