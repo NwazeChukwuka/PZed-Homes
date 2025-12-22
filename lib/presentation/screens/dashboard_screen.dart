@@ -1082,13 +1082,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<BarChartGroupData> _generateBarGroups() {
-    // Generate sample data for the chart
-    return List.generate(5, (index) {
+    // Use real occupancy data from bookings
+    // Count occupied rooms by type
+    final roomTypeCounts = <String, int>{};
+    int totalOccupied = 0;
+    
+    for (var booking in _bookings) {
+      if (booking['status'] == 'Checked-in' && booking['room_id'] != null) {
+        totalOccupied++;
+        final roomType = booking['rooms']?['type'] as String? ?? 
+                        booking['requested_room_type'] as String? ?? 
+                        'Unknown';
+        roomTypeCounts[roomType] = (roomTypeCounts[roomType] ?? 0) + 1;
+      }
+    }
+    
+    // If no occupied rooms, return empty chart
+    if (roomTypeCounts.isEmpty || totalOccupied == 0) {
+      return List.generate(5, (index) {
+        return BarChartGroupData(
+          x: index + 1,
+          barRods: [
+            BarChartRodData(
+              toY: 0,
+              color: Colors.grey[300]!,
+              width: 20,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(4),
+                topRight: Radius.circular(4),
+              ),
+            ),
+          ],
+        );
+      });
+    }
+    
+    // Convert to chart data (limit to 5 room types, sorted by count)
+    final sortedTypes = roomTypeCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    final chartData = sortedTypes.take(5).toList();
+    
+    return chartData.asMap().entries.map((entry) {
+      final index = entry.key;
+      final typeEntry = entry.value;
+      final count = typeEntry.value;
+      final percentage = (count / totalOccupied * 100).clamp(0.0, 100.0);
+      
       return BarChartGroupData(
         x: index + 1,
         barRods: [
           BarChartRodData(
-            toY: (index + 1) * 15.0 + 20.0,
+            toY: percentage,
             color: Colors.green[400],
             width: 20,
             borderRadius: const BorderRadius.only(
@@ -1098,7 +1143,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       );
-    });
+    }).toList();
+  }
+  
+  // Helper to get room type names for chart labels
+  List<String> _getRoomTypesForChart() {
+    final roomTypeCounts = <String, int>{};
+    
+    for (var booking in _bookings) {
+      if (booking['status'] == 'Checked-in' && booking['room_id'] != null) {
+        final roomType = booking['rooms']?['type'] as String? ?? 
+                        booking['requested_room_type'] as String? ?? 
+                        'Unknown';
+        roomTypeCounts[roomType] = (roomTypeCounts[roomType] ?? 0) + 1;
+      }
+    }
+    
+    final sortedTypes = roomTypeCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    return sortedTypes.take(5).map((e) => e.key).toList();
+  }
+  
+  // Helper to format time ago
+  String _getTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
+    } else {
+      return 'Just now';
+    }
   }
 
   Widget _buildRecentActivities(BuildContext context) {
@@ -1126,45 +1206,77 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          ...List.generate(5, (index) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.green[400],
-                      shape: BoxShape.circle,
+          if (_checkedInGuests.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('No recent activities'),
+            )
+          else
+            ..._checkedInGuests.take(5).toList().asMap().entries.map((entry) {
+              final index = entry.key;
+              final guest = entry.value;
+              
+              // Extract room number
+              final roomNumber = guest['rooms']?['room_number'] as String? ?? 
+                                guest['room_number'] as String? ?? 
+                                'N/A';
+              
+              // Extract guest name - handle both nested and flat structures
+              String guestName = 'Guest';
+              if (guest['profiles'] != null) {
+                if (guest['profiles'] is Map) {
+                  guestName = guest['profiles']['full_name'] as String? ?? 
+                             guest['profiles']['guest_profile_id']?['full_name'] as String? ??
+                             'Guest';
+                }
+              } else {
+                guestName = guest['guest_name'] as String? ?? 'Guest';
+              }
+              
+              // Extract check-in time
+              final checkInTime = guest['check_in_date'] as String?;
+              final timeAgo = checkInTime != null 
+                  ? _getTimeAgo(DateTime.parse(checkInTime))
+                  : 'Recently';
+              
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.green[400],
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Guest checked in Room ${101 + index}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$guestName checked in Room $roomNumber',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
-                        Text(
-                          '${index + 1} hour${index > 0 ? 's' : ''} ago',
-                          style: TextStyle(
-                            color: const Color(0xFFF2F2F2), // Light grey for regular text
-                            fontSize: 12,
+                          Text(
+                            timeAgo,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          }),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );

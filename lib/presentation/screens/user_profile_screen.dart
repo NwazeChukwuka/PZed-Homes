@@ -20,6 +20,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _isLoading = false;
   bool _hasSmartlockPermission = false;
   bool _isLoadingPermissions = true;
+  final _supabase = Supabase.instance.client;
+  Map<String, dynamic>? _performanceData;
+  bool _isLoadingPerformance = false;
 
   @override
   void initState() {
@@ -27,30 +30,78 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _loadUserPermissions();
   }
 
-  // Mock implementation of permission loading
+  // Load real permissions from database
   Future<void> _loadUserPermissions() async {
     setState(() => _isLoadingPermissions = true);
     try {
-      await Future.delayed(const Duration(milliseconds: 300));
+      final userId = widget.userProfile['id'] as String;
+      final response = await _supabase
+          .from('access_delegations')
+          .select('permission')
+          .eq('user_id', userId)
+          .timeout(const Duration(seconds: 5));
+      
+      final permissions = (response as List).map((p) => p['permission'] as String).toList();
+      
       if (mounted) {
         setState(() {
-          // Mock data: Randomly assign smart lock permission for demo
-          _hasSmartlockPermission = widget.userProfile['id'] % 3 == 0;
+          _hasSmartlockPermission = permissions.contains('view_smartlock_logs');
           _isLoadingPermissions = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoadingPermissions = false);
+        setState(() {
+          _hasSmartlockPermission = false;
+          _isLoadingPermissions = false;
+        });
       }
     }
   }
 
-  // Mock implementation of permission changes
+  // Update permission in database
   Future<void> _onPermissionChanged(bool newValue) async {
-    setState(() {
-      _hasSmartlockPermission = newValue;
-    });
+    try {
+      final userId = widget.userProfile['id'] as String;
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final currentUserId = authService.currentUser?.id;
+      
+      if (currentUserId == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      if (newValue) {
+        // Grant permission
+        await _supabase
+            .from('access_delegations')
+            .upsert({
+              'user_id': userId,
+              'permission': 'view_smartlock_logs',
+              'granted_by_id': currentUserId,
+            });
+      } else {
+        // Revoke permission
+        await _supabase
+            .from('access_delegations')
+            .delete()
+            .eq('user_id', userId)
+            .eq('permission', 'view_smartlock_logs');
+      }
+      
+      if (mounted) {
+        setState(() {
+          _hasSmartlockPermission = newValue;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update permission. Please try again.',
+        );
+      }
+    }
 
     setState(() => _isLoading = true);
     try {
@@ -701,25 +752,160 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // Placeholder performance overview for management. Replace with real metrics when backend is ready.
+  // Load performance data from database
+  Future<void> _loadPerformanceData(String profileId) async {
+    if (_isLoadingPerformance) return;
+    
+    setState(() => _isLoadingPerformance = true);
+    
+    try {
+      final now = DateTime.now();
+      final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+      
+      // Load attendance records
+      final attendanceResponse = await _supabase
+          .from('attendance_records')
+          .select('*')
+          .eq('profile_id', profileId)
+          .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0])
+          .timeout(const Duration(seconds: 5));
+      
+      final attendanceRecords = attendanceResponse as List;
+      
+      // Load department sales (for sales attributed)
+      final salesResponse = await _supabase
+          .from('department_sales')
+          .select('total_sales')
+          .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0])
+          .timeout(const Duration(seconds: 5));
+      
+      final salesRecords = salesResponse as List;
+      
+      // Load payroll records
+      final payrollResponse = await _supabase
+          .from('payroll_records')
+          .select('*')
+          .eq('staff_id', profileId)
+          .gte('month', thirtyDaysAgo.toIso8601String().split('T')[0])
+          .timeout(const Duration(seconds: 5));
+      
+      final payrollRecords = payrollResponse as List;
+      
+      // Calculate metrics
+      final totalDays = 30;
+      final attendanceDays = attendanceRecords.length;
+      final attendanceRate = totalDays > 0 ? (attendanceDays / totalDays * 100).toStringAsFixed(0) : '0';
+      
+      // Calculate total sales (sum of all department sales)
+      final totalSales = salesRecords.fold<int>(0, (sum, record) {
+        return sum + ((record['total_sales'] as num?)?.toInt() ?? 0);
+      });
+      
+      // Calculate average ticket value (simplified - total sales / transaction count)
+      final totalTransactions = salesRecords.fold<int>(0, (sum, record) {
+        return sum + ((record['transaction_count'] as num?)?.toInt() ?? 0);
+      });
+      final avgTicketValue = totalTransactions > 0 ? (totalSales / totalTransactions / 100) : 0.0;
+      
+      // Calculate overtime cost (from payroll - simplified)
+      final overtimeCost = payrollRecords.fold<int>(0, (sum, record) {
+        return sum + ((record['amount'] as num?)?.toInt() ?? 0);
+      });
+      
+      // Check payroll status
+      final pendingPayroll = payrollRecords.where((r) => r['status'] == 'pending').length;
+      final payrollStatus = pendingPayroll > 0 ? 'Pending ($pendingPayroll)' : 'Up-to-date';
+      
+      if (mounted) {
+        setState(() {
+          _performanceData = {
+            'attendance_rate': attendanceRate,
+            'attendance_days': attendanceDays,
+            'total_sales': totalSales,
+            'avg_ticket_value': avgTicketValue,
+            'overtime_cost': overtimeCost,
+            'payroll_status': payrollStatus,
+          };
+          _isLoadingPerformance = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _performanceData = null;
+          _isLoadingPerformance = false;
+        });
+      }
+    }
+  }
+
+  // Performance overview with real data from database
   Widget _buildPerformanceOverviewSection(Map<String, dynamic> profile, {String detail = 'standard'}) {
     final staffName = (profile['full_name']?.toString() ?? 'Staff');
-
-    final standardKpis = <Map<String, String>>[
-      {'label': 'Attendance Rate', 'value': '95%'},
-      {'label': 'Tasks Completed (30d)', 'value': '42'},
-      {'label': 'Customer Ratings', 'value': '4.6/5'},
-      {'label': 'Shift Punctuality', 'value': '92%'},
-    ];
-
-    final financialKpis = <Map<String, String>>[
-      {'label': 'Sales Attributed (30d)', 'value': '₦1.8M'},
-      {'label': 'Refunds/Discounts', 'value': '₦45k'},
-      {'label': 'Cash Variance', 'value': '₦0'},
-      {'label': 'Avg. Ticket Value', 'value': '₦14,500'},
-      {'label': 'Overtime Cost (30d)', 'value': '₦120k'},
-      {'label': 'Payroll Status', 'value': 'Up-to-date'},
-    ];
+    final profileId = profile['id'] as String?;
+    
+    // Load performance data if not loaded
+    if (profileId != null && _performanceData == null && !_isLoadingPerformance) {
+      _loadPerformanceData(profileId);
+    }
+    
+    // Build KPIs from real data or show loading
+    List<Map<String, String>> standardKpis;
+    List<Map<String, String>> financialKpis;
+    
+    if (_isLoadingPerformance) {
+      standardKpis = [
+        {'label': 'Attendance Rate', 'value': 'Loading...'},
+        {'label': 'Tasks Completed (30d)', 'value': 'Loading...'},
+        {'label': 'Customer Ratings', 'value': 'N/A'},
+        {'label': 'Shift Punctuality', 'value': 'Loading...'},
+      ];
+      financialKpis = [
+        {'label': 'Sales Attributed (30d)', 'value': 'Loading...'},
+        {'label': 'Refunds/Discounts', 'value': 'N/A'},
+        {'label': 'Cash Variance', 'value': 'N/A'},
+        {'label': 'Avg. Ticket Value', 'value': 'Loading...'},
+        {'label': 'Overtime Cost (30d)', 'value': 'Loading...'},
+        {'label': 'Payroll Status', 'value': 'Loading...'},
+      ];
+    } else if (_performanceData != null) {
+      final data = _performanceData!;
+      final salesAmount = (data['total_sales'] as int? ?? 0) / 100; // Convert kobo to naira
+      final avgTicket = (data['avg_ticket_value'] as num? ?? 0).toDouble();
+      final overtime = (data['overtime_cost'] as int? ?? 0) / 100;
+      
+      standardKpis = [
+        {'label': 'Attendance Rate', 'value': '${data['attendance_rate']}%'},
+        {'label': 'Days Present (30d)', 'value': '${data['attendance_days']}'},
+        {'label': 'Customer Ratings', 'value': 'N/A'}, // Not tracked in database yet
+        {'label': 'Shift Punctuality', 'value': 'N/A'}, // Not tracked in database yet
+      ];
+      
+      financialKpis = [
+        {'label': 'Sales Attributed (30d)', 'value': '₦${NumberFormat('#,##0').format(salesAmount)}'},
+        {'label': 'Refunds/Discounts', 'value': 'N/A'}, // Not tracked separately yet
+        {'label': 'Cash Variance', 'value': 'N/A'}, // Not tracked yet
+        {'label': 'Avg. Ticket Value', 'value': '₦${NumberFormat('#,##0').format(avgTicket)}'},
+        {'label': 'Payroll Cost (30d)', 'value': '₦${NumberFormat('#,##0').format(overtime)}'},
+        {'label': 'Payroll Status', 'value': data['payroll_status'] as String? ?? 'N/A'},
+      ];
+    } else {
+      // Fallback if data failed to load
+      standardKpis = [
+        {'label': 'Attendance Rate', 'value': 'N/A'},
+        {'label': 'Days Present (30d)', 'value': 'N/A'},
+        {'label': 'Customer Ratings', 'value': 'N/A'},
+        {'label': 'Shift Punctuality', 'value': 'N/A'},
+      ];
+      financialKpis = [
+        {'label': 'Sales Attributed (30d)', 'value': 'N/A'},
+        {'label': 'Refunds/Discounts', 'value': 'N/A'},
+        {'label': 'Cash Variance', 'value': 'N/A'},
+        {'label': 'Avg. Ticket Value', 'value': 'N/A'},
+        {'label': 'Payroll Cost (30d)', 'value': 'N/A'},
+        {'label': 'Payroll Status', 'value': 'N/A'},
+      ];
+    }
 
     return Card(
       child: Padding(

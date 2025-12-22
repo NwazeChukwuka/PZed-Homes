@@ -174,7 +174,7 @@ class ReportingService {
       // 1. Fetch detailed revenue items (bookings)
       final revenueResponse = await _supabase
           .from('bookings')
-          .select('*, rooms!inner(type), profiles(full_name)')
+          .select('*, rooms!inner(type), profiles!guest_profile_id(full_name)')
           .eq('status', 'Checked-out')
           .gte('check_out_date', dateRange.start.toIso8601String())
           .lte('check_out_date', dateRange.end.toIso8601String());

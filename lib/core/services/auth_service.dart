@@ -234,6 +234,21 @@ class AuthService with ChangeNotifier {
     } on TimeoutException catch (e) {
       return e.message;
     } on AuthException catch (e) {
+      // For signup, return the original message as it might be about email already exists, etc.
+      // But sanitize invalid credential messages if they appear
+      final errorMessage = e.message.toLowerCase();
+      final isInvalidCredentials = errorMessage.contains('invalid login credentials') ||
+          errorMessage.contains('invalid password') ||
+          errorMessage.contains('user not found') ||
+          errorMessage.contains('invalid email') ||
+          errorMessage.contains('wrong password') ||
+          errorMessage.contains('incorrect password') ||
+          errorMessage.contains('authentication failed');
+      
+      if (isInvalidCredentials) {
+        return 'Incorrect username and/or password';
+      }
+      
       return e.message;
     } catch (e) {
       return 'An unexpected error occurred: ${e.toString()}';
@@ -307,6 +322,23 @@ class AuthService with ChangeNotifier {
       _currentUser = null;
       _isLoggingIn = false;
       notifyListeners();
+      
+      // Check if this is an invalid credentials error
+      final errorMessage = e.message.toLowerCase();
+      final isInvalidCredentials = errorMessage.contains('invalid login credentials') ||
+          errorMessage.contains('invalid password') ||
+          errorMessage.contains('user not found') ||
+          errorMessage.contains('email not confirmed') ||
+          errorMessage.contains('invalid email') ||
+          errorMessage.contains('wrong password') ||
+          errorMessage.contains('incorrect password') ||
+          errorMessage.contains('authentication failed');
+      
+      if (isInvalidCredentials) {
+        return 'Incorrect username and/or password';
+      }
+      
+      // For other auth errors, return the original message
       return e.message;
     } catch (e) {
       _isLoading = false;

@@ -192,7 +192,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     try {
       final bookingData = await _supabase
           .from('bookings')
-          .select('*, rooms(*), profiles!inner(*)')
+          .select('*, rooms(*), profiles!guest_profile_id(*)')
           .eq('id', _currentBooking.id)
           .single();
 

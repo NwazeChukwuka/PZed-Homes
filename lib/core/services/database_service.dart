@@ -9,7 +9,7 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getBookings() async {
     final response = await _supabase
         .from('bookings')
-        .select('*, rooms(*), profiles!inner(*)'); // Use !inner to ensure profile exists
+        .select('*, rooms(*), profiles!guest_profile_id(*)'); // Use !inner to ensure profile exists
     return response as List<Map<String, dynamic>>;
   }
 

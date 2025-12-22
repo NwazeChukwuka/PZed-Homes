@@ -26,6 +26,8 @@ class _HrScreenState extends State<HrScreen>
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = true;
   String _searchQuery = '';
+  List<Map<String, dynamic>> _attendanceRecords = [];
+  Map<String, dynamic>? _performanceMetrics;
 
   @override
   void initState() {
@@ -35,6 +37,7 @@ class _HrScreenState extends State<HrScreen>
       vsync: this,
     ); // Staff, Duty, Attendance, Performance, Roles/Positions
     _loadStaff();
+    _loadAttendanceRecords();
   }
 
   @override
@@ -148,6 +151,20 @@ class _HrScreenState extends State<HrScreen>
         ],
       ),
     );
+  }
+
+  // Load attendance records
+  Future<void> _loadAttendanceRecords() async {
+    try {
+      final records = await _dataService.getAttendanceRecords();
+      if (mounted) {
+        setState(() {
+          _attendanceRecords = records;
+        });
+      }
+    } catch (e) {
+      // Handle error silently
+    }
   }
 
   // ---------- Staff Directory ----------
@@ -359,10 +376,21 @@ class _HrScreenState extends State<HrScreen>
 
   // ---------- Duty Roster ----------
   Widget _buildDutyRosterTab(BuildContext context) {
-    final onDuty = _allStaff.where((u) {
-      // Simple mock: alternate staff on odd/even days
-      final idHash = (u['id']?.hashCode ?? 0).abs();
-      return (_selectedDate.day % 2 == idHash % 2);
+    // Load attendance records for selected date
+    final selectedDateStr = _selectedDate.toIso8601String().split('T')[0];
+    final onDuty = _attendanceRecords.where((record) {
+      final recordDate = record['date'] as String?;
+      if (recordDate == null) return false;
+      final recordDateStr = recordDate.split('T')[0];
+      return recordDateStr == selectedDateStr && record['clock_out_time'] == null;
+    }).toList();
+    
+    // Get staff IDs who are on duty
+    final onDutyStaffIds = onDuty.map((r) => r['profile_id'] as String).toSet();
+    
+    // Filter staff who are on duty
+    final onDutyStaff = _allStaff.where((staff) {
+      return onDutyStaffIds.contains(staff['id'] as String);
     }).toList();
 
     return Column(
@@ -388,23 +416,35 @@ class _HrScreenState extends State<HrScreen>
                 label: const Text('Pick Date'),
               ),
               const Spacer(),
-              Text('${onDuty.length} on duty'),
+              Text('${onDutyStaff.length} on duty'),
             ],
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: onDuty.length,
-            itemBuilder: (context, i) {
-              final u = onDuty[i];
+          child: onDutyStaff.isEmpty
+              ? const Center(child: Text('No staff on duty for selected date'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: onDutyStaff.length,
+                  itemBuilder: (context, i) {
+                    final u = onDutyStaff[i];
               final roles = (u['roles'] as List<dynamic>? ?? []).join(', ');
+              final staffId = u['id'] as String;
+              final attendanceRecord = onDuty.firstWhere(
+                (r) => r['profile_id'] == staffId,
+                orElse: () => <String, dynamic>{},
+              );
+              final clockInTime = attendanceRecord['clock_in_time'] as String?;
+              final clockIn = clockInTime != null 
+                  ? DateTime.parse(clockInTime)
+                  : null;
+              
               return Card(
                 child: ListTile(
                   leading: const Icon(Icons.badge),
                   title: Text(u['full_name']?.toString() ?? 'Unnamed'),
                   subtitle: Text(
-                    'Roles: $roles\nLast duty: ${_dateFormat.format(_selectedDate.subtract(const Duration(days: 7)))}',
+                    'Roles: $roles\nClocked in: ${clockIn != null ? DateFormat('HH:mm').format(clockIn) : 'N/A'}',
                   ),
                   isThreeLine: true,
                 ),
@@ -418,7 +458,11 @@ class _HrScreenState extends State<HrScreen>
 
   // ---------- Performance ----------
   Widget _buildPerformanceTab(BuildContext context) {
-    // Simple mock KPI cards
+    // Load performance metrics if not loaded
+    if (_performanceMetrics == null) {
+      _loadPerformanceMetrics();
+    }
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -428,25 +472,107 @@ class _HrScreenState extends State<HrScreen>
             spacing: 12,
             runSpacing: 12,
             children: [
-              _kpiCard('Today Score', '92', Colors.green),
-              _kpiCard('This Week', '88', Colors.blue),
-              _kpiCard('This Month', '90', Colors.purple),
+              _kpiCard(
+                'Today Attendance', 
+                _performanceMetrics?['today_attendance']?.toString() ?? '0', 
+                Colors.green
+              ),
+              _kpiCard(
+                'This Week', 
+                _performanceMetrics?['week_attendance']?.toString() ?? '0', 
+                Colors.blue
+              ),
+              _kpiCard(
+                'This Month', 
+                _performanceMetrics?['month_attendance']?.toString() ?? '0', 
+                Colors.purple
+              ),
             ],
           ),
           const SizedBox(height: 16),
           Text('Top Performers', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          ..._allStaff
-              .take(5)
-              .map(
-                (u) => ListTile(
-                  leading: const Icon(Icons.emoji_events, color: Colors.amber),
-                  title: Text(u['full_name']?.toString() ?? 'Unnamed'),
-                  subtitle: const Text('Consistent performance across duties'),
-                ),
-              ),
+          _buildTopPerformers(),
         ],
       ),
+    );
+  }
+  
+  Future<void> _loadPerformanceMetrics() async {
+    try {
+      final now = DateTime.now();
+      final today = now.toIso8601String().split('T')[0];
+      final weekAgo = now.subtract(const Duration(days: 7)).toIso8601String().split('T')[0];
+      final monthAgo = now.subtract(const Duration(days: 30)).toIso8601String().split('T')[0];
+      
+      final attendanceRecords = await _dataService.getAttendanceRecords();
+      
+      final todayCount = attendanceRecords.where((r) {
+        final date = r['date'] as String?;
+        return date != null && date.startsWith(today);
+      }).length;
+      
+      final weekCount = attendanceRecords.where((r) {
+        final date = r['date'] as String?;
+        if (date == null) return false;
+        // Compare date strings (ISO format can be compared lexicographically)
+        final dateStr = date.split('T')[0];
+        return dateStr.compareTo(weekAgo) >= 0;
+      }).length;
+      
+      final monthCount = attendanceRecords.where((r) {
+        final date = r['date'] as String?;
+        if (date == null) return false;
+        // Compare date strings (ISO format can be compared lexicographically)
+        final dateStr = date.split('T')[0];
+        return dateStr.compareTo(monthAgo) >= 0;
+      }).length;
+      
+      if (mounted) {
+        setState(() {
+          _performanceMetrics = {
+            'today_attendance': todayCount,
+            'week_attendance': weekCount,
+            'month_attendance': monthCount,
+          };
+        });
+      }
+    } catch (e) {
+      // Handle error silently
+    }
+  }
+  
+  Widget _buildTopPerformers() {
+    // Calculate attendance count per staff member
+    final staffAttendanceCount = <String, int>{};
+    
+    for (var record in _attendanceRecords) {
+      final staffId = record['profile_id'] as String?;
+      if (staffId != null) {
+        staffAttendanceCount[staffId] = (staffAttendanceCount[staffId] ?? 0) + 1;
+      }
+    }
+    
+    // Sort staff by attendance count
+    final sortedStaff = _allStaff.toList()
+      ..sort((a, b) {
+        final aId = a['id'] as String;
+        final bId = b['id'] as String;
+        final aCount = staffAttendanceCount[aId] ?? 0;
+        final bCount = staffAttendanceCount[bId] ?? 0;
+        return bCount.compareTo(aCount);
+      });
+    
+    return Column(
+      children: sortedStaff.take(5).map((u) {
+        final staffId = u['id'] as String;
+        final attendanceCount = staffAttendanceCount[staffId] ?? 0;
+        return ListTile(
+          leading: const Icon(Icons.emoji_events, color: Colors.amber),
+          title: Text(u['full_name']?.toString() ?? 'Unnamed'),
+          subtitle: Text('$attendanceCount attendance records this month'),
+        );
+      }).toList(),
     );
   }
 

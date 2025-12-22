@@ -49,7 +49,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('bookings')
-          .select('*, rooms(*), profiles!inner(*)')
+          .select('*, rooms(*), profiles!guest_profile_id(*)')
           .order('created_at', ascending: false)
           .limit(100); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
