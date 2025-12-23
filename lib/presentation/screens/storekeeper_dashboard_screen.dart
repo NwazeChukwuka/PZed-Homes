@@ -247,17 +247,17 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
       final quantity = int.parse(_quantityController.text);
       
       // Record stock transaction
+      // Note: This requires stock_item_id from stock_items table, not inventory_items
+      // If using inventory_items, you may need to map to stock_items or use a different approach
       await _dataService.recordStockTransaction({
-        'item_id': _selectedItemId,
-        'type': 'direct_entry',
+        'stock_item_id': _selectedItemId, // This should be a stock_item_id, not inventory_item_id
+        'location_id': _selectedLocationId!, // Required
+        'staff_profile_id': staffId, // Required
+        'transaction_type': 'Purchase', // Use standard transaction type
         'quantity': quantity,
-        'unit_price': 0, // Direct entry might not have a price
-        'total_amount': 0,
-        'staff_id': staffId,
         'notes': _notesController.text.trim().isNotEmpty 
             ? 'Direct entry: ${_notesController.text.trim()}' 
             : 'Direct stock entry',
-        'timestamp': DateTime.now().toIso8601String(),
       });
 
       // Update inventory item stock

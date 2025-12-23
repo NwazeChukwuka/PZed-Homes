@@ -272,15 +272,31 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
 
     try {
+      final paidAmountInKobo = _totalPrice * 100;
+      
       // Update booking status to Pending Check-in (room will be assigned by receptionist)
       // Don't update room status - rooms stay Vacant until check-in
       await _supabase!
           .from('bookings')
           .update({
             'status': 'Pending Check-in',
-            'paid_amount': _totalPrice,
+            'paid_amount': paidAmountInKobo, // Convert to kobo
           })
           .eq('id', bookingId);
+      
+      // Create income record for booking payment
+      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Room';
+      await _supabase!
+          .from('income_records')
+          .insert({
+            'description': 'Room booking - $roomTypeName',
+            'amount': paidAmountInKobo, // Already in kobo
+            'source': 'Room Booking',
+            'date': DateTime.now().toIso8601String().split('T')[0],
+            'department': 'reception',
+            'payment_method': 'online', // Guest paid online
+            'booking_id': bookingId,
+          });
       
       // Note: Room status remains 'Vacant' - receptionist will assign room and update status at check-in
     } catch (e) {

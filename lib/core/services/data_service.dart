@@ -14,6 +14,9 @@ class DataService {
   static const Duration _retryDelay = Duration(seconds: 2);
   static const Duration _queryTimeout = Duration(seconds: 30);
 
+  // Getter to expose supabase client for direct access when needed
+  SupabaseClient get supabase => _supabase;
+
   // Retry wrapper for network operations
   Future<T> _retryOperation<T>(
     Future<T> Function() operation, {
@@ -199,17 +202,12 @@ class DataService {
   Future<void> recordStockTransaction(Map<String, dynamic> transaction) async {
     await _retryOperation(() async {
       await _supabase.from('stock_transactions').insert({
-        'item_id': transaction['item_id'],
-        'type': transaction['type'],
-        'quantity': transaction['quantity'],
-        'unit_price': transaction['unit_price'],
-        'total_amount': transaction['total_amount'],
-        'staff_id': transaction['staff_id'],
-        'customer_name': transaction['customer_name'],
-        'customer_phone': transaction['customer_phone'],
-        'payment_method': transaction['payment_method'],
-        'timestamp': transaction['timestamp'] ?? DateTime.now().toIso8601String(),
-        'notes': transaction['notes'],
+        'stock_item_id': transaction['stock_item_id'], // Required: references stock_items
+        'location_id': transaction['location_id'], // Required: references locations
+        'staff_profile_id': transaction['staff_profile_id'], // Required: references profiles
+        'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
+        'quantity': transaction['quantity'], // Required: positive or negative
+        'notes': transaction['notes'], // Optional
       });
     });
   }
@@ -220,7 +218,7 @@ class DataService {
       final response = await _supabase
           .from('expenses')
           .select()
-          .order('date', ascending: false)
+          .order('transaction_date', ascending: false)
           .limit(100);
       return List<Map<String, dynamic>>.from(response);
     });
@@ -232,7 +230,7 @@ class DataService {
         'description': expense['description'],
         'amount': expense['amount'],
         'category': expense['category'],
-        'date': expense['date'] ?? DateTime.now().toIso8601String().split('T')[0],
+        'transaction_date': expense['transaction_date'] ?? expense['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'department': expense['department'] ?? 'all',
         'payment_method': expense['payment_method'] ?? 'cash',
         'staff_id': expense['staff_id'],
@@ -349,7 +347,7 @@ class DataService {
       final expenses = await _supabase
           .from('expenses')
           .select('amount')
-          .gte('date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
+          .gte('transaction_date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
 
       final totalIncome = (income as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
       final totalExpenses = (expenses as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));

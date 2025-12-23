@@ -997,43 +997,206 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
     try {
       final userId = authService.currentUser?.id ?? 'system';
+      final supabase = _dataService.supabase;
       
-      // Record each item sale
+      if (supabase == null) {
+        throw Exception('Database connection not available');
+      }
+
+      // Get location ID for the selected bar
+      String? locationId;
+      try {
+        final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+        final locationResponse = await supabase
+            .from('locations')
+            .select('id')
+            .eq('name', locationName)
+            .maybeSingle();
+        locationId = locationResponse?['id'] as String?;
+      } catch (e) {
+        // Location lookup failed, continue without it for inventory update
+      }
+
+      // Get active bartender shift for shift tracking
+      String? activeShiftId;
+      try {
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        final shiftResponse = await supabase
+            .from('bartender_shifts')
+            .select('id')
+            .eq('bartender_id', userId)
+            .eq('status', 'active')
+            .eq('date', today)
+            .maybeSingle();
+        activeShiftId = shiftResponse?['id'] as String?;
+      } catch (e) {
+        // Shift lookup failed, continue without shift tracking
+        print('Warning: Could not find active shift: $e');
+      }
+
+      // Process each item sale
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
         final quantity = saleItem['quantity'] as int;
-        final price = saleItem['price'] as double;
+        final priceInNaira = saleItem['price'] as double;
+        final priceInKobo = (priceInNaira * 100).toInt(); // Convert to kobo
 
-        final transaction = {
-          'item_id': item['id'],
-          'type': 'sale',
-          'quantity': -quantity, // Negative for sale
-          'unit_price': price,
-          'total_amount': quantity * price,
-          'staff_id': userId,
-          'customer_name': _customerNameController.text.trim(),
-          'customer_phone': _customerPhoneController.text.trim(),
-          'payment_method': _paymentMethod,
-          'timestamp': DateTime.now().toIso8601String(),
-          'notes': 'Multi-item sale - ${_currentSale.length} items',
-        };
-
-        await _dataService.recordStockTransaction(transaction);
+        // Record stock transaction for location-based stock tracking
+        // This ensures each bar maintains its own stock
+        if (locationId != null) {
+          // Find or create corresponding stock_item for this inventory_item
+          // This allows proper per-location stock tracking via stock_transactions
+          String? stockItemId;
+          
+          try {
+            // First, try to find existing stock_item by name
+            final stockItemResponse = await supabase
+                .from('stock_items')
+                .select('id')
+                .eq('name', item['name'] as String)
+                .maybeSingle();
+            
+            if (stockItemResponse != null) {
+              stockItemId = stockItemResponse['id'] as String?;
+            } else {
+              // Create new stock_item if it doesn't exist
+              final newStockItem = await supabase
+                  .from('stock_items')
+                  .insert({
+                    'name': item['name'],
+                    'description': item['description'],
+                    'unit': item['unit'] ?? 'units',
+                  })
+                  .select('id')
+                  .single();
+              stockItemId = newStockItem['id'] as String;
+              
+              // Optionally, update inventory_item to link to stock_item (if schema allows)
+              // This would require adding stock_item_id column to inventory_items
+            }
+            
+            // Record sale in stock_transactions for proper location-based tracking
+            // This ensures VIP Bar and Outside Bar maintain separate stock levels
+            await supabase
+                .from('stock_transactions')
+                .insert({
+                  'stock_item_id': stockItemId!,
+                  'location_id': locationId,
+                  'staff_profile_id': userId,
+                  'transaction_type': 'Sale',
+                  'quantity': -quantity, // Negative for sale
+                  'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
+                });
+          } catch (e) {
+            // If stock_transactions recording fails, fall back to updating inventory_items
+            // This is not ideal but ensures the sale is recorded
+            print('Warning: Could not record in stock_transactions: $e');
+            final currentStock = item['current_stock'] as int? ?? 0;
+            await supabase
+                .from('inventory_items')
+                .update({
+                  'current_stock': currentStock - quantity,
+                })
+                .eq('id', item['id']);
+          }
+        } else {
+          // Fallback: update global stock if location lookup failed
+          final currentStock = item['current_stock'] as int? ?? 0;
+          await supabase
+              .from('inventory_items')
+              .update({
+                'current_stock': currentStock - quantity,
+              })
+              .eq('id', item['id']);
+        }
       }
 
-      // If credit payment, record as debt
+      // Calculate total sale amount in kobo
+      final saleTotalInKobo = (_saleTotal * 100).toInt();
+
+      // Create or update department_sales record
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final department = _selectedBar ?? 'vip_bar';
+      
+      try {
+        final existingSales = await supabase
+            .from('department_sales')
+            .select()
+            .eq('department', department)
+            .eq('date', today)
+            .maybeSingle();
+
+        final paymentBreakdown = <String, int>{_paymentMethod: saleTotalInKobo};
+
+        if (existingSales != null) {
+          // Update existing record
+          final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+          final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+          final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
+          updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
+
+          await supabase
+              .from('department_sales')
+              .update({
+                'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                'payment_method_breakdown': updatedBreakdown,
+              })
+              .eq('id', existingSales['id']);
+        } else {
+          // Create new record
+          await supabase
+              .from('department_sales')
+              .insert({
+                'department': department,
+                'date': today,
+                'total_sales': saleTotalInKobo,
+                'transaction_count': 1,
+                'payment_method_breakdown': paymentBreakdown,
+                'recorded_by': userId,
+              });
+        }
+
+        // Update active bartender shift total_sales if shift exists
+        // This allows real-time tracking of sales per shift
+        if (activeShiftId != null) {
+          try {
+            final currentShift = await supabase
+                .from('bartender_shifts')
+                .select('total_sales')
+                .eq('id', activeShiftId)
+                .single();
+            
+            final currentTotalSales = (currentShift['total_sales'] as int? ?? 0);
+            await supabase
+                .from('bartender_shifts')
+                .update({
+                  'total_sales': currentTotalSales + saleTotalInKobo,
+                })
+                .eq('id', activeShiftId);
+          } catch (e) {
+            // Log error but don't fail the sale
+            print('Warning: Could not update shift total_sales: $e');
+          }
+        }
+      } catch (e) {
+        // Log error but don't fail the sale
+        print('Error creating department_sales record: $e');
+      }
+
+      // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'credit') {
         final debt = {
           'debtor_name': _customerNameController.text.trim(),
           'debtor_phone': _customerPhoneController.text.trim(),
           'debtor_type': 'customer',
-          'amount': _saleTotal,
+          'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'reason': 'Bar sale on credit - ${_currentSale.length} items',
           'date': DateTime.now().toIso8601String(),
           'due_date': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
           'status': 'pending',
-          'department': _selectedBar ?? 'bar',
+          'department': department,
         };
         
         await _dataService.recordDebt(debt);

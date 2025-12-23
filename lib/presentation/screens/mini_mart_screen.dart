@@ -178,49 +178,104 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
     try {
       final userId = authService.currentUser?.id ?? 'system';
+      final customerName = _customerNameController.text.trim().isNotEmpty 
+          ? _customerNameController.text.trim() 
+          : 'Walk-in Customer';
+      final customerPhone = _customerPhoneController.text.trim();
+      final saleDate = DateTime.now().toIso8601String();
       
-      // Create sale record
-      final saleResponse = await _supabase
-          .from('mini_mart_sales')
-          .insert({
-            'receptionist_id': userId,
-            'customer_name': _customerNameController.text.trim().isNotEmpty 
-                ? _customerNameController.text.trim() 
-                : 'Walk-in Customer',
-            'customer_phone': _customerPhoneController.text.trim(),
-            'payment_method': _paymentMethod,
-            'total_amount': _saleTotal,
-            'sale_date': DateTime.now().toIso8601String(),
-            'items': _currentSale.map((item) => {
-              'item_id': item['id'],
-              'item_name': item['name'],
-              'quantity': item['quantity'],
-              'unit_price': item['price'],
-              'total_price': (item['price'] as num).toDouble() * (item['quantity'] as int),
-            }).toList(),
-          })
-          .select('id')
-          .single();
+      // Create one mini_mart_sales record per item (schema supports single item per record)
+      // _currentSale structure: {'id': itemId, 'name': itemName, 'price': price, 'quantity': quantity, ...}
+      for (final saleItem in _currentSale) {
+        final itemId = saleItem['id'] as String;
+        final quantity = saleItem['quantity'] as int;
+        final priceInNaira = (saleItem['price'] as num).toDouble();
+        final priceInKobo = (priceInNaira * 100).toInt(); // Convert to kobo
+        final totalAmountInKobo = quantity * priceInKobo;
 
-      // Update stock levels for each item
-      for (final item in _currentSale) {
-        final currentStock = (item['stock'] as int?) ?? 0;
-        final quantitySold = (item['quantity'] as int?) ?? 0;
-        final newStock = currentStock - quantitySold;
+        // Create sale record for this item
+        await _supabase
+            .from('mini_mart_sales')
+            .insert({
+              'item_id': itemId,
+              'quantity': quantity,
+              'unit_price': priceInKobo, // In kobo
+              'total_amount': totalAmountInKobo, // In kobo
+              'sale_date': saleDate,
+              'payment_method': _paymentMethod.toLowerCase(),
+              'customer_name': customerName,
+              'sold_by': userId,
+            });
+
+        // Update stock levels for this item
+        // Get current stock from database (schema uses 'stock_quantity' not 'current_stock')
+        final itemData = await _supabase
+            .from('mini_mart_items')
+            .select('stock_quantity')
+            .eq('id', itemId)
+            .single();
+        
+        final currentStock = (itemData['stock_quantity'] as int?) ?? 0;
+        final newStock = currentStock - quantity;
 
         await _supabase
             .from('mini_mart_items')
-            .update({'current_stock': newStock})
-            .eq('id', item['id']);
+            .update({'stock_quantity': newStock})
+            .eq('id', itemId);
       }
 
-      // If credit payment, record as debt
+      // Calculate total sale amount in kobo for debt/income records
+      final saleTotalInKobo = (_saleTotal * 100).toInt();
+
+      // Create or update department_sales record
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      try {
+        final existingSales = await _supabase
+            .from('department_sales')
+            .select()
+            .eq('department', 'mini_mart')
+            .eq('date', today)
+            .maybeSingle();
+
+        final paymentBreakdown = <String, int>{_paymentMethod.toLowerCase(): saleTotalInKobo};
+
+        if (existingSales != null) {
+          final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+          final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+          final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
+          updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
+
+          await _supabase
+              .from('department_sales')
+              .update({
+                'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                'payment_method_breakdown': updatedBreakdown,
+              })
+              .eq('id', existingSales['id']);
+        } else {
+          await _supabase
+              .from('department_sales')
+              .insert({
+                'department': 'mini_mart',
+                'date': today,
+                'total_sales': saleTotalInKobo,
+                'transaction_count': 1,
+                'payment_method_breakdown': paymentBreakdown,
+                'recorded_by': userId,
+              });
+        }
+      } catch (e) {
+        print('Warning: Could not create department_sales record: $e');
+      }
+
+      // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'Credit') {
         final debt = {
-          'debtor_name': _customerNameController.text.trim(),
-          'debtor_phone': _customerPhoneController.text.trim(),
+          'debtor_name': customerName,
+          'debtor_phone': customerPhone,
           'debtor_type': 'customer',
-          'amount': _saleTotal,
+          'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'reason': 'Mini Mart sale on credit - ${_currentSale.length} items',
           'date': DateTime.now().toIso8601String().split('T')[0],

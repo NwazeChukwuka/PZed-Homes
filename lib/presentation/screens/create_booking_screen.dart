@@ -197,7 +197,8 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         'check_in': _checkInDate!.toIso8601String(),
         'check_out': _checkOutDate!.toIso8601String(),
         'status': 'Pending Check-in',
-        'total_amount': totalAmount,
+        'total_amount': totalAmount, // Already in kobo from room_types.price
+        'paid_amount': 0, // Initially unpaid, receptionist can update when payment is received
       });
 
       if (mounted) {
