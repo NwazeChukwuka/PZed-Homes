@@ -1,4 +1,3 @@
-// Location: lib/presentation/screens/maintenance_screen.dart
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';

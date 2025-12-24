@@ -24,10 +24,28 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Map<String, dynamic>? _performanceData;
   bool _isLoadingPerformance = false;
 
+  String? _currentProfileId;
+
   @override
   void initState() {
     super.initState();
+    _currentProfileId = widget.userProfile['id'] as String?;
     _loadUserPermissions();
+  }
+
+  @override
+  void didUpdateWidget(UserProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Clear performance data when switching to a different profile
+    final newProfileId = widget.userProfile['id'] as String?;
+    if (newProfileId != null && newProfileId != _currentProfileId) {
+      setState(() {
+        _performanceData = null;
+        _isLoadingPerformance = false;
+        _currentProfileId = newProfileId;
+      });
+      // Reload performance data for new profile (will be loaded when build method is called with context)
+    }
   }
 
   // Load real permissions from database
@@ -753,7 +771,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   // Load performance data from database
-  Future<void> _loadPerformanceData(String profileId) async {
+  Future<void> _loadPerformanceData(String profileId, {BuildContext? context}) async {
     if (_isLoadingPerformance) return;
     
     setState(() => _isLoadingPerformance = true);
@@ -835,6 +853,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           _performanceData = null;
           _isLoadingPerformance = false;
         });
+        // Show error to user with retry option if context is available
+        if (context != null && mounted) {
+          ErrorHandler.handleError(
+            context,
+            e,
+            customMessage: 'Failed to load performance data. Please try again.',
+            onRetry: () => _loadPerformanceData(profileId, context: context),
+          );
+        } else {
+          // Log error if context not available
+          debugPrint('Error loading performance data: $e');
+        }
       }
     }
   }
@@ -845,8 +875,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final profileId = profile['id'] as String?;
     
     // Load performance data if not loaded
+    // Get context from the widget tree
+    final context = this.context;
     if (profileId != null && _performanceData == null && !_isLoadingPerformance) {
-      _loadPerformanceData(profileId);
+      _loadPerformanceData(profileId, context: context);
     }
     
     // Build KPIs from real data or show loading

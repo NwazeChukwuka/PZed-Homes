@@ -1,5 +1,3 @@
-// Location: lib/core/theme/responsive.dart
-
 import 'package:flutter/material.dart';
 
 class ResponsiveBreakpoints {

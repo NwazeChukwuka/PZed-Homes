@@ -509,7 +509,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           itemCount: _filteredItems.length,
                           itemBuilder: (context, index) {
                             final item = _filteredItems[index];
-                            final stock = item['current_stock'] as int? ?? 0;
+                            final stock = item['stock_quantity'] as int? ?? 0; // Schema uses 'stock_quantity' not 'current_stock'
                             final isOutOfStock = stock <= 0;
                             
                             return Card(
@@ -926,7 +926,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                   itemCount: _miniMartItems.length,
                   itemBuilder: (context, index) {
                     final item = _miniMartItems[index];
-                    final stock = item['current_stock'] as int? ?? 0;
+                    final stock = item['stock_quantity'] as int? ?? 0; // Schema uses 'stock_quantity' not 'current_stock'
                     final isLowStock = stock <= 5;
                     
                     return ListTile(

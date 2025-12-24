@@ -1,5 +1,3 @@
-// Location: lib/presentation/screens/guest/guest_booking_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -140,12 +138,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
       // Count bookings for this room type during the selected dates
       // Include bookings with room_id assigned AND bookings by requested_room_type
+      // Correct overlap logic: booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
       final conflictingBookings = await _supabase!
           .from('bookings')
           .select('room_id, requested_room_type')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
-          .lte('check_in_date', checkOutDate.toIso8601String())
-          .gte('check_out_date', checkInDate.toIso8601String());
+          .lt('check_in_date', checkOutDate.toIso8601String())
+          .gt('check_out_date', checkInDate.toIso8601String());
 
       // Count rooms directly assigned
       final assignedRoomIds = (conflictingBookings as List)
@@ -173,6 +172,8 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
 
     final email = _emailController.text.trim();
+    final fullName = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
     
     try {
       // Check if profile exists
@@ -186,21 +187,77 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         return existing['id'] as String;
       }
 
-      // Create new profile
-      final response = await _supabase!
+      // Profile doesn't exist - need to create auth user first
+      // Generate a secure temporary password (guest can reset via email if needed)
+      final tempPassword = _generateSecurePassword();
+      
+      // Create auth user - this will trigger the profile creation via database trigger
+      final authResponse = await _supabase!.auth.signUp(
+        email: email,
+        password: tempPassword,
+        data: {
+          'full_name': fullName,
+          'phone': phone,
+        },
+      );
+
+      if (authResponse.user == null) {
+        throw Exception('Failed to create auth user');
+      }
+
+      final userId = authResponse.user!.id;
+
+      // Wait a moment for the trigger to create the profile
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Verify profile was created and update with additional info if needed
+      final profile = await _supabase!
           .from('profiles')
-          .insert({
-            'full_name': _nameController.text.trim(),
-            'email': email,
-            'phone': _phoneController.text.trim(),
-          })
-          .select('id')
+          .select('id, phone')
+          .eq('id', userId)
           .single();
 
-      return response['id'] as String;
+      // Update phone if it wasn't set by trigger
+      if (phone.isNotEmpty && (profile['phone'] == null || profile['phone'].toString().isEmpty)) {
+        await _supabase!
+            .from('profiles')
+            .update({'phone': phone})
+            .eq('id', userId);
+      }
+
+      return userId;
     } catch (e) {
+      // If user already exists in auth, try to sign in to get the user ID
+      if (e.toString().contains('already registered') || e.toString().contains('already exists')) {
+        try {
+          // User exists in auth - find their profile
+          final profile = await _supabase!
+              .from('profiles')
+              .select('id')
+              .eq('email', email)
+              .maybeSingle();
+          
+          if (profile != null) {
+            return profile['id'] as String;
+          }
+        } catch (_) {
+          // Fall through to throw original error
+        }
+      }
       throw Exception('Error creating guest profile: $e');
     }
+  }
+
+  /// Generate a secure temporary password for guest accounts
+  String _generateSecurePassword() {
+    // Generate a random password - guest can reset via email if needed
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
+    final random = DateTime.now().millisecondsSinceEpoch;
+    final password = StringBuffer();
+    for (int i = 0; i < 16; i++) {
+      password.write(chars[(random + i) % chars.length]);
+    }
+    return password.toString();
   }
 
   Future<String> _createPendingBooking(String guestProfileId) async {

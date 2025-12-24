@@ -1,5 +1,3 @@
-// Location: lib/data/models/order_item.dart
-
 import 'package:pzed_homes/data/models/menu_item.dart';
 
 class OrderItem {

@@ -1,4 +1,3 @@
-// Location: lib/data/models/user.dart
 enum AppRole {
   owner,
   manager,

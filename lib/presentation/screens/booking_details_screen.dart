@@ -75,18 +75,29 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   Future<void> _fetchRoomPrice() async {
     try {
+      // Query room_types table, not menu_items - room prices are stored in room_types
       final priceResponse = await _supabase
-          .from('menu_items')
+          .from('room_types')
           .select('price')
-          .like('name', '%${_currentBooking.roomType}%')
-          .limit(1)
-          .single();
+          .eq('type', _currentBooking.roomType) // Use exact match, not LIKE
+          .maybeSingle();
       
-      setState(() {
-        _roomBasePrice = (priceResponse['price'] as int) ~/ 100;
-      });
+      if (priceResponse != null) {
+        final priceInKobo = priceResponse['price'] as int? ?? 0;
+        setState(() {
+          _roomBasePrice = priceInKobo ~/ 100; // Convert kobo to naira
+        });
+      } else {
+        // Room type not found - set to 0 or show error
+        setState(() {
+          _roomBasePrice = 0;
+        });
+      }
     } catch (e) {
       print('Error fetching room price: $e');
+      setState(() {
+        _roomBasePrice = 0;
+      });
     }
   }
 

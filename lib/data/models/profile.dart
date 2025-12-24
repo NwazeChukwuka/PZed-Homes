@@ -1,4 +1,3 @@
-// Location: lib/data/models/profile.dart
 class Profile {
   final String id;
   final String? fullName;

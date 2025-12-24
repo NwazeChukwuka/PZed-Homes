@@ -1,5 +1,3 @@
-// Location: lib/core/connectivity/app_connectivity.dart
-
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:provider/provider.dart';

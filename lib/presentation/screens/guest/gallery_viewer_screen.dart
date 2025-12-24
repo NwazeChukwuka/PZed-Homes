@@ -1,4 +1,3 @@
-// Location: lib/presentation/screens/guest/gallery_viewer_screen.dart
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';

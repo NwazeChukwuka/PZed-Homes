@@ -1,5 +1,3 @@
-// Location: lib/core/error/error_handler.dart
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';

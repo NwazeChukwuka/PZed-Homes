@@ -1,5 +1,3 @@
-// Location: lib/presentation/widgets/booking_form_bottom_sheet.dart
-
 import 'package:flutter/material.dart';
 
 class BookingFormBottomSheet extends StatefulWidget {

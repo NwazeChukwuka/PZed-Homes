@@ -77,12 +77,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     setState(() => _isFetchingRooms = true);
     try {
       // Get conflicting bookings
+      // Correct overlap logic: Two bookings overlap if:
+      // booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
       final conflictingBookings = await _supabase
           .from('bookings')
           .select('room_id')
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
-          .lte('check_in_date', _checkOutDate!.toIso8601String())
-          .gte('check_out_date', _checkInDate!.toIso8601String());
+          .lt('check_in_date', _checkOutDate!.toIso8601String())
+          .gt('check_out_date', _checkInDate!.toIso8601String());
 
       final bookedRoomIds = (conflictingBookings as List)
           .where((b) => b['room_id'] != null)
@@ -90,13 +92,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           .toSet();
 
       // Get available rooms of selected type
+      // _selectedRoomTypeId is a UUID from room_types.id, so we need to match against rooms.type_id
       var query = _supabase
           .from('rooms')
           .select()
           .eq('status', 'Vacant');
       
       if (_selectedRoomTypeId != null) {
-        query = query.eq('type', _selectedRoomTypeId!);
+        query = query.eq('type_id', _selectedRoomTypeId!); // Use type_id (UUID) not type (TEXT)
       }
       
       final rooms = await query
@@ -158,25 +161,49 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       
       // Get or create guest profile
       String guestProfileId;
+      final email = _guestEmailController.text.trim();
+      final fullName = _guestNameController.text.trim();
+      final phone = _guestPhoneController.text.trim();
+      
       final existingProfile = await _supabase
           .from('profiles')
           .select('id')
-          .eq('email', _guestEmailController.text.trim())
+          .eq('email', email)
           .maybeSingle();
 
       if (existingProfile != null) {
         guestProfileId = existingProfile['id'] as String;
       } else {
-        final newProfile = await _supabase
-            .from('profiles')
-            .insert({
-              'full_name': _guestNameController.text.trim(),
-              'email': _guestEmailController.text.trim(),
-              'phone': _guestPhoneController.text.trim(),
-            })
-            .select('id')
-            .single();
-        guestProfileId = newProfile['id'] as String;
+        // Profile doesn't exist - need to create auth user first
+        // Generate a secure temporary password
+        final tempPassword = _generateSecurePassword();
+        
+        // Create auth user - this will trigger the profile creation via database trigger
+        final authResponse = await _supabase.auth.signUp(
+          email: email,
+          password: tempPassword,
+          data: {
+            'full_name': fullName,
+            'phone': phone,
+          },
+        );
+
+        if (authResponse.user == null) {
+          throw Exception('Failed to create auth user for guest');
+        }
+
+        guestProfileId = authResponse.user!.id;
+
+        // Wait a moment for the trigger to create the profile
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Update phone if it wasn't set by trigger
+        if (phone.isNotEmpty) {
+          await _supabase
+              .from('profiles')
+              .update({'phone': phone})
+              .eq('id', guestProfileId);
+        }
       }
 
       // Get room type name for requested_room_type
@@ -217,6 +244,18 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Generate a secure temporary password for guest accounts
+  String _generateSecurePassword() {
+    // Generate a random password - guest can reset via email if needed
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
+    final random = DateTime.now().millisecondsSinceEpoch;
+    final password = StringBuffer();
+    for (int i = 0; i < 16; i++) {
+      password.write(chars[(random + i) % chars.length]);
+    }
+    return password.toString();
   }
 
   @override

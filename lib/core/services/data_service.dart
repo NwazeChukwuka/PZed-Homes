@@ -1,6 +1,3 @@
-// Location: lib/core/services/data_service.dart
-// Production-ready DataService with Supabase integration
-
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -76,16 +73,39 @@ class DataService {
         if (existing != null) {
           guestProfileId = existing['id'] as String;
         } else {
-          final newProfile = await _supabase
-              .from('profiles')
-              .insert({
-                'full_name': booking['guest_name'] as String? ?? 'Guest',
-                'email': booking['guest_email'] as String,
-                'phone': booking['guest_phone'] as String?,
-              })
-              .select('id')
-              .single();
-          guestProfileId = newProfile['id'] as String;
+          // Profile doesn't exist - need to create auth user first
+          // Generate a secure temporary password
+          final tempPassword = _generateSecurePassword();
+          final fullName = booking['guest_name'] as String? ?? 'Guest';
+          final email = booking['guest_email'] as String;
+          final phone = booking['guest_phone'] as String?;
+          
+          // Create auth user - this will trigger the profile creation via database trigger
+          final authResponse = await _supabase.auth.signUp(
+            email: email,
+            password: tempPassword,
+            data: {
+              'full_name': fullName,
+              'phone': phone ?? '',
+            },
+          );
+
+          if (authResponse.user == null) {
+            throw Exception('Failed to create auth user for guest');
+          }
+
+          guestProfileId = authResponse.user!.id;
+
+          // Wait a moment for the trigger to create the profile
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Update phone if it wasn't set by trigger
+          if (phone != null && phone.isNotEmpty) {
+            await _supabase
+                .from('profiles')
+                .update({'phone': phone})
+                .eq('id', guestProfileId);
+          }
         }
       }
       
@@ -930,5 +950,17 @@ class DataService {
           })
           .eq('id', profileId);
     });
+  }
+
+  /// Generate a secure temporary password for guest accounts
+  String _generateSecurePassword() {
+    // Generate a random password - guest can reset via email if needed
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
+    final random = DateTime.now().millisecondsSinceEpoch;
+    final password = StringBuffer();
+    for (int i = 0; i < 16; i++) {
+      password.write(chars[(random + i) % chars.length]);
+    }
+    return password.toString();
   }
 }

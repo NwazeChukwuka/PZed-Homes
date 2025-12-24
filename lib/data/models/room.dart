@@ -1,4 +1,3 @@
-// Location: lib/data/models/room.dart
 class Room {
   final String id;
   final String roomNumber;

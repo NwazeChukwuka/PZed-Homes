@@ -1,4 +1,3 @@
-// Location: lib/presentation/screens/admin/manage_gallery_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart'; // You'll need to run: flutter pub add image_picker

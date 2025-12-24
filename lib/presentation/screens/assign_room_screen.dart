@@ -1,4 +1,3 @@
-// Location: lib/presentation/screens/assign_room_screen.dart
 // Screen for receptionists to assign rooms to bookings
 
 import 'package:flutter/material.dart';

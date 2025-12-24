@@ -43,10 +43,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   // Image paths - loaded from assets only
   List<String> _heroImages = [];
   Map<String, List<String>> _roomImages = {}; // roomType -> list of image URLs
+  List<Map<String, dynamic>> _roomTypes = []; // Room types loaded from database
+  bool _isLoadingRoomTypes = false;
 
   @override
   void initState() {
     super.initState();
+    _loadRoomTypes();
     
     // Initialize with asset images IMMEDIATELY (synchronous)
     _heroImages = [
@@ -77,7 +80,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         'assets/images/Deluxe Room/Deluxe 2.JPG',
         'assets/images/Deluxe Room/Deluxe 3.png',
       ],
-      'Executive Suite': [
+      'Executive Room': [ // Fixed: Use 'Executive Room' to match room type name
         'assets/images/Executive Room/Executive 1.png',
         'assets/images/Executive Room/Executive 2.png',
         'assets/images/Executive Room/Executive 3.jpg',
@@ -90,6 +93,57 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       _contentFuture = _fetchSiteContent();
       _galleryFuture = _fetchGalleryItems();
     });
+  }
+
+  /// Load room types from database to get accurate prices
+  Future<void> _loadRoomTypes() async {
+    setState(() => _isLoadingRoomTypes = true);
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('room_types')
+          .select('type, price')
+          .timeout(const Duration(seconds: 5));
+      
+      if (mounted) {
+        setState(() {
+          _roomTypes = List<Map<String, dynamic>>.from(response);
+          _isLoadingRoomTypes = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading room types: $e');
+      if (mounted) {
+        setState(() => _isLoadingRoomTypes = false);
+      }
+    }
+  }
+
+  /// Get price for a room type from database, fallback to hardcoded if not found
+  int _getRoomPrice(String roomTypeName) {
+    try {
+      final roomType = _roomTypes.firstWhere(
+        (rt) => (rt['type'] as String?) == roomTypeName,
+        orElse: () => <String, dynamic>{},
+      );
+      
+      if (roomType.isNotEmpty) {
+        final priceInKobo = roomType['price'] as int? ?? 0;
+        return priceInKobo ~/ 100; // Convert kobo to naira
+      }
+    } catch (e) {
+      debugPrint('Error getting room price for $roomTypeName: $e');
+    }
+    
+    // Fallback to hardcoded prices if database query fails
+    final fallbackPrices = {
+      'Standard Room': 20000,
+      'Classic Room': 25000,
+      'Diplomatic Room': 30000,
+      'Deluxe Room': 35000,
+      'Executive Room': 50000,
+    };
+    return fallbackPrices[roomTypeName] ?? 0;
   }
 
   Future<Map<String, dynamic>> _fetchSiteContent() async {
@@ -286,8 +340,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.email),
-                title: const Text('info@pzedhotels.com'),
-                onTap: () => _sendEmail('info@pzedhotels.com'),
+                title: const Text('pzedglobal@gmail.com'),
+                onTap: () => _sendEmail('pzedglobal@gmail.com'),
               ),
               const SizedBox(height: 16),
               const Text('Unity FM Junction, off Nwiboko Enigwe Street, Amike-Aba, Abakaliki'),
@@ -361,7 +415,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
             children: [
               const Text('Phone: +234 815 750 5978'),
               const SizedBox(height: 8),
-              const Text('Email: info@pzedhotels.com'),
+              const Text('Email: pzedglobal@gmail.com'),
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: () {
@@ -553,7 +607,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Standard Room',
                         description: 'Comfortable, affordable, and equipped with all the essentials for a pleasant stay.',
-                        price: 20000,
+                        price: _getRoomPrice('Standard Room'),
                         imageUrls: _roomImages['Standard Room'] ?? [
                           'assets/images/Standard Room/Standard 1.png',
                           'assets/images/Standard Room/Standard 2.JPG',
@@ -566,7 +620,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Classic Room',
                         description: 'A touch of elegance with enhanced amenities and more space to relax and unwind.',
-                        price: 25000,
+                        price: _getRoomPrice('Classic Room'),
                         imageUrls: _roomImages['Classic Room'] ?? [
                           'assets/images/Classic Room/Classic 1.JPG',
                           'assets/images/Classic Room/Classic 2.png',
@@ -579,7 +633,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Diplomatic Room',
                         description: 'Spacious and refined, designed for the discerning traveler requiring extra comfort.',
-                        price: 30000,
+                        price: _getRoomPrice('Diplomatic Room'),
                         imageUrls: _roomImages['Diplomatic Room'] ?? [
                           'assets/images/Diplomatic Room/Diplomatic 1.png',
                           'assets/images/Diplomatic Room/Diplomatic 2.JPG',
@@ -592,7 +646,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Deluxe Room',
                         description: 'A premium experience with superior furnishings and breathtaking views.',
-                        price: 35000,
+                        price: _getRoomPrice('Deluxe Room'),
                         imageUrls: _roomImages['Deluxe Room'] ?? [
                           'assets/images/Deluxe Room/Deluxe 1.JPG',
                           'assets/images/Deluxe Room/Deluxe 2.JPG',
@@ -605,8 +659,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildRoomTypeShowcase(
                         name: 'Executive Room',
                         description: 'A generously sized room crafted for refined comfort, combining elegant finishes with enhanced space, ideal for work, privacy, and relaxation.',
-                        price: 50000,
-                        imageUrls: _roomImages['Executive Suite'] ?? [
+                        price: _getRoomPrice('Executive Room'),
+                        imageUrls: _roomImages['Executive Room'] ?? [ // Fixed: Use 'Executive Room' not 'Executive Suite'
                           'assets/images/Executive Room/Executive 1.png',
                           'assets/images/Executive Room/Executive 2.png',
                           'assets/images/Executive Room/Executive 3.jpg',
@@ -1220,7 +1274,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                           const SizedBox(height: 12),
                           const Text('+234 815 750 5978 ', style: TextStyle(color: Colors.white70)),
                           const SizedBox(height: 4),
-                          const Text('info@pzedhotels.com', style: TextStyle(color: Colors.white70)),
+                          const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
                           const SizedBox(height: 4),
                           const Text('Unity FM Junction, off Nwiboko Enigwe Street, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
                         ],

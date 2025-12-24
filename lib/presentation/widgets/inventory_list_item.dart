@@ -1,5 +1,3 @@
-// Location: lib/presentation/widgets/inventory_list_item.dart
-
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/data/data.dart';
 

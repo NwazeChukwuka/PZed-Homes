@@ -1,4 +1,3 @@
-// Location: lib/data/models/menu_item.dart
 class MenuItem {
   final String id;
   final String name;

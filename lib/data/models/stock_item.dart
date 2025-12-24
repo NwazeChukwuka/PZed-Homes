@@ -1,4 +1,3 @@
-// Location: lib/data/models/stock_item.dart
 class StockItem {
   final String id;
   final String name;

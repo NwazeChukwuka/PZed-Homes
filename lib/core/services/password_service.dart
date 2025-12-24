@@ -1,4 +1,3 @@
-// Location: lib/core/services/password_service.dart
 // Consolidated password reset/change service
 
 import 'package:supabase_flutter/supabase_flutter.dart';

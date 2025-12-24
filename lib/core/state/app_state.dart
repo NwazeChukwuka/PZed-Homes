@@ -1,5 +1,3 @@
-// Location: lib/core/state/app_state.dart
-
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pzed_homes/data/models/user.dart';
