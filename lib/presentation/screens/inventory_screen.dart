@@ -1129,20 +1129,38 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         final paymentBreakdown = <String, int>{_paymentMethod: saleTotalInKobo};
 
         if (existingSales != null) {
-          // Update existing record
-          final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-          final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-          final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
-          updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
+          // Update existing record (only if same staff_id or NULL)
+          final existingStaffId = existingSales['staff_id'] as String?;
+          // Only update if it's the same staff member or aggregate (NULL)
+          if (existingStaffId == null || existingStaffId == userId) {
+            final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+            final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+            final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
+            updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
 
-          await supabase
-              .from('department_sales')
-              .update({
-                'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                'payment_method_breakdown': updatedBreakdown,
-              })
-              .eq('id', existingSales['id']);
+            await supabase
+                .from('department_sales')
+                .update({
+                  'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                  'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                  'payment_method_breakdown': updatedBreakdown,
+                  'staff_id': userId, // Set staff_id if it was NULL, or keep existing
+                })
+                .eq('id', existingSales['id']);
+          } else {
+            // Different staff member - create separate record for this staff
+            await supabase
+                .from('department_sales')
+                .insert({
+                  'department': department,
+                  'date': today,
+                  'total_sales': saleTotalInKobo,
+                  'transaction_count': 1,
+                  'payment_method_breakdown': paymentBreakdown,
+                  'recorded_by': userId,
+                  'staff_id': userId,
+                });
+          }
         } else {
           // Create new record
           await supabase
@@ -1154,6 +1172,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 'transaction_count': 1,
                 'payment_method_breakdown': paymentBreakdown,
                 'recorded_by': userId,
+                'staff_id': userId, // Track which staff member made the sales
               });
         }
 

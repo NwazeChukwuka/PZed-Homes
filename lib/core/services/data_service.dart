@@ -602,7 +602,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('purchase_orders')
-          .select('*, staff_profiles!purchaser_id(name)')
+          .select('*, profiles!purchaser_id(full_name)')
           .order('created_at', ascending: false)
           .limit(50);
       return List<Map<String, dynamic>>.from(response);

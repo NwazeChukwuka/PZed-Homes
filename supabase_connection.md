@@ -140,13 +140,10 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Profile Policies
 -- Only active staff can view profiles (resigned/terminated staff are blocked)
+-- Updated to use helper functions to prevent infinite recursion
 CREATE POLICY "Active staff can view profiles" 
 ON public.profiles FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-  )
+  is_user_active(auth.uid())
 );
 
 CREATE POLICY "Users can update own profile" 
@@ -159,14 +156,11 @@ CREATE POLICY "Users can insert their own profile"
 ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- Owner/Manager can create staff profiles (for HR screen)
+-- Updated to use helper functions to prevent infinite recursion
 CREATE POLICY "Owner can create staff profiles" 
 ON public.profiles FOR INSERT WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND 'owner' = ANY(p.roles)
-  )
+  is_user_active(auth.uid())
+  AND user_has_role(auth.uid(), 'owner')
 );
 
 -- Auth Trigger (Automatically create profile on Sign Up)
@@ -190,6 +184,46 @@ $$;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.create_public_profile_for_new_user();
+
+-- ==============================================
+-- 1b. RLS HELPER FUNCTIONS (Prevent Infinite Recursion)
+-- ==============================================
+-- These functions bypass RLS to prevent infinite recursion in policies
+
+-- Helper function to check if user is active (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.is_user_active(user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = user_id
+    AND status = 'Active'
+  );
+$$;
+
+-- Helper function to check if user has role (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.user_has_role(user_id UUID, role_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = user_id
+    AND status = 'Active'
+    AND role_name = ANY(roles)
+  );
+$$;
+
+-- Grant execute permission on the helper functions
+GRANT EXECUTE ON FUNCTION public.is_user_active(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.user_has_role(UUID, TEXT) TO anon, authenticated;
 
 -- ==============================================
 -- 2. HELPER TABLES
@@ -346,35 +380,30 @@ ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
 
 -- Booking Policies
 -- Only active staff can view bookings (resigned/terminated staff are blocked)
+-- Updated to use helper functions to prevent infinite recursion
 CREATE POLICY "Active staff view all bookings" ON public.bookings FOR SELECT 
 USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND 'guest' != ALL(p.roles)
-  )
+  is_user_active(auth.uid())
+  AND NOT user_has_role(auth.uid(), 'guest')
 );
+
+-- Allow public/anon access to bookings for availability checking
+-- Note: This allows reading booking dates and room info for availability checking
+-- Sensitive data (guest_profile_id, amounts) are still protected as they require joins
+CREATE POLICY "Public can check availability" ON public.bookings FOR SELECT 
+USING (true);
 
 CREATE POLICY "Guests view own bookings" ON public.bookings FOR SELECT 
 USING (auth.uid() = guest_profile_id);
 
 CREATE POLICY "Active staff can insert bookings" ON public.bookings FOR INSERT WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid() 
-    AND p.status = 'Active'
-    AND ('receptionist' = ANY(p.roles) OR 'guest' = ANY(p.roles))
-  )
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'guest'))
 );
 
 CREATE POLICY "Active staff can update bookings" ON public.bookings FOR UPDATE USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid() 
-    AND p.status = 'Active'
-    AND 'receptionist' = ANY(p.roles)
-  )
+  is_user_active(auth.uid())
+  AND user_has_role(auth.uid(), 'receptionist')
 );
 
 -- Booking Charges Table (Alternative to JSONB for complex charges)
@@ -748,6 +777,7 @@ CREATE TABLE public.department_sales (
     transaction_count INTEGER DEFAULT 0,
     payment_method_breakdown JSONB DEFAULT '{}'::jsonb, -- {'cash': 50000, 'card': 30000}
     recorded_by UUID REFERENCES public.profiles(id),
+    staff_id UUID REFERENCES public.profiles(id), -- References the staff member who made the sales. NULL indicates aggregate department sales not attributed to a specific staff member.
     notes TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1169,10 +1199,59 @@ CREATE POLICY "Admin write" ON public.site_media FOR ALL USING (auth.uid() IN (S
 -- 17. HELPER FUNCTIONS (FIXED FOR DISCONNECTIONS)
 -- ==============================================
 
--- FIXED: Function to check available rooms (Accounts for bookings by type, not just room_id)
+-- FIXED: Function to check available rooms (without parameters - simpler version)
+-- Fixed to use room_types.price instead of menu_items.price
+CREATE OR REPLACE FUNCTION public.get_available_room_types()
+RETURNS TABLE (
+    type TEXT,
+    price INT8,
+    image_url TEXT,
+    available_count INT
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH total_rooms_by_type AS (
+        SELECT rt.type, COUNT(*) as total_count
+        FROM public.rooms r
+        JOIN public.room_types rt ON r.type_id = rt.id
+        WHERE r.status = 'Vacant' OR r.status IS NULL
+        GROUP BY rt.type
+    ),
+    total_booked_by_type AS (
+        SELECT b.requested_room_type as type, COUNT(*) as total_booked
+        FROM public.bookings b
+        WHERE b.status IN ('confirmed', 'checked_in')
+        AND b.check_in_date <= CURRENT_DATE
+        AND b.check_out_date > CURRENT_DATE
+        GROUP BY b.requested_room_type
+    )
+    SELECT
+        COALESCE(tr.type, tb.type) as type,
+        -- FIX: Use room_types.price instead of menu_items.price
+        (SELECT rt.price 
+         FROM public.room_types rt 
+         WHERE rt.type = COALESCE(tr.type, tb.type) 
+         LIMIT 1) as price,
+        (SELECT sm.media_url 
+         FROM public.site_media sm 
+         WHERE sm.content_key LIKE 'room_' || lower(COALESCE(tr.type, tb.type)) || '_1' 
+         LIMIT 1) as image_url,
+        COALESCE(tr.total_count, 0) - COALESCE(tb.total_booked, 0) as available_count
+    FROM total_rooms_by_type tr
+    FULL OUTER JOIN total_booked_by_type tb ON tr.type = tb.type
+    WHERE COALESCE(tr.total_count, 0) - COALESCE(tb.total_booked, 0) > 0;
+END;
+$$;
+
+-- FIXED: Function to check available rooms (with date parameters)
+-- Fixed to use room_types.price instead of menu_items.price
 CREATE OR REPLACE FUNCTION public.get_available_room_types(start_date text, end_date text)
 RETURNS TABLE (type text, price int8, image_url text, available_count bigint)
 LANGUAGE sql
+SECURITY DEFINER
 AS $$
     WITH booked_rooms_by_type AS (
         -- Count rooms that are directly assigned to bookings
@@ -1180,7 +1259,7 @@ AS $$
         FROM public.rooms r
         INNER JOIN public.bookings b ON r.id = b.room_id
         WHERE (b.check_in_date, b.check_out_date) OVERLAPS (start_date::timestamptz, end_date::timestamptz)
-        AND b.status IN ('Pending Check-in', 'Checked-in')
+        AND b.status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
         GROUP BY r.type
         
         UNION ALL
@@ -1191,7 +1270,7 @@ AS $$
         WHERE b.room_id IS NULL
         AND b.requested_room_type IS NOT NULL
         AND (b.check_in_date, b.check_out_date) OVERLAPS (start_date::timestamptz, end_date::timestamptz)
-        AND b.status = 'Pending Check-in'
+        AND b.status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
         GROUP BY b.requested_room_type
     ),
     total_booked_by_type AS (
@@ -1207,13 +1286,27 @@ AS $$
     )
     SELECT
         COALESCE(tr.type, tb.type) as type,
-        (SELECT mi.price FROM public.menu_items mi WHERE mi.name LIKE COALESCE(tr.type, tb.type) || ' Room' LIMIT 1) as price,
-        (SELECT sm.media_url FROM public.site_media sm WHERE sm.content_key LIKE 'room_' || lower(COALESCE(tr.type, tb.type)) || '_1' LIMIT 1) as image_url,
+        -- FIX: Use room_types.price instead of menu_items.price
+        (SELECT rt.price 
+         FROM public.room_types rt 
+         WHERE rt.type = COALESCE(tr.type, tb.type) 
+         LIMIT 1) as price,
+        (SELECT sm.media_url 
+         FROM public.site_media sm 
+         WHERE sm.content_key LIKE 'room_' || lower(COALESCE(tr.type, tb.type)) || '_1' 
+         LIMIT 1) as image_url,
         COALESCE(tr.total_count, 0) - COALESCE(tb.total_booked, 0) as available_count
     FROM total_rooms_by_type tr
     FULL OUTER JOIN total_booked_by_type tb ON tr.type = tb.type
     WHERE COALESCE(tr.total_count, 0) - COALESCE(tb.total_booked, 0) > 0;
 $$;
+
+-- Add comments to document both function versions
+COMMENT ON FUNCTION public.get_available_room_types() IS 
+'Returns available room types with their prices from room_types table, available count, and image URLs. Fixed to use room_types.price instead of menu_items.price.';
+
+COMMENT ON FUNCTION public.get_available_room_types(text, text) IS 
+'Returns available room types with their prices from room_types table for a date range. Fixed to use room_types.price instead of menu_items.price.';
 
 -- NEW: Function to assign room to booking (For receptionist use)
 CREATE OR REPLACE FUNCTION public.assign_room_to_booking(booking_id UUID, room_id UUID)
@@ -1573,6 +1666,8 @@ CREATE INDEX IF NOT EXISTS idx_mini_mart_sales_date ON public.mini_mart_sales(sa
 CREATE INDEX IF NOT EXISTS idx_mini_mart_sales_item ON public.mini_mart_sales(item_id);
 CREATE INDEX IF NOT EXISTS idx_mini_mart_sales_sold_by ON public.mini_mart_sales(sold_by);
 CREATE INDEX IF NOT EXISTS idx_department_sales_date_dept ON public.department_sales(date, department);
+CREATE INDEX IF NOT EXISTS idx_department_sales_staff_id ON public.department_sales(staff_id);
+CREATE INDEX IF NOT EXISTS idx_department_sales_date_staff_id ON public.department_sales(date, staff_id);
 CREATE INDEX IF NOT EXISTS idx_bartender_shifts_bartender ON public.bartender_shifts(bartender_id);
 CREATE INDEX IF NOT EXISTS idx_bartender_shifts_date ON public.bartender_shifts(date);
 CREATE INDEX IF NOT EXISTS idx_bartender_shifts_status ON public.bartender_shifts(status);

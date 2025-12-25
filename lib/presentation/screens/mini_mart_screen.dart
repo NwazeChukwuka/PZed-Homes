@@ -240,19 +240,38 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         final paymentBreakdown = <String, int>{_paymentMethod.toLowerCase(): saleTotalInKobo};
 
         if (existingSales != null) {
-          final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-          final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-          final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
-          updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
+          // Update existing record (only if same staff_id or NULL)
+          final existingStaffId = existingSales['staff_id'] as String?;
+          // Only update if it's the same staff member or aggregate (NULL)
+          if (existingStaffId == null || existingStaffId == userId) {
+            final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+            final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+            final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
+            updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
 
-          await _supabase
-              .from('department_sales')
-              .update({
-                'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                'payment_method_breakdown': updatedBreakdown,
-              })
-              .eq('id', existingSales['id']);
+            await _supabase
+                .from('department_sales')
+                .update({
+                  'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                  'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                  'payment_method_breakdown': updatedBreakdown,
+                  'staff_id': userId, // Set staff_id if it was NULL, or keep existing
+                })
+                .eq('id', existingSales['id']);
+          } else {
+            // Different staff member - create separate record for this staff
+            await _supabase
+                .from('department_sales')
+                .insert({
+                  'department': 'mini_mart',
+                  'date': today,
+                  'total_sales': saleTotalInKobo,
+                  'transaction_count': 1,
+                  'payment_method_breakdown': paymentBreakdown,
+                  'recorded_by': userId,
+                  'staff_id': userId,
+                });
+          }
         } else {
           await _supabase
               .from('department_sales')
@@ -263,6 +282,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 'transaction_count': 1,
                 'payment_method_breakdown': paymentBreakdown,
                 'recorded_by': userId,
+                'staff_id': userId, // Track which staff member made the sales
               });
         }
       } catch (e) {

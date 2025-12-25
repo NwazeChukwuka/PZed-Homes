@@ -790,10 +790,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       
       final attendanceRecords = attendanceResponse as List;
       
-      // Load department sales (for sales attributed)
+      // Load department sales (for sales attributed to this staff member)
       final salesResponse = await _supabase
           .from('department_sales')
-          .select('total_sales')
+          .select('total_sales, transaction_count')
+          .eq('staff_id', profileId) // Filter by staff_id to get individual performance
           .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0])
           .timeout(const Duration(seconds: 5));
       
