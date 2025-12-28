@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 
 class GuestBookingScreen extends StatefulWidget {
   const GuestBookingScreen({super.key});
@@ -57,12 +60,30 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  int get _totalPrice {
+  /// Get total price in naira (for display)
+  /// Note: roomType['price'] is already in naira from available_rooms_screen
+  /// (available_rooms_screen converts from kobo to naira before passing to this screen)
+  int get _totalPriceInNaira {
     final nights = checkOutDate.difference(checkInDate).inDays;
+    // roomType['price'] is in naira (converted in available_rooms_screen.dart:196)
     final pricePerNight = (roomType['price'] is int)
         ? roomType['price'] as int
-        : int.tryParse('${roomType['price'] ?? 0}') ?? 0;
+        : (roomType['price'] is double)
+            ? (roomType['price'] as double).round()
+            : int.tryParse('${roomType['price'] ?? 0}') ?? 0;
+    
+    // Validate price is reasonable (not in kobo by mistake)
+    if (pricePerNight > 1000000) {
+      // Price seems too high - might still be in kobo, convert it
+      return (pricePerNight ~/ 100) * nights;
+    }
+    
     return pricePerNight * nights;
+  }
+
+  /// Get total price in kobo (for database storage)
+  int get _totalPriceInKobo {
+    return PaymentService.nairaToKobo(_totalPriceInNaira.toDouble());
   }
 
   int get _nightsCount {
@@ -84,20 +105,16 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Check room type availability (count by type, not specific room)
-      final isAvailable = await _checkRoomTypeAvailability();
-      if (!isAvailable) {
-        throw Exception('Sorry, no rooms of this type are available for the selected dates.');
-      }
-
-      // 2. Create guest profile or get existing one
+      // 1. Create guest profile or get existing one
       final guestProfileId = await _getOrCreateGuestProfile();
 
-      // 3. Create booking WITHOUT room_id (receptionist will assign later)
-      final bookingId = await _createPendingBooking(guestProfileId);
+      // 2. Create booking atomically with availability check using database function
+      // This prevents race conditions by performing availability check and booking creation
+      // in a single database transaction
+      final bookingId = await _createPendingBookingAtomically(guestProfileId);
 
-      // 4. Process payment (mock implementation)
-      final paymentSuccess = await _processMockPayment(bookingId);
+      // 4. Process payment with Paystack
+      final paymentSuccess = await _processPayment(bookingId);
       
       if (paymentSuccess) {
         // 5. Update booking status to Pending Check-in (room will be assigned by receptionist)
@@ -171,9 +188,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       throw Exception('Supabase is not configured');
     }
 
-    final email = _emailController.text.trim();
-    final fullName = _nameController.text.trim();
-    final phone = _phoneController.text.trim();
+    // Sanitize inputs to prevent XSS and other security issues
+    final email = InputSanitizer.sanitizeEmail(_emailController.text.trim());
+    final fullName = InputSanitizer.sanitizeText(_nameController.text.trim());
+    final phone = InputSanitizer.sanitizePhone(_phoneController.text.trim());
     
     try {
       // Check if profile exists
@@ -225,6 +243,31 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
             .eq('id', userId);
       }
 
+      // CRITICAL: Send password reset email so guest can set their own password
+      // This allows guests to log in and view their bookings
+      // Make this more robust - retry once if it fails
+      bool emailSent = false;
+      for (int attempt = 0; attempt < 2 && !emailSent; attempt++) {
+        try {
+          await _supabase!.auth.resetPasswordForEmail(email);
+          emailSent = true;
+          if (kDebugMode) {
+            debugPrint('Password reset email sent successfully to $email');
+          }
+        } catch (e) {
+          if (attempt == 1) {
+            // Final attempt failed - log but don't fail the booking
+            // Guest can use "Forgot Password" later
+            if (kDebugMode) {
+              debugPrint('Warning: Could not send password reset email after 2 attempts: $e');
+            }
+          } else {
+            // Wait a bit before retry
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        }
+      }
+
       return userId;
     } catch (e) {
       // If user already exists in auth, try to sign in to get the user ID
@@ -260,66 +303,107 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     return password.toString();
   }
 
-  Future<String> _createPendingBooking(String guestProfileId) async {
+  // NEW: Use atomic database function to prevent race conditions
+  // This function atomically checks room availability and creates the booking
+  Future<String> _createPendingBookingAtomically(String guestProfileId) async {
     if (_supabase == null) {
       throw Exception('Supabase is not configured');
     }
 
     try {
       final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Standard';
+      final guestName = _nameController.text.trim();
+      final guestEmail = _emailController.text.trim();
+      final guestPhone = _phoneController.text.trim();
       
-      final response = await _supabase!
-          .from('bookings')
-          .insert({
-            'guest_profile_id': guestProfileId,
-            'room_id': null, // Room will be assigned by receptionist
-            'requested_room_type': roomTypeName,
-            'check_in_date': checkInDate.toIso8601String(),
-            'check_out_date': checkOutDate.toIso8601String(),
-            'status': 'Pending Check-in',
-            'total_amount': _totalPrice * 100, // Convert naira to kobo for database
-            'paid_amount': _totalPrice * 100, // Convert naira to kobo for database
-          })
-          .select('id')
-          .single();
+      // Use database function to atomically check availability and create booking
+      // This prevents race conditions where multiple guests book the same room type simultaneously
+      final response = await _supabase!.rpc(
+        'create_booking_with_availability_check',
+        params: {
+          'p_guest_profile_id': guestProfileId,
+          'p_requested_room_type': roomTypeName,
+          'p_check_in_date': checkInDate.toIso8601String().split('T')[0],
+          'p_check_out_date': checkOutDate.toIso8601String().split('T')[0],
+          'p_total_amount': _totalPriceInKobo, // Already in kobo
+          'p_paid_amount': 0, // Will be updated after successful payment
+          'p_payment_method': 'paystack', // Will be updated after payment
+          'p_guest_name': guestName,
+          'p_guest_email': guestEmail,
+          'p_guest_phone': guestPhone.isNotEmpty ? guestPhone : null,
+        },
+      );
 
-      return response['id'] as String;
+      return response as String; // Function returns UUID directly
     } catch (e) {
+      // Provide user-friendly error messages
+      final errorMsg = e.toString();
+      if (errorMsg.contains('No rooms of type') || errorMsg.contains('not available')) {
+        throw Exception('Sorry, no rooms of this type are available for the selected dates. Please try different dates or room type.');
+      }
       throw Exception('Error creating booking: $e');
     }
   }
 
-  Future<bool> _processMockPayment(String bookingId) async {
+  Future<bool> _processPayment(String bookingId) async {
     try {
-      // Show payment dialog
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Payment Confirmation'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Amount: ₦${_totalPrice.toString()}'),
-              const SizedBox(height: 16),
-              const Text('This is a demo payment. Click "Pay" to simulate successful payment.'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => context.pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => context.pop(true),
-              child: const Text('Pay'),
-            ),
-          ],
-        ),
-      );
+      final paymentService = PaymentService();
+      
+      // Check if Paystack is initialized
+      if (!paymentService.isInitialized) {
+        throw Exception('Payment system is not configured. Please contact support.');
+      }
 
-      return result ?? false;
+      final email = _emailController.text.trim();
+      if (email.isEmpty) {
+        throw Exception('Email is required for payment');
+      }
+
+      // Generate unique payment reference
+      final reference = paymentService.generateReference();
+      
+      // Show loading dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+
+      try {
+        // Process payment with Paystack
+        final success = await paymentService.processPayment(
+          context: context,
+          amountInKobo: _totalPriceInKobo,
+          email: email,
+          reference: reference,
+          metadata: {
+            'booking_id': bookingId,
+            'guest_name': _nameController.text.trim(),
+            'room_type': roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Unknown',
+            'check_in': checkInDate.toIso8601String(),
+            'check_out': checkOutDate.toIso8601String(),
+          },
+        );
+
+        // Close loading dialog
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+
+        return success;
+      } catch (e) {
+        // Close loading dialog
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+        rethrow;
+      }
     } catch (e) {
-      throw Exception('Payment processing error: $e');
+      throw Exception('Payment processing error: ${e.toString()}');
     }
   }
 
@@ -329,15 +413,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
 
     try {
-      final paidAmountInKobo = _totalPrice * 100;
-      
       // Update booking status to Pending Check-in (room will be assigned by receptionist)
       // Don't update room status - rooms stay Vacant until check-in
       await _supabase!
           .from('bookings')
           .update({
             'status': 'Pending Check-in',
-            'paid_amount': paidAmountInKobo, // Convert to kobo
+            'paid_amount': _totalPriceInKobo, // Already in kobo
           })
           .eq('id', bookingId);
       
@@ -347,11 +429,11 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
           .from('income_records')
           .insert({
             'description': 'Room booking - $roomTypeName',
-            'amount': paidAmountInKobo, // Already in kobo
+            'amount': _totalPriceInKobo, // Already in kobo
             'source': 'Room Booking',
             'date': DateTime.now().toIso8601String().split('T')[0],
             'department': 'reception',
-            'payment_method': 'online', // Guest paid online
+            'payment_method': 'online', // Guest paid online via Paystack
             'booking_id': bookingId,
           });
       
@@ -468,7 +550,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       _buildSummaryRow(
                         context,
                         'Total Amount',
-                        currencyFormatter.format(_totalPrice),
+                        currencyFormatter.format(_totalPriceInNaira),
                         isTotal: true,
                       ),
                     ],
@@ -762,7 +844,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                                   desktop: 8,
                                 )),
                                 Flexible(
-                                  child: Text('Pay ${currencyFormatter.format(_totalPrice)}'),
+                                  child: Text('Pay ${currencyFormatter.format(_totalPriceInNaira)}'),
                                 ),
                               ],
                             ),

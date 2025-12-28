@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/payment_service.dart';
+import '../../core/utils/input_sanitizer.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
@@ -27,12 +29,17 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   List<Map<String, dynamic>> _cashDeposits = [];
   Map<String, dynamic> _financialSummary = {};
   Map<String, List<Map<String, dynamic>>> _departmentSales = {};
+  bool _isLoadingData = false;
+  bool _isGeneratingReport = false;
 
   // Controllers for debt recording
   final _debtAmountController = TextEditingController();
   final _debtorNameController = TextEditingController();
+  final _debtorPhoneController = TextEditingController();
   final _debtDescriptionController = TextEditingController();
   final _debtDueDateController = TextEditingController();
+  String _debtorType = 'customer'; // Default to 'customer'
+  String _debtDepartment = 'all'; // Default department
 
   // Controllers for income recording
   final _incomeAmountController = TextEditingController();
@@ -68,6 +75,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     _tabController.dispose();
     _debtAmountController.dispose();
     _debtorNameController.dispose();
+    _debtorPhoneController.dispose();
     _debtDescriptionController.dispose();
     _debtDueDateController.dispose();
     _incomeAmountController.dispose();
@@ -88,6 +96,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Future<void> _loadFinancialData() async {
+    if (_isLoadingData) return; // Prevent concurrent loads
+    
+    setState(() => _isLoadingData = true);
+    
     try {
       final summary = await _dataService.getFinancialSummary();
       final debts = await _dataService.getDebts();
@@ -116,8 +128,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           'Mini Mart': miniMartSales,
           'Kitchen': kitchenSales,
         };
+        _isLoadingData = false;
       });
     } catch (e) {
+      setState(() => _isLoadingData = false);
       if (mounted) {
         ErrorHandler.handleError(
           context,
@@ -733,8 +747,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => _generateFinancialReport(),
-                    child: const Text('Generate Financial Report'),
+                    onPressed: _isGeneratingReport ? null : () => _generateFinancialReport(),
+                    child: _isGeneratingReport
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Generate Financial Report'),
                   ),
                 ],
               ),
@@ -747,48 +767,189 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   // Dialog methods
   void _showAddDebtDialog() {
+    _debtorType = 'customer'; // Reset to default
+    _debtDepartment = 'all'; // Reset to default
+    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record New Debt'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _debtorNameController,
-              decoration: const InputDecoration(labelText: 'Debtor Name'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Record New Debt'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _debtorNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Debtor Name *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _debtorPhoneController,
+                  decoration: const InputDecoration(
+                    labelText: 'Debtor Phone *',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _debtorType,
+                  decoration: const InputDecoration(
+                    labelText: 'Debtor Type *',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'customer', child: Text('Customer')),
+                    DropdownMenuItem(value: 'supplier', child: Text('Supplier')),
+                    DropdownMenuItem(value: 'staff', child: Text('Staff')),
+                    DropdownMenuItem(value: 'other', child: Text('Other')),
+                  ],
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _debtorType = value ?? 'customer';
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _debtAmountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount (₦) *',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _debtDescriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason/Description *',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _debtDueDateController,
+                  decoration: const InputDecoration(
+                    labelText: 'Due Date (YYYY-MM-DD)',
+                    border: OutlineInputBorder(),
+                    hintText: 'Optional',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _debtDepartment,
+                  decoration: const InputDecoration(
+                    labelText: 'Department',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('All Departments')),
+                    DropdownMenuItem(value: 'reception', child: Text('Reception')),
+                    DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                    DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                    DropdownMenuItem(value: 'restaurant', child: Text('Restaurant')),
+                    DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+                  ],
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _debtDepartment = value ?? 'all';
+                    });
+                  },
+                ),
+              ],
             ),
-            TextField(
-              controller: _debtAmountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: TextInputType.number,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
             ),
-            TextField(
-              controller: _debtDescriptionController,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-            TextField(
-              controller: _debtDueDateController,
-              decoration: const InputDecoration(labelText: 'Due Date'),
+            ElevatedButton(
+              onPressed: () => _recordDebt(),
+              child: const Text('Record Debt'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // Implement debt recording logic
-              Navigator.pop(context);
-              _clearDebtForm();
-            },
-            child: const Text('Record'),
-          ),
-        ],
       ),
     );
+  }
+
+  Future<void> _recordDebt() async {
+    // Validate required fields
+    if (_debtorNameController.text.trim().isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Please enter debtor name');
+      return;
+    }
+    if (_debtorPhoneController.text.trim().isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Please enter debtor phone');
+      return;
+    }
+    if (_debtAmountController.text.trim().isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Please enter amount');
+      return;
+    }
+    if (_debtDescriptionController.text.trim().isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Please enter reason/description');
+      return;
+    }
+
+    try {
+      // Convert naira to kobo
+      final amountInNaira = double.tryParse(_debtAmountController.text.trim());
+      if (amountInNaira == null || amountInNaira <= 0) {
+        throw Exception('Please enter a valid amount greater than zero');
+      }
+      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+
+      // Parse due date
+      DateTime? dueDate;
+      if (_debtDueDateController.text.trim().isNotEmpty) {
+        try {
+          dueDate = DateTime.parse(_debtDueDateController.text.trim());
+        } catch (e) {
+          throw Exception('Invalid date format. Please use YYYY-MM-DD');
+        }
+      } else {
+        // Default to 30 days from now
+        dueDate = DateTime.now().add(const Duration(days: 30));
+      }
+
+      final debt = {
+        'debtor_name': InputSanitizer.sanitizeText(_debtorNameController.text.trim()),
+        'debtor_phone': InputSanitizer.sanitizePhone(_debtorPhoneController.text.trim()),
+        'debtor_type': _debtorType,
+        'amount': amountInKobo, // Store in kobo
+        'owed_to': 'P-ZED Luxury Hotels & Suites',
+        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()),
+        'date': DateTime.now().toIso8601String().split('T')[0],
+        'due_date': dueDate.toIso8601String().split('T')[0],
+        'status': 'pending',
+        'department': _debtDepartment,
+      };
+
+      await _dataService.recordDebt(debt);
+
+      Navigator.pop(context);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Debt recorded successfully!');
+        _clearDebtForm();
+        _loadFinancialData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to record debt. Please check all fields and try again.',
+        );
+      }
+    }
   }
 
   void _showAddIncomeDialog() {
@@ -978,13 +1139,34 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   // Save methods
   Future<void> _saveIncomeRecord() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      
+      if (userId == null) {
+        throw Exception('User must be logged in to record income');
+      }
+
+      // Convert naira input to kobo for database
+      final amountInNaira = double.parse(_incomeAmountController.text);
+      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+      
+      // Validate amount
+      if (amountInKobo <= 0) {
+        throw Exception('Amount must be greater than zero');
+      }
+      if (amountInKobo > 100000000000) { // 1 billion naira = 100 billion kobo
+        throw Exception('Amount is too large. Please verify the amount.');
+      }
+
       final income = {
         'description': _incomeDescriptionController.text,
-        'amount': double.parse(_incomeAmountController.text),
+        'amount': amountInKobo, // Store in kobo
         'source': _incomeSourceController.text,
         'date': DateTime.now().toIso8601String().split('T')[0],
         'department': 'finance',
         'payment_method': 'cash',
+        'staff_id': userId, // Use current user ID
+        'created_by': userId,
       };
       
       await _dataService.addIncomeRecord(income);
@@ -1006,14 +1188,30 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Future<void> _saveExpense() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      
+      if (userId == null) {
+        throw Exception('User must be logged in to record expenses');
+      }
+
+      // Convert naira input to kobo for database
+      final amountInNaira = double.parse(_expenseAmountController.text);
+      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+      
+      // Validate amount
+      if (amountInKobo <= 0) {
+        throw Exception('Amount must be greater than zero');
+      }
+
       final expense = {
         'description': _expenseDescriptionController.text,
-        'amount': double.parse(_expenseAmountController.text),
+        'amount': amountInKobo, // Store in kobo
         'category': _expenseCategoryController.text,
         'date': DateTime.now().toIso8601String().split('T')[0],
         'department': 'all',
         'payment_method': 'cash',
-        'staff_id': 'staff006', // Current user
+        'profile_id': userId, // Use current user ID (expenses table uses profile_id)
       };
       
       await _dataService.addExpense(expense);
@@ -1035,12 +1233,29 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Future<void> _savePayrollRecord() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      
+      if (userId == null) {
+        throw Exception('User must be logged in to record payroll');
+      }
+
+      // Convert naira input to kobo for database
+      final amountInNaira = double.parse(_payrollAmountController.text);
+      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+      
+      // Validate amount
+      if (amountInKobo <= 0) {
+        throw Exception('Amount must be greater than zero');
+      }
+
       final payroll = {
         'staff_id': _staffIdController.text,
-        'amount': double.parse(_payrollAmountController.text),
+        'amount': amountInKobo, // Store in kobo
         'month': _payrollMonthController.text,
         'status': 'pending',
         'payment_method': 'bank_transfer',
+        'processed_by': userId, // Track who recorded this
       };
       
       await _dataService.addPayrollRecord(payroll);
@@ -1062,18 +1277,48 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Future<void> _saveCashDeposit() async {
     try {
-      final amount = double.parse(_depositAmountController.text);
-      final bankCharges = double.parse(_bankChargesController.text);
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      
+      if (userId == null) {
+        throw Exception('User must be logged in to record cash deposits');
+      }
+
+      // Convert naira input to kobo for database
+      final amountInNaira = double.parse(_depositAmountController.text);
+      final bankChargesInNaira = double.parse(_bankChargesController.text);
+      
+      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+      final bankChargesInKobo = PaymentService.nairaToKobo(bankChargesInNaira);
+      final netAmountInKobo = amountInKobo - bankChargesInKobo;
+      
+      // Validate amounts
+      if (amountInKobo <= 0) {
+        throw Exception('Amount must be greater than zero');
+      }
+      if (amountInKobo > 100000000000) { // 1 billion naira
+        throw Exception('Amount is too large. Please verify the amount.');
+      }
+      if (bankChargesInKobo < 0) {
+        throw Exception('Bank charges cannot be negative');
+      }
+      if (bankChargesInKobo > amountInKobo) {
+        throw Exception('Bank charges cannot exceed the deposit amount');
+      }
+      if (netAmountInKobo < 0) {
+        throw Exception('Net amount cannot be negative');
+      }
       
       final deposit = {
-        'amount': amount,
+        'amount': amountInKobo, // Store in kobo
         'bank_name': _bankNameController.text,
         'account_type': _accountTypeController.text,
-        'bank_charges': bankCharges,
-        'net_amount': amount - bankCharges,
+        'bank_charges': bankChargesInKobo, // Store in kobo
+        'net_amount': netAmountInKobo, // Store in kobo
         'date': DateTime.now().toIso8601String().split('T')[0],
         'description': _depositDescriptionController.text,
-        'staff_id': 'staff006', // Current user
+        'staff_id': userId, // Use current user ID
+        'created_by': userId,
       };
       
       await _dataService.addCashDeposit(deposit);
@@ -1094,7 +1339,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   // Mark debt as paid dialog
-  void _showMarkDebtPaidDialog(Map<String, dynamic> debt, int index) {
+  Future<void> _showMarkDebtPaidDialog(Map<String, dynamic> debt, int index) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1118,17 +1363,33 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _debts[index]['status'] = 'paid';
-                _debts[index]['paid_date'] = DateTime.now().toIso8601String();
-              });
-              Navigator.pop(context);
-              if (mounted) {
-                ErrorHandler.showSuccessMessage(
-                  context,
-                  'Debt marked as paid',
-                );
+            onPressed: () async {
+              try {
+                final debtId = debt['id'] as String;
+                await _dataService.updateDebtStatus(debtId, 'paid');
+                
+                setState(() {
+                  _debts[index]['status'] = 'paid';
+                  _debts[index]['paid_date'] = DateTime.now().toIso8601String();
+                });
+                
+                Navigator.pop(context);
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Debt marked as paid',
+                  );
+                  _loadFinancialData(); // Refresh to get updated data
+                }
+              } catch (e) {
+                Navigator.pop(context);
+                if (mounted) {
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to update debt status. Please try again.',
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
@@ -1174,21 +1435,192 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   // Report generation methods
-  void _generateDepartmentReport() {
-    if (mounted) {
-      ErrorHandler.showSuccessMessage(
-        context,
-        'Department report generated successfully',
-      );
+  Future<void> _generateDepartmentReport() async {
+    if (_isGeneratingReport) return; // Prevent concurrent generation
+    
+    setState(() => _isGeneratingReport = true);
+    
+    try {
+      // Load department sales data
+      final departmentSales = await _dataService.getDepartmentSales();
+      
+      // Group by department
+      final Map<String, Map<String, dynamic>> departmentSummary = {};
+      for (final sale in departmentSales) {
+        final dept = sale['department'] as String? ?? 'Unknown';
+        if (!departmentSummary.containsKey(dept)) {
+          departmentSummary[dept] = {
+            'department': dept,
+            'total_sales': 0,
+            'transaction_count': 0,
+          };
+        }
+        final totalSales = (sale['total_sales'] as int? ?? 0);
+        final transactionCount = (sale['transaction_count'] as int? ?? 0);
+        departmentSummary[dept]!['total_sales'] = 
+            (departmentSummary[dept]!['total_sales'] as int) + totalSales;
+        departmentSummary[dept]!['transaction_count'] = 
+            (departmentSummary[dept]!['transaction_count'] as int) + transactionCount;
+      }
+
+      setState(() => _isGeneratingReport = false);
+      
+      if (mounted) {
+        _showReportDialog('Department Sales Report', departmentSummary.values.toList());
+      }
+    } catch (e) {
+      setState(() => _isGeneratingReport = false);
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to generate department report. Please try again.',
+        );
+      }
     }
   }
 
-  void _generateFinancialReport() {
-    if (mounted) {
-      ErrorHandler.showSuccessMessage(
-        context,
-        'Financial report generated successfully',
-      );
+  Future<void> _generateFinancialReport() async {
+    if (_isGeneratingReport) return; // Prevent concurrent generation
+    
+    setState(() => _isGeneratingReport = true);
+    
+    try {
+      // Load financial summary
+      final summary = await _dataService.getFinancialSummary();
+      final incomeRecords = await _dataService.getIncomeRecords();
+      final expenses = await _dataService.getExpenses();
+      
+      final reportData = {
+        'summary': summary,
+        'total_income_records': incomeRecords.length,
+        'total_expense_records': expenses.length,
+        'income_total': incomeRecords.fold<int>(0, (sum, record) => 
+            sum + ((record['amount'] as num?)?.toInt() ?? 0)),
+        'expense_total': expenses.fold<int>(0, (sum, expense) => 
+            sum + ((expense['amount'] as num?)?.toInt() ?? 0)),
+      };
+
+      setState(() => _isGeneratingReport = false);
+      
+      if (mounted) {
+        _showFinancialReportDialog(reportData);
+      }
+    } catch (e) {
+      setState(() => _isGeneratingReport = false);
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to generate financial report. Please try again.',
+        );
+      }
     }
+  }
+
+  void _showReportDialog(String title, List<Map<String, dynamic>> data) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final dept in data)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              dept['department'] as String? ?? 'Unknown',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Total Sales: ₦${PaymentService.koboToNaira((dept['total_sales'] as int? ?? 0)).toStringAsFixed(2)}',
+                            ),
+                            Text(
+                              'Transactions: ${dept['transaction_count'] ?? 0}',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFinancialReportDialog(Map<String, dynamic> data) {
+    final summary = data['summary'] as Map<String, dynamic>;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Financial Report'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildReportRow('Total Income', PaymentService.koboToNaira((summary['total_income'] as int?) ?? 0)),
+                _buildReportRow('Total Expenses', PaymentService.koboToNaira((summary['total_expenses'] as int?) ?? 0)),
+                _buildReportRow('Net Profit', PaymentService.koboToNaira((summary['net_profit'] as int?) ?? 0)),
+                const Divider(),
+                Text('Income Records: ${data['total_income_records']}'),
+                Text('Expense Records: ${data['total_expense_records']}'),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportRow(String label, double amount) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(
+            '₦${amount.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: amount < 0 ? Colors.red : Colors.green,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

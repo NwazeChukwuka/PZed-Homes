@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -161,9 +162,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       
       // Get or create guest profile
       String guestProfileId;
-      final email = _guestEmailController.text.trim();
-      final fullName = _guestNameController.text.trim();
-      final phone = _guestPhoneController.text.trim();
+      // Sanitize inputs to prevent XSS and other security issues
+      final email = InputSanitizer.sanitizeEmail(_guestEmailController.text.trim());
+      final fullName = InputSanitizer.sanitizeText(_guestNameController.text.trim());
+      final phone = InputSanitizer.sanitizePhone(_guestPhoneController.text.trim());
       
       final existingProfile = await _supabase
           .from('profiles')
@@ -217,6 +219,28 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       final roomPrice = selectedRoomType['price'] as int? ?? 0;
       final totalAmount = nights * roomPrice;
       
+      // CRITICAL: Validate payment method and amount
+      // Ensure payment method is selected and valid
+      if (_paymentMethod.isEmpty) {
+        throw Exception('Please select a payment method');
+      }
+      
+      int paidAmount = 0;
+      if (_paymentMethod == 'Cash' || _paymentMethod == 'Card' || _paymentMethod == 'Bank Transfer') {
+        // For paid bookings, require full payment
+        paidAmount = totalAmount;
+      } else if (_paymentMethod == 'Credit') {
+        // Credit bookings can have partial or zero payment
+        paidAmount = 0;
+      } else {
+        throw Exception('Invalid payment method selected. Please choose Cash, Card, Bank Transfer, or Credit.');
+      }
+      
+      // Additional validation: Ensure total amount is positive
+      if (totalAmount <= 0) {
+        throw Exception('Invalid booking amount. Please check room selection and dates.');
+      }
+      
       await _dataService.createBooking({
         'guest_profile_id': guestProfileId, // Use the profile ID we just created/got
         'room_id': _selectedRoomId, // Can be null - receptionist can assign later
@@ -225,7 +249,8 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         'check_out': _checkOutDate!.toIso8601String(),
         'status': 'Pending Check-in',
         'total_amount': totalAmount, // Already in kobo from room_types.price
-        'paid_amount': 0, // Initially unpaid, receptionist can update when payment is received
+        'paid_amount': paidAmount, // Based on payment method
+        'payment_method': _paymentMethod.toLowerCase(),
       });
 
       if (mounted) {

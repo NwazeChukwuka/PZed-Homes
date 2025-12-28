@@ -139,7 +139,13 @@ CREATE TABLE public.profiles (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Profile Policies
--- Only active staff can view profiles (resigned/terminated staff are blocked)
+-- CRITICAL: Users must be able to view their own profile for login to work
+CREATE POLICY "Users can view own profile" 
+ON public.profiles FOR SELECT USING (
+  auth.uid() = id
+);
+
+-- Only active staff can view other profiles (resigned/terminated staff are blocked)
 -- Updated to use helper functions to prevent infinite recursion
 CREATE POLICY "Active staff can view profiles" 
 ON public.profiles FOR SELECT USING (
@@ -242,6 +248,31 @@ CREATE TABLE public.departments (
     description TEXT,
     manager_id UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE public.positions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    benefits TEXT, -- Comma-separated or JSON
+    department TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.positions ENABLE ROW LEVEL SECURITY;
+
+-- Positions policies
+CREATE POLICY "Active staff can view positions" ON public.positions FOR SELECT USING (
+  is_user_active(auth.uid())
+);
+
+CREATE POLICY "Active HR/Manager can manage positions" ON public.positions FOR ALL USING (
+  is_user_active(auth.uid())
+  AND user_has_role(auth.uid(), 'hr')
+  OR user_has_role(auth.uid(), 'manager')
+  OR user_has_role(auth.uid(), 'owner')
 );
 
 CREATE TABLE public.expense_categories (
@@ -1360,6 +1391,98 @@ BEGIN
 END;
 $$;
 
+-- NEW: Function to atomically check room availability and create booking
+-- This prevents race conditions where multiple guests book the same room type simultaneously
+CREATE OR REPLACE FUNCTION public.create_booking_with_availability_check(
+    p_guest_profile_id UUID,
+    p_requested_room_type TEXT,
+    p_check_in_date DATE,
+    p_check_out_date DATE,
+    p_total_amount INT8,
+    p_paid_amount INT8 DEFAULT 0,
+    p_payment_method TEXT DEFAULT 'cash',
+    p_guest_name TEXT,
+    p_guest_email TEXT,
+    p_guest_phone TEXT DEFAULT NULL
+)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_booking_id UUID;
+    v_total_rooms INTEGER;
+    v_assigned_rooms INTEGER;
+    v_bookings_by_type INTEGER;
+    v_available_count INTEGER;
+BEGIN
+    -- Calculate available rooms of requested type
+    -- Get total rooms of this type
+    SELECT COUNT(*) INTO v_total_rooms
+    FROM public.rooms
+    WHERE type = p_requested_room_type
+    AND status = 'Vacant';
+    
+    IF v_total_rooms = 0 THEN
+        RAISE EXCEPTION 'No rooms of type % are available', p_requested_room_type;
+    END IF;
+    
+    -- Count rooms directly assigned to bookings during the date range
+    SELECT COUNT(DISTINCT room_id) INTO v_assigned_rooms
+    FROM public.bookings
+    WHERE room_id IS NOT NULL
+    AND status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
+    AND check_in_date < p_check_out_date
+    AND check_out_date > p_check_in_date;
+    
+    -- Count bookings by requested room type (without room_id) during the date range
+    SELECT COUNT(*) INTO v_bookings_by_type
+    FROM public.bookings
+    WHERE room_id IS NULL
+    AND requested_room_type = p_requested_room_type
+    AND status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
+    AND check_in_date < p_check_out_date
+    AND check_out_date > p_check_in_date;
+    
+    -- Calculate available count
+    v_available_count := v_total_rooms - v_assigned_rooms - v_bookings_by_type;
+    
+    IF v_available_count <= 0 THEN
+        RAISE EXCEPTION 'No rooms of type % are available for the selected dates', p_requested_room_type;
+    END IF;
+    
+    -- Create booking (room_id will be assigned later by receptionist)
+    INSERT INTO public.bookings (
+        guest_profile_id,
+        requested_room_type,
+        check_in_date,
+        check_out_date,
+        total_amount,
+        paid_amount,
+        payment_method,
+        guest_name,
+        guest_email,
+        guest_phone,
+        status
+    ) VALUES (
+        p_guest_profile_id,
+        p_requested_room_type,
+        p_check_in_date,
+        p_check_out_date,
+        p_total_amount,
+        p_paid_amount,
+        p_payment_method,
+        p_guest_name,
+        p_guest_email,
+        p_guest_phone,
+        'Pending Check-in'
+    ) RETURNING id INTO v_booking_id;
+    
+    RETURN v_booking_id;
+END;
+$$;
+COMMENT ON FUNCTION public.create_booking_with_availability_check IS 
+'Atomically checks room availability and creates a booking. Prevents race conditions by performing availability check and booking creation in a single transaction.';
+
 -- FIXED: Function to check in guest (Requires room_id to be assigned first)
 CREATE OR REPLACE FUNCTION public.check_in_guest(booking_id UUID)
 RETURNS BOOLEAN AS $$
@@ -1624,6 +1747,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_room_id ON public.bookings(room_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON public.bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_dates ON public.bookings(check_in_date, check_out_date);
 CREATE INDEX IF NOT EXISTS idx_bookings_guest_profile_id ON public.bookings(guest_profile_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_guest_status ON public.bookings(guest_profile_id, status);
 CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON public.bookings(created_at);
 CREATE INDEX IF NOT EXISTS idx_bookings_requested_room_type ON public.bookings(requested_room_type);
 CREATE INDEX IF NOT EXISTS idx_bookings_room_id_null ON public.bookings(room_id) WHERE room_id IS NULL;
@@ -1636,6 +1760,7 @@ CREATE INDEX IF NOT EXISTS idx_rooms_type ON public.rooms(type);
 CREATE INDEX IF NOT EXISTS idx_stock_transactions_item ON public.stock_transactions(stock_item_id);
 CREATE INDEX IF NOT EXISTS idx_stock_transactions_location ON public.stock_transactions(location_id);
 CREATE INDEX IF NOT EXISTS idx_stock_transactions_created_at ON public.stock_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_stock_transactions_staff_created ON public.stock_transactions(staff_profile_id, created_at);
 
 -- Inventory items indexes (for bar-specific queries)
 CREATE INDEX IF NOT EXISTS idx_inventory_items_department ON public.inventory_items(department);

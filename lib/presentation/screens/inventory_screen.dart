@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 // Supabase removed for mock-only mode
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -1004,17 +1006,26 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       }
 
       // Get location ID for the selected bar
+      // CRITICAL: Fail fast if location not found - don't silently continue
       String? locationId;
-      try {
-        final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
-        final locationResponse = await supabase
-            .from('locations')
-            .select('id')
-            .eq('name', locationName)
-            .maybeSingle();
-        locationId = locationResponse?['id'] as String?;
-      } catch (e) {
-        // Location lookup failed, continue without it for inventory update
+      final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+      final locationResponse = await supabase
+          .from('locations')
+          .select('id')
+          .eq('name', locationName)
+          .maybeSingle();
+      
+      if (locationResponse == null) {
+        throw Exception(
+          'Location "$locationName" not found in database. '
+          'Please ensure locations are properly configured before processing sales.'
+        );
+      }
+      
+      locationId = locationResponse['id'] as String?;
+      
+      if (locationId == null) {
+        throw Exception('Failed to get location ID for $locationName');
       }
 
       // Get active bartender shift for shift tracking
@@ -1031,52 +1042,61 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         activeShiftId = shiftResponse?['id'] as String?;
       } catch (e) {
         // Shift lookup failed, continue without shift tracking
-        print('Warning: Could not find active shift: $e');
+        if (kDebugMode) {
+          debugPrint('Warning: Could not find active shift: $e');
+        }
       }
 
       // Process each item sale
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
         final quantity = saleItem['quantity'] as int;
+        // Price from inventory_items is already in kobo (per schema)
+        // But UI displays in naira, so saleItem['price'] is in naira
+        // Convert naira to kobo for database storage
         final priceInNaira = saleItem['price'] as double;
-        final priceInKobo = (priceInNaira * 100).toInt(); // Convert to kobo
+        final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
+
+        // CRITICAL: Validate stock availability before processing sale
+        final currentStock = item['current_stock'] as int? ?? 0;
+        if (currentStock < quantity) {
+          throw Exception(
+            'Insufficient stock for ${item['name']}. Available: $currentStock ${item['unit'] ?? 'units'}, Requested: $quantity'
+          );
+        }
 
         // Record stock transaction for location-based stock tracking
         // This ensures each bar maintains its own stock
-        if (locationId != null) {
-          // Find or create corresponding stock_item for this inventory_item
-          // This allows proper per-location stock tracking via stock_transactions
-          String? stockItemId;
+        // Find or create corresponding stock_item for this inventory_item
+        // This allows proper per-location stock tracking via stock_transactions
+        String? stockItemId;
+        
+        try {
+          // First, try to find existing stock_item by name
+          final stockItemResponse = await supabase
+              .from('stock_items')
+              .select('id')
+              .eq('name', item['name'] as String)
+              .maybeSingle();
           
+          if (stockItemResponse != null) {
+            stockItemId = stockItemResponse['id'] as String?;
+          } else {
+            // CRITICAL: Don't create stock_items on-the-fly during sales
+            // This causes data inconsistency and potential duplicates
+            // Stock items must be pre-created before sales can be processed
+            throw Exception(
+              'Stock item "${item['name']}" not found in stock_items table. '
+              'Please create the stock item first before processing sales. '
+              'This ensures proper inventory tracking and prevents data inconsistencies.'
+            );
+          }
+          
+          // Record sale in stock_transactions for proper location-based tracking
+          // This ensures VIP Bar and Outside Bar maintain separate stock levels
+          // CRITICAL: Fail fast if stock_transactions insert fails - don't mask errors
+          // If stock_transactions fails, we MUST NOT update inventory_items to prevent inconsistency
           try {
-            // First, try to find existing stock_item by name
-            final stockItemResponse = await supabase
-                .from('stock_items')
-                .select('id')
-                .eq('name', item['name'] as String)
-                .maybeSingle();
-            
-            if (stockItemResponse != null) {
-              stockItemId = stockItemResponse['id'] as String?;
-            } else {
-              // Create new stock_item if it doesn't exist
-              final newStockItem = await supabase
-                  .from('stock_items')
-                  .insert({
-                    'name': item['name'],
-                    'description': item['description'],
-                    'unit': item['unit'] ?? 'units',
-                  })
-                  .select('id')
-                  .single();
-              stockItemId = newStockItem['id'] as String;
-              
-              // Optionally, update inventory_item to link to stock_item (if schema allows)
-              // This would require adding stock_item_id column to inventory_items
-            }
-            
-            // Record sale in stock_transactions for proper location-based tracking
-            // This ensures VIP Bar and Outside Bar maintain separate stock levels
             await supabase
                 .from('stock_transactions')
                 .insert({
@@ -1087,10 +1107,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   'quantity': -quantity, // Negative for sale
                   'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
                 });
-          } catch (e) {
-            // If stock_transactions recording fails, fall back to updating inventory_items
-            // This is not ideal but ensures the sale is recorded
-            print('Warning: Could not record in stock_transactions: $e');
+            
+            // Only update inventory_items.current_stock AFTER successful stock_transactions insert
+            // This ensures data consistency - stock_transactions is the source of truth
             final currentStock = item['current_stock'] as int? ?? 0;
             await supabase
                 .from('inventory_items')
@@ -1098,16 +1117,18 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   'current_stock': currentStock - quantity,
                 })
                 .eq('id', item['id']);
+          } catch (e) {
+            // CRITICAL: If stock_transactions fails, throw error immediately
+            // DO NOT fall back to updating inventory_items directly - this would mask the error
+            // and cause data inconsistency between stock_transactions and inventory_items
+            throw Exception(
+              'Failed to record stock transaction for ${item['name']}. '
+              'Sale cannot be processed. Error: $e'
+            );
           }
-        } else {
-          // Fallback: update global stock if location lookup failed
-          final currentStock = item['current_stock'] as int? ?? 0;
-          await supabase
-              .from('inventory_items')
-              .update({
-                'current_stock': currentStock - quantity,
-              })
-              .eq('id', item['id']);
+        } catch (e) {
+          // Re-throw the error from stock item lookup
+          rethrow;
         }
       }
 
@@ -1195,12 +1216,16 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 .eq('id', activeShiftId);
           } catch (e) {
             // Log error but don't fail the sale
-            print('Warning: Could not update shift total_sales: $e');
+            if (kDebugMode) {
+              debugPrint('Warning: Could not update shift total_sales: $e');
+            }
           }
         }
       } catch (e) {
         // Log error but don't fail the sale
-        print('Error creating department_sales record: $e');
+        if (kDebugMode) {
+          debugPrint('Error creating department_sales record: $e');
+        }
       }
 
       // If credit payment, record as debt (amount in kobo)

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DataService {
@@ -106,6 +107,18 @@ class DataService {
                 .update({'phone': phone})
                 .eq('id', guestProfileId);
           }
+
+          // CRITICAL: Send password reset email so guest can set their own password
+          // This allows guests to log in and view their bookings
+          try {
+            await _supabase.auth.resetPasswordForEmail(email);
+          } catch (e) {
+            // Log error but don't fail the booking creation
+            // Guest can use "Forgot Password" later
+            if (kDebugMode) {
+              debugPrint('Warning: Could not send password reset email to $email: $e');
+            }
+          }
         }
       }
       
@@ -167,6 +180,30 @@ class DataService {
     });
   }
 
+  // Stock Items
+  Future<List<Map<String, dynamic>>> getStockItems() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('stock_items')
+          .select()
+          .order('name')
+          .limit(500);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  // Locations
+  Future<List<Map<String, dynamic>>> getLocations() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('locations')
+          .select()
+          .order('name')
+          .limit(100);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
   // Staff Profiles (using profiles table with role filtering)
   Future<List<Map<String, dynamic>>> getStaffProfiles() async {
     return await _retryOperation(() async {
@@ -219,12 +256,71 @@ class DataService {
     });
   }
 
+  // Update inventory item stock after stock transaction
+  Future<void> updateInventoryStock(String inventoryItemId, int newStock) async {
+    await _retryOperation(() async {
+      await _supabase
+          .from('inventory_items')
+          .update({'current_stock': newStock})
+          .eq('id', inventoryItemId);
+    });
+  }
+
   Future<void> recordStockTransaction(Map<String, dynamic> transaction) async {
     await _retryOperation(() async {
+      // Validate foreign key relationships before insert
+      final stockItemId = transaction['stock_item_id'] as String?;
+      final locationId = transaction['location_id'] as String?;
+      final staffProfileId = transaction['staff_profile_id'] as String?;
+      
+      if (stockItemId == null) {
+        throw Exception('stock_item_id is required');
+      }
+      if (locationId == null) {
+        throw Exception('location_id is required');
+      }
+      if (staffProfileId == null) {
+        throw Exception('staff_profile_id is required');
+      }
+      
+      // Verify stock_item exists
+      final stockItemExists = await _supabase
+          .from('stock_items')
+          .select('id')
+          .eq('id', stockItemId)
+          .maybeSingle();
+      
+      if (stockItemExists == null) {
+        throw Exception('Stock item not found. Please verify the stock_item_id is valid.');
+      }
+      
+      // Verify location exists
+      final locationExists = await _supabase
+          .from('locations')
+          .select('id')
+          .eq('id', locationId)
+          .maybeSingle();
+      
+      if (locationExists == null) {
+        throw Exception('Location not found. Please verify the location_id is valid.');
+      }
+      
+      // Verify staff profile exists
+      final staffExists = await _supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', staffProfileId)
+          .maybeSingle();
+      
+      if (staffExists == null) {
+        throw Exception('Staff profile not found. Please verify the staff_profile_id is valid.');
+      }
+      
+      // All validations passed, insert transaction
       await _supabase.from('stock_transactions').insert({
-        'stock_item_id': transaction['stock_item_id'], // Required: references stock_items
-        'location_id': transaction['location_id'], // Required: references locations
-        'staff_profile_id': transaction['staff_profile_id'], // Required: references profiles
+        'stock_item_id': stockItemId,
+        'location_id': locationId,
+        'staff_profile_id': staffProfileId,
         'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
         'quantity': transaction['quantity'], // Required: positive or negative
         'notes': transaction['notes'], // Optional
@@ -248,12 +344,11 @@ class DataService {
     await _retryOperation(() async {
       await _supabase.from('expenses').insert({
         'description': expense['description'],
-        'amount': expense['amount'],
+        'amount': expense['amount'], // Should be in kobo
         'category': expense['category'],
         'transaction_date': expense['transaction_date'] ?? expense['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'department': expense['department'] ?? 'all',
-        'payment_method': expense['payment_method'] ?? 'cash',
-        'staff_id': expense['staff_id'],
+        'profile_id': expense['profile_id'] ?? expense['staff_id'], // Schema uses profile_id
       });
     });
   }
@@ -273,11 +368,14 @@ class DataService {
     await _retryOperation(() async {
       await _supabase.from('income_records').insert({
         'description': income['description'],
-        'amount': income['amount'],
+        'amount': income['amount'], // Should be in kobo
         'source': income['source'],
         'date': income['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'department': income['department'] ?? 'finance',
         'payment_method': income['payment_method'] ?? 'cash',
+        'staff_id': income['staff_id'], // Add staff_id if provided
+        'created_by': income['created_by'] ?? income['staff_id'], // Track who created
+        'booking_id': income['booking_id'], // Optional booking link
       });
     });
   }
@@ -353,6 +451,19 @@ class DataService {
         'date': debt['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'status': debt['status'] ?? 'pending',
       });
+    });
+  }
+
+  Future<void> updateDebtStatus(String debtId, String status) async {
+    await _retryOperation(() async {
+      await _supabase
+          .from('debts')
+          .update({
+            'status': status,
+            'paid_date': status == 'paid' ? DateTime.now().toIso8601String().split('T')[0] : null,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', debtId);
     });
   }
 
@@ -502,7 +613,8 @@ class DataService {
       final response = await _supabase
           .from('mini_mart_items')
           .select()
-          .order('name');
+          .order('name')
+          .limit(500); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -585,7 +697,25 @@ class DataService {
   }
 
   // Department Sales
-  Future<List<Map<String, dynamic>>> getDepartmentSales(String department) async {
+  Future<List<Map<String, dynamic>>> getDepartmentSales([String? department]) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('department_sales')
+          .select();
+      
+      if (department != null) {
+        query = query.eq('department', department);
+      }
+      
+      final response = await query
+          .order('date', ascending: false)
+          .limit(1000);
+      
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getDepartmentSalesByDepartment(String department) async {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('department_sales')
@@ -897,7 +1027,7 @@ class DataService {
       
       final response = await query
           .order('clock_in_time', ascending: false)
-          .limit(100);
+          .limit(500); // Limit for performance
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -936,6 +1066,29 @@ class DataService {
           .single();
       
       return Map<String, dynamic>.from(profile);
+    });
+  }
+
+  // Position management
+  Future<void> createPosition(Map<String, dynamic> position) async {
+    await _retryOperation(() async {
+      await _supabase.from('positions').insert({
+        'name': position['name'],
+        'benefits': position['benefits'],
+        'department': position['department'],
+        'created_by': position['created_by'],
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getPositions() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('positions')
+          .select()
+          .order('name')
+          .limit(100);
+      return List<Map<String, dynamic>>.from(response);
     });
   }
 

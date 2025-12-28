@@ -128,7 +128,8 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
         }
       }
 
-      // Verify room type matches booking request (additional UI validation)
+      // CRITICAL: Enforce strict room type validation - don't allow override
+      // The database function will also validate, but we should prevent invalid assignments at UI level
       final selectedRoom = _availableRooms.firstWhere(
         (r) => r['id'] == _selectedRoomId,
         orElse: () => <String, dynamic>{},
@@ -136,35 +137,17 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       final roomType = selectedRoom['type'] as String?;
       final requestedType = booking['requested_room_type'] as String?;
 
-      if (requestedType != null && roomType != requestedType) {
-        final shouldProceed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Room Type Mismatch'),
-            content: Text(
-              'This booking requested: $requestedType\n'
-              'Selected room is: $roomType\n\n'
-              'The database function will validate this, but do you want to continue?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Continue'),
-              ),
-            ],
-          ),
-        );
-
-        if (shouldProceed != true) {
-          if (mounted) {
-            setState(() => _isAssigning = false);
-          }
-          return;
+      if (requestedType != null && roomType != null && roomType != requestedType) {
+        // Don't allow override - enforce strict validation
+        if (mounted) {
+          setState(() => _isAssigning = false);
+          ErrorHandler.showWarningMessage(
+            context,
+            'Room type mismatch! This booking requested "$requestedType" but selected room is "$roomType". '
+            'Please select a room of the correct type.',
+          );
         }
+        return;
       }
 
       // Use database function to assign room (includes validation)

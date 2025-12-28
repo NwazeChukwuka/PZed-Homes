@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -189,11 +191,52 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       for (final saleItem in _currentSale) {
         final itemId = saleItem['id'] as String;
         final quantity = saleItem['quantity'] as int;
+        // Price from mini_mart_items is already in kobo (per schema)
+        // But UI displays in naira, so saleItem['price'] is in naira
+        // Convert naira to kobo for database storage
         final priceInNaira = (saleItem['price'] as num).toDouble();
-        final priceInKobo = (priceInNaira * 100).toInt(); // Convert to kobo
+        final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
         final totalAmountInKobo = quantity * priceInKobo;
 
-        // Create sale record for this item
+        // CRITICAL: Validate stock availability and update atomically to prevent race conditions
+        // Use a single query with WHERE clause to ensure stock is still available
+        final itemData = await _supabase
+            .from('mini_mart_items')
+            .select('stock_quantity, name, unit')
+            .eq('id', itemId)
+            .single();
+        
+        final currentStock = (itemData['stock_quantity'] as int?) ?? 0;
+        final itemName = itemData['name'] as String? ?? 'Item';
+        final unit = itemData['unit'] as String? ?? 'units';
+        
+        if (currentStock < quantity) {
+          throw Exception(
+            'Insufficient stock for $itemName. Available: $currentStock $unit, Requested: $quantity'
+          );
+        }
+
+        // Calculate new stock
+        final newStock = currentStock - quantity;
+
+        // CRITICAL: Update stock atomically with WHERE clause to prevent race conditions
+        // This ensures that if another sale happens concurrently, only one will succeed
+        final updateResponse = await _supabase
+            .from('mini_mart_items')
+            .update({'stock_quantity': newStock})
+            .eq('id', itemId)
+            .gte('stock_quantity', quantity) // Only update if stock is still sufficient
+            .select('id')
+            .maybeSingle();
+
+        // If update returned null, stock was insufficient (race condition detected)
+        if (updateResponse == null) {
+          throw Exception(
+            'Stock for $itemName was updated by another transaction. Please refresh and try again.'
+          );
+        }
+
+        // Create sale record for this item (after stock update succeeded)
         await _supabase
             .from('mini_mart_sales')
             .insert({
@@ -206,22 +249,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               'customer_name': customerName,
               'sold_by': userId,
             });
-
-        // Update stock levels for this item
-        // Get current stock from database (schema uses 'stock_quantity' not 'current_stock')
-        final itemData = await _supabase
-            .from('mini_mart_items')
-            .select('stock_quantity')
-            .eq('id', itemId)
-            .single();
-        
-        final currentStock = (itemData['stock_quantity'] as int?) ?? 0;
-        final newStock = currentStock - quantity;
-
-        await _supabase
-            .from('mini_mart_items')
-            .update({'stock_quantity': newStock})
-            .eq('id', itemId);
       }
 
       // Calculate total sale amount in kobo for debt/income records
@@ -286,7 +313,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               });
         }
       } catch (e) {
-        print('Warning: Could not create department_sales record: $e');
+        if (kDebugMode) {
+          debugPrint('Warning: Could not create department_sales record: $e');
+        }
       }
 
       // If credit payment, record as debt (amount in kobo)

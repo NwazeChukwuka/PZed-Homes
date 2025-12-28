@@ -1,9 +1,11 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -44,6 +46,21 @@ class _HrScreenState extends State<HrScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Generate a secure random password with "Pzed" prefix
+  String _generateSecurePassword() {
+    const prefix = 'Pzed';
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
+    final random = Random.secure();
+    final suffix = StringBuffer();
+    
+    // Generate 8 random characters
+    for (int i = 0; i < 8; i++) {
+      suffix.write(chars[random.nextInt(chars.length)]);
+    }
+    
+    return '$prefix$suffix';
   }
 
   @override
@@ -846,11 +863,46 @@ class _HrScreenState extends State<HrScreen>
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              // Placeholder for persistence; scalable for backend integration
-              Navigator.pop(context);
-              if (mounted) {
-                ErrorHandler.showSuccessMessage(context, 'Position created');
+            onPressed: () async {
+              // Sanitize position inputs
+              final positionName = InputSanitizer.sanitizeText(nameController.text.trim());
+              final benefits = InputSanitizer.sanitizeDescription(benefitsController.text.trim());
+              
+              if (positionName.isEmpty) {
+                if (mounted) {
+                  ErrorHandler.showWarningMessage(
+                    context,
+                    'Please enter a position name',
+                  );
+                }
+                return;
+              }
+
+              try {
+                // Store position in database
+                final authService = Provider.of<AuthService>(context, listen: false);
+                final createdBy = authService.currentUser?.id;
+                
+                await _dataService.createPosition({
+                  'name': positionName,
+                  'benefits': benefits,
+                  'created_by': createdBy,
+                });
+                
+                Navigator.pop(context);
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(context, 'Position created successfully!');
+                  // Reload positions if needed
+                  setState(() {});
+                }
+              } catch (e) {
+                if (mounted) {
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to create position. Please try again.',
+                  );
+                }
               }
             },
             child: const Text('Create'),
@@ -1451,7 +1503,7 @@ class _HrScreenState extends State<HrScreen>
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (reasonController.text.isEmpty) {
                   if (mounted) {
                     ErrorHandler.showWarningMessage(
@@ -1471,14 +1523,34 @@ class _HrScreenState extends State<HrScreen>
                   return;
                 }
 
-                Navigator.pop(context);
-                if (mounted) {
-                  ErrorHandler.showWarningMessage(
-                    context,
-                    'Staff suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
+                // Update staff status in database
+                try {
+                  await _dataService.updateStaffStatus(
+                    staff['id'] as String,
+                    'Suspended',
                   );
+                  
+                  // Optionally: Store suspension end date (would require schema update)
+                  // For now, status change is sufficient
+                  
+                  Navigator.pop(context);
+                  if (mounted) {
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
+                    );
+                    _loadStaff();
+                  }
+                } catch (e) {
+                  Navigator.pop(context);
+                  if (mounted) {
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: 'Failed to suspend staff. Please try again.',
+                    );
+                  }
                 }
-                _loadStaff();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orange[700],
@@ -1604,14 +1676,31 @@ class _HrScreenState extends State<HrScreen>
             ),
             ElevatedButton(
               onPressed: confirmTermination && reasonController.text.isNotEmpty
-                  ? () {
-                      Navigator.pop(context);
-                      if (mounted) {
-                        ErrorHandler.showWarningMessage(
-                          context,
-                          '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
+                  ? () async {
+                      // Update staff status in database
+                      try {
+                        await _dataService.updateStaffStatus(
+                          staff['id'] as String,
+                          'Terminated',
                         );
-                        _loadStaff();
+                        
+                        Navigator.pop(context);
+                        if (mounted) {
+                          ErrorHandler.showSuccessMessage(
+                            context,
+                            '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
+                          );
+                          _loadStaff();
+                        }
+                      } catch (e) {
+                        Navigator.pop(context);
+                        if (mounted) {
+                          ErrorHandler.handleError(
+                            context,
+                            e,
+                            customMessage: 'Failed to terminate staff. Please try again.',
+                          );
+                        }
                       }
                     }
                   : null,
@@ -1863,17 +1952,29 @@ class _HrScreenState extends State<HrScreen>
                     throw Exception('Only owner can create staff profiles');
                   }
 
-                  // Save values before disposing controllers
-                  final staffName = fullNameController.text.trim();
-                  final staffEmail = emailController.text.trim();
-                  final staffPhone = phoneController.text.trim().isEmpty ? null : phoneController.text.trim();
+                  // Save and sanitize values before disposing controllers
+                  final staffName = InputSanitizer.sanitizeText(fullNameController.text.trim());
+                  final staffEmail = InputSanitizer.sanitizeEmail(emailController.text.trim());
+                  final staffPhone = phoneController.text.trim().isEmpty 
+                      ? null 
+                      : InputSanitizer.sanitizePhone(phoneController.text.trim());
                   final staffRole = selectedRole!;
+                  
+                  if (staffName.isEmpty) {
+                    throw Exception('Staff name cannot be empty');
+                  }
+                  if (staffEmail.isEmpty || !staffEmail.contains('@')) {
+                    throw Exception('Please enter a valid email address');
+                  }
 
+                  // Generate secure random password with "Pzed" prefix
+                  final securePassword = _generateSecurePassword();
+                  
                   // Create auth user (this will create guest profile via trigger)
                   final supabase = Supabase.instance.client;
                   final signUpResponse = await supabase.auth.signUp(
                     email: staffEmail,
-                    password: 'Password123', // Default password
+                    password: securePassword,
                     data: {
                       'full_name': staffName,
                     },
@@ -1889,7 +1990,7 @@ class _HrScreenState extends State<HrScreen>
                   // Update profile to staff role using database function
                   await _dataService.createStaffProfile(
                     email: staffEmail,
-                    password: 'Password123', // Not used in function
+                    password: securePassword, // Not used in function but kept for consistency
                     fullName: staffName,
                     role: staffRole,
                     phone: staffPhone,
@@ -1902,21 +2003,77 @@ class _HrScreenState extends State<HrScreen>
 
                   if (mounted) {
                     Navigator.pop(context);
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      '$staffName hired as ${staffRole.replaceAll('_', ' ')}. Default password: Password123',
+                    // Show password to owner (they should communicate it securely to staff)
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Staff Account Created'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('$staffName hired as ${staffRole.replaceAll('_', ' ')}'),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Temporary Password:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              securePassword,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              '⚠️ Please securely communicate this password to the staff member. They should change it on first login.',
+                              style: TextStyle(fontSize: 12, color: Colors.orange),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
                     );
                     _loadStaff();
                   }
                 } catch (e) {
                   setDialogState(() => isLoading = false);
                   if (mounted) {
-                    String errorMsg = 'Failed to create staff profile';
-                    if (e.toString().contains('already registered')) {
-                      errorMsg = 'Email already exists. Please use a different email.';
-                    } else if (e.toString().contains('Only owner')) {
+                    // Provide specific error messages for common issues
+                    String errorMsg = 'Failed to create staff account';
+                    final errorString = e.toString().toLowerCase();
+                    
+                    if (errorString.contains('already registered') || 
+                        errorString.contains('already exists') ||
+                        errorString.contains('user already registered')) {
+                      errorMsg = 'Email address is already registered. Please use a different email or reset the password for this account.';
+                    } else if (errorString.contains('invalid email') || 
+                               errorString.contains('email format')) {
+                      errorMsg = 'Invalid email format. Please enter a valid email address.';
+                    } else if (errorString.contains('network') || 
+                               errorString.contains('connection') ||
+                               errorString.contains('timeout')) {
+                      errorMsg = 'Network connection error. Please check your internet connection and try again.';
+                    } else if (errorString.contains('database') || 
+                               errorString.contains('supabase')) {
+                      errorMsg = 'Database error. Please contact support if the problem persists.';
+                    } else if (errorString.contains('profile') || 
+                               errorString.contains('createstaffprofile')) {
+                      errorMsg = 'Failed to create staff profile. Please verify all information is correct and try again.';
+                    } else if (errorString.contains('only owner')) {
                       errorMsg = 'Only owner can create staff profiles';
+                    } else {
+                      errorMsg = 'Failed to create staff account: ${e.toString()}';
                     }
+                    
                     ErrorHandler.handleError(
                       context,
                       e,

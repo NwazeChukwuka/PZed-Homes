@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -864,7 +865,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           );
         } else {
           // Log error if context not available
-          debugPrint('Error loading performance data: $e');
+          if (kDebugMode) {
+            debugPrint('Error loading performance data: $e');
+          }
         }
       }
     }

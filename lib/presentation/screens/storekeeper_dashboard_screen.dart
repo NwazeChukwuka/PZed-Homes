@@ -6,6 +6,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class StorekeeperDashboardScreen extends StatefulWidget {
   const StorekeeperDashboardScreen({super.key});
@@ -211,18 +212,28 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   }
 
   Future<List<Map<String, dynamic>>> _getLocations() async {
-    // Try to get locations from database, or use default list
+    // Query locations from database
     try {
-      // If you have a locations table, query it here
-      // For now, return default locations
-      return [
-        {'id': 'store', 'name': 'Store'},
-        {'id': 'vip_bar', 'name': 'VIP Bar'},
-        {'id': 'outside_bar', 'name': 'Outside Bar'},
-        {'id': 'mini_mart', 'name': 'Mini Mart'},
-        {'id': 'kitchen', 'name': 'Kitchen'},
-      ];
+      final locations = await _dataService.getLocations();
+      if (locations.isEmpty) {
+        // Fallback: If no locations in database, return empty list with error message
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'No locations found in database. Please add locations first.',
+          );
+        }
+        return [];
+      }
+      return locations;
     } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load locations from database.',
+        );
+      }
       return [];
     }
   }
@@ -245,11 +256,41 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
       final staffId = authService.currentUser?.id ?? 'system';
       final quantity = int.parse(_quantityController.text);
       
-      // Record stock transaction
-      // Note: This requires stock_item_id from stock_items table, not inventory_items
-      // If using inventory_items, you may need to map to stock_items or use a different approach
+      // Map inventory_item_id to stock_item_id
+      // First, find or create corresponding stock_item
+      String? stockItemId;
+      final inventoryItem = _inventoryItems.firstWhere((i) => i['id'] == _selectedItemId);
+      final itemName = inventoryItem['name'] as String;
+      
+      try {
+        // Try to find existing stock_item by name
+        final stockItems = await _dataService.getStockItems();
+        final existingStockItem = stockItems.firstWhere(
+          (si) => (si['name'] as String? ?? '').toLowerCase() == itemName.toLowerCase(),
+          orElse: () => <String, dynamic>{},
+        );
+        
+        if (existingStockItem.isNotEmpty) {
+          stockItemId = existingStockItem['id'] as String?;
+        } else {
+          // Create new stock_item if it doesn't exist
+          // Note: This requires adding a method to create stock_items, or we can use Supabase directly
+          throw Exception(
+            'Stock item "$itemName" not found in stock_items table. '
+            'Please create it first or use an existing stock item.'
+          );
+        }
+      } catch (e) {
+        throw Exception('Failed to map inventory item to stock item: $e');
+      }
+      
+      if (stockItemId == null) {
+        throw Exception('Could not find or create stock_item for inventory item');
+      }
+
+      // Record stock transaction using stock_item_id
       await _dataService.recordStockTransaction({
-        'stock_item_id': _selectedItemId, // This should be a stock_item_id, not inventory_item_id
+        'stock_item_id': stockItemId, // Now using correct stock_item_id
         'location_id': _selectedLocationId!, // Required
         'staff_profile_id': staffId, // Required
         'transaction_type': 'Purchase', // Use standard transaction type
@@ -259,12 +300,9 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
             : 'Direct stock entry',
       });
 
-      // Update inventory item stock
-      final item = _inventoryItems.firstWhere((i) => i['id'] == _selectedItemId);
-      final newStock = (item['current_stock'] as int? ?? 0) + quantity;
-      
-      // Note: You might need to add an updateInventoryStock method to DataService
-      // For now, we'll just show success
+      // Update inventory item stock to keep it in sync with stock_transactions
+      final newStock = (inventoryItem['current_stock'] as int? ?? 0) + quantity;
+      await _dataService.updateInventoryStock(_selectedItemId!, newStock);
       
       if (mounted) {
         ErrorHandler.showSuccessMessage(

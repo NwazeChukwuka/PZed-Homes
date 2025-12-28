@@ -8,6 +8,7 @@ import 'package:pzed_homes/core/state/app_state_manager.dart';
 import 'package:pzed_homes/core/connectivity/app_connectivity.dart';
 import 'package:pzed_homes/core/theme/app_theme.dart';
 import 'package:pzed_homes/core/navigation/app_router.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -49,6 +50,11 @@ Future<void> main() async {
       if (kDebugMode) print('Supabase init error: $e');
     });
   }
+
+  // Initialize Paystack payment service
+  PaymentService().initialize().catchError((e) {
+    if (kDebugMode) print('Paystack init error: $e');
+  });
 
   // Start app immediately - don't wait for Supabase
   runApp(const PzedHomesApp());
