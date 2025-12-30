@@ -33,7 +33,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     try {
       final [locations, stockItems] = await Future.wait([
         _supabase.from('locations').select(),
-        _supabase.from('stock_items').select('id, name, unit, current_stock'),
+        _supabase.from('stock_items').select('id, name, unit'),
       ]);
 
       setState(() {
@@ -41,10 +41,12 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         _stockItems = List<Map<String, dynamic>>.from(stockItems);
         
         // Initialize controllers and previous counts
+        // Note: stock_items don't have current_stock - it's calculated from transactions
+        // We'll initialize previous counts as 0, or calculate from transactions if needed
         for (var item in _stockItems) {
           final itemId = item['id'] as String;
           _controllers[itemId] = TextEditingController();
-          _previousCounts[itemId] = item['current_stock'] as int? ?? 0;
+          _previousCounts[itemId] = 0; // Will be calculated from stock_transactions if needed
         }
         
         _isLoadingData = false;
@@ -100,14 +102,9 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
       if (transactions.isNotEmpty) {
         await _supabase.from('stock_transactions').insert(transactions);
         
-        // Update current stock levels
-        for (var transaction in transactions) {
-          await _supabase.rpc('update_stock_level', params: {
-            'item_id': transaction['stock_item_id'],
-            'location_id': transaction['location_id'],
-            'new_quantity': transaction['quantity'],
-          });
-        }
+        // Note: Stock levels for stock_items are calculated from stock_transactions
+        // using the calculate_stock_level() function, so no manual update is needed.
+        // The transactions themselves represent the stock changes.
 
         if (mounted) {
           ErrorHandler.showSuccessMessage(

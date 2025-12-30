@@ -383,7 +383,7 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
               ),
             ),
             Text(
-              transaction['processed_by'] ?? 'System',
+              transaction['staff_profile_id'] != null ? 'Staff' : 'System',
               style: TextStyle(fontSize: 10, color: Colors.grey[600]),
             ),
           ],

@@ -956,7 +956,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     Text('Room ${g['room_id'] ?? ''}', style: const TextStyle(color: Colors.black54)),
                     const SizedBox(width: 12),
-                    Text('by ${g['processed_by'] ?? 'Staff'}', style: const TextStyle(color: Colors.black45)),
+                    Text('by Staff', style: const TextStyle(color: Colors.black45)),
                   ],
                 ),
               );

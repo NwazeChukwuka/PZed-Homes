@@ -399,6 +399,8 @@ class DataService {
         'month': payroll['month'],
         'status': payroll['status'] ?? 'pending',
         'payment_method': payroll['payment_method'] ?? 'bank_transfer',
+        'processed_by': payroll['processed_by'],
+        'notes': payroll['notes'],
       });
     });
   }
@@ -679,7 +681,7 @@ class DataService {
       final response = await _supabase
           .from('bookings')
           .select('id, guest_name, rooms!inner(room_number)')
-          .eq('status', 'checked_in');
+          .eq('status', 'Checked-in');
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -689,8 +691,8 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('bookings')
-          .select('id, guest_name, rooms!inner(room_number), processed_by, check_in_date')
-          .eq('status', 'checked_in')
+          .select('id, guest_name, rooms!inner(room_number), created_by, check_in_date')
+          .eq('status', 'Checked-in')
           .order('check_in_date', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     });
@@ -784,7 +786,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('maintenance_work_orders')
-          .select('*, assets(name), profiles!reported_by_id(full_name), profiles!assigned_to(full_name)')
+          .select('*, assets(name), reported_by:profiles!reported_by_id(full_name), assigned_to:profiles!assigned_to(full_name)')
           .order('created_at', ascending: false)
           .limit(100);
       return List<Map<String, dynamic>>.from(response);
@@ -825,7 +827,7 @@ class DataService {
     return await _retryOperation(() async {
       var query = _supabase
           .from('purchase_orders')
-          .select('*, purchase_order_items(*, stock_items(name)), profiles!purchaser_id(full_name), profiles!storekeeper_id(full_name)');
+          .select('*, purchase_order_items(*, stock_items(name)), purchaser:profiles!purchaser_id(full_name), storekeeper:profiles!storekeeper_id(full_name)');
       
       if (status != null) {
         query = query.eq('status', status);
@@ -898,7 +900,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('staff_role_assignments')
-          .select('*, profiles!staff_id(full_name), profiles!assigned_by(full_name)')
+          .select('*, staff:profiles!staff_id(full_name), assigned_by:profiles!assigned_by(full_name)')
           .eq('is_active', true)
           .order('created_at', ascending: false)
           .limit(100);
@@ -1042,16 +1044,39 @@ class DataService {
     required String role,
     String? phone,
     String? department,
+    String? userId, // Optional: if provided, use it directly instead of querying
   }) async {
     return await _retryOperation(() async {
-      // First, create auth user via Admin API (requires service role key)
-      // Note: This should be done server-side or via a Supabase Edge Function
-      // For now, we'll use a database function that expects the user to exist
+      // If userId is provided, update profile directly
+      if (userId != null) {
+        // Update the profile that was created by the trigger
+        await _supabase
+            .from('profiles')
+            .update({
+              'full_name': fullName,
+              'email': email,
+              'phone': phone,
+              'roles': [role],
+              'status': 'Active',
+              'department': department,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', userId);
+        
+        // Get the updated profile
+        final profile = await _supabase
+            .from('profiles')
+            .select()
+            .eq('id', userId)
+            .single();
+        
+        return Map<String, dynamic>.from(profile);
+      }
       
-      // Call the database function to update profile
+      // Fallback: Call the database function to update profile
+      // This requires the function to be able to access auth.users
       final response = await _supabase.rpc('create_staff_profile', params: {
         'p_email': email,
-        'p_password': password, // Not used in function, but kept for API consistency
         'p_full_name': fullName,
         'p_phone': phone,
         'p_role': role,

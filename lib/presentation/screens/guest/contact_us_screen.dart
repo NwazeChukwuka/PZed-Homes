@@ -399,7 +399,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   }
 
   Widget _buildMapSection(BuildContext context) {
-    final hotelLocation = LatLng(6.3493114, 8.0977385);
+    final hotelLocation = LatLng(6.349262, 8.098146);
     
     return Container(
       height: 400,

@@ -1984,10 +1984,12 @@ class _HrScreenState extends State<HrScreen>
                     throw Exception('Failed to create user account');
                   }
 
+                  final userId = signUpResponse.user!.id;
+
                   // Wait a moment for trigger to create profile
                   await Future.delayed(const Duration(milliseconds: 500));
 
-                  // Update profile to staff role using database function
+                  // Update profile to staff role using the user ID directly
                   await _dataService.createStaffProfile(
                     email: staffEmail,
                     password: securePassword, // Not used in function but kept for consistency
@@ -1995,6 +1997,7 @@ class _HrScreenState extends State<HrScreen>
                     role: staffRole,
                     phone: staffPhone,
                     department: null,
+                    userId: userId, // Pass the user ID directly to avoid querying auth.users
                   );
 
                   fullNameController.dispose();
