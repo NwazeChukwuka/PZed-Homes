@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/app_config.dart';
 
 class DataService {
   static final DataService _instance = DataService._internal();
@@ -111,7 +112,10 @@ class DataService {
           // CRITICAL: Send password reset email so guest can set their own password
           // This allows guests to log in and view their bookings
           try {
-            await _supabase.auth.resetPasswordForEmail(email);
+            await _supabase.auth.resetPasswordForEmail(
+              email,
+              redirectTo: AppConfig.passwordResetUrl,
+            );
           } catch (e) {
             // Log error but don't fail the booking creation
             // Guest can use "Forgot Password" later
@@ -1050,7 +1054,8 @@ class DataService {
       // If userId is provided, update profile directly
       if (userId != null) {
         // Update the profile that was created by the trigger
-        await _supabase
+        // This requires the "Owner can update staff profiles" RLS policy
+        final updateResult = await _supabase
             .from('profiles')
             .update({
               'full_name': fullName,
@@ -1061,16 +1066,12 @@ class DataService {
               'department': department,
               'updated_at': DateTime.now().toIso8601String(),
             })
-            .eq('id', userId);
-        
-        // Get the updated profile
-        final profile = await _supabase
-            .from('profiles')
-            .select()
             .eq('id', userId)
+            .select()
             .single();
         
-        return Map<String, dynamic>.from(profile);
+        // Return the updated profile
+        return Map<String, dynamic>.from(updateResult);
       }
       
       // Fallback: Call the database function to update profile

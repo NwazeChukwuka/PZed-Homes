@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/config/app_config.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -61,6 +63,12 @@ class _HrScreenState extends State<HrScreen>
     }
     
     return '$prefix$suffix';
+  }
+
+  /// Get the password reset URL for the app
+  /// Uses centralized configuration from AppConfig
+  String _getPasswordResetUrl() {
+    return AppConfig.passwordResetUrl;
   }
 
   @override
@@ -1987,18 +1995,57 @@ class _HrScreenState extends State<HrScreen>
                   final userId = signUpResponse.user!.id;
 
                   // Wait a moment for trigger to create profile
-                  await Future.delayed(const Duration(milliseconds: 500));
+                  await Future.delayed(const Duration(milliseconds: 1000));
 
                   // Update profile to staff role using the user ID directly
-                  await _dataService.createStaffProfile(
-                    email: staffEmail,
-                    password: securePassword, // Not used in function but kept for consistency
-                    fullName: staffName,
-                    role: staffRole,
-                    phone: staffPhone,
-                    department: null,
-                    userId: userId, // Pass the user ID directly to avoid querying auth.users
-                  );
+                  try {
+                    await _dataService.createStaffProfile(
+                      email: staffEmail,
+                      password: securePassword, // Not used in function but kept for consistency
+                      fullName: staffName,
+                      role: staffRole,
+                      phone: staffPhone,
+                      department: null,
+                      userId: userId, // Pass the user ID directly to avoid querying auth.users
+                    );
+                  } catch (profileError) {
+                    // If profile update fails, wait a bit more and retry
+                    // This handles cases where the trigger hasn't created the profile yet
+                    try {
+                      await Future.delayed(const Duration(milliseconds: 1000));
+                      await _dataService.createStaffProfile(
+                        email: staffEmail,
+                        password: securePassword,
+                        fullName: staffName,
+                        role: staffRole,
+                        phone: staffPhone,
+                        department: null,
+                        userId: userId,
+                      );
+                    } catch (retryError) {
+                      // If it still fails, throw the original error
+                      throw Exception('Failed to update staff profile: $profileError');
+                    }
+                  }
+
+                  // Send password reset email to the new staff member
+                  // This allows them to set their own password and log in
+                  try {
+                    final supabase = Supabase.instance.client;
+                    await supabase.auth.resetPasswordForEmail(
+                      staffEmail,
+                      redirectTo: _getPasswordResetUrl(),
+                    );
+                    if (kDebugMode) {
+                      debugPrint('Password reset email sent to $staffEmail');
+                    }
+                  } catch (emailError) {
+                    // Log but don't fail - password was already generated and shown to owner
+                    // Staff can use "Forgot Password" later if needed
+                    if (kDebugMode) {
+                      debugPrint('Warning: Could not send password reset email to $staffEmail: $emailError');
+                    }
+                  }
 
                   fullNameController.dispose();
                   emailController.dispose();

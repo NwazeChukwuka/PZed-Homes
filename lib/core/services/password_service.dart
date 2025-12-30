@@ -3,6 +3,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
 import '../error/error_handler.dart';
+import '../config/app_config.dart';
 
 class PasswordService {
   static final PasswordService _instance = PasswordService._internal();
@@ -13,11 +14,24 @@ class PasswordService {
 
   /// Send password reset email to the provided email address
   /// Returns true if successful, throws exception on error
-  Future<bool> sendPasswordResetEmail(String email) async {
+  /// 
+  /// The redirectUrl should be your production app URL where the password reset page is hosted.
+  /// This must match the Site URL configured in Supabase Dashboard → Authentication → URL Configuration
+  Future<bool> sendPasswordResetEmail(String email, {String? customRedirectUrl}) async {
     try {
+      String redirectUrl;
+      
+      if (customRedirectUrl != null) {
+        redirectUrl = customRedirectUrl;
+      } else {
+        // Use centralized configuration from AppConfig
+        // Update AppConfig.productionUrl to match your actual production domain
+        redirectUrl = AppConfig.passwordResetUrl;
+      }
+      
       await _supabase.auth.resetPasswordForEmail(
         email,
-        redirectTo: 'pzed-homes://reset-password', // Deep link for mobile
+        redirectTo: redirectUrl,
       );
       return true;
     } catch (e) {

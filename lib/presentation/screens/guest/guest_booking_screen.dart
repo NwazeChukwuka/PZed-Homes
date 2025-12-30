@@ -7,6 +7,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
+import 'package:pzed_homes/core/config/app_config.dart';
 
 class GuestBookingScreen extends StatefulWidget {
   const GuestBookingScreen({super.key});
@@ -249,7 +250,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       bool emailSent = false;
       for (int attempt = 0; attempt < 2 && !emailSent; attempt++) {
         try {
-          await _supabase!.auth.resetPasswordForEmail(email);
+          await _supabase!.auth.resetPasswordForEmail(
+            email,
+            redirectTo: AppConfig.passwordResetUrl,
+          );
           emailSent = true;
           if (kDebugMode) {
             debugPrint('Password reset email sent successfully to $email');
