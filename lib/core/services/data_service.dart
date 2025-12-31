@@ -49,9 +49,31 @@ class DataService {
   // Bookings
   Future<List<Map<String, dynamic>>> getBookings() async {
     return await _retryOperation(() async {
+      // Explicitly select columns to avoid any issues with non-existent columns
       final response = await _supabase
           .from('bookings')
-          .select('*, rooms(*), profiles!guest_profile_id(*)')
+          .select('''
+            id,
+            created_at,
+            guest_profile_id,
+            room_id,
+            requested_room_type,
+            check_in_date,
+            check_out_date,
+            status,
+            total_amount,
+            paid_amount,
+            extra_charges,
+            notes,
+            created_by,
+            updated_at,
+            payment_method,
+            guest_name,
+            guest_email,
+            guest_phone,
+            rooms(*),
+            profiles!guest_profile_id(*)
+          ''')
           .order('created_at', ascending: false)
           .limit(100); // Limit for performance
       return List<Map<String, dynamic>>.from(response);

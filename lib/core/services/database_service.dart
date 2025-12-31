@@ -7,7 +7,28 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getBookings() async {
     final response = await _supabase
         .from('bookings')
-        .select('*, rooms(*), profiles!guest_profile_id(*)'); // Use !inner to ensure profile exists
+        .select('''
+          id,
+          created_at,
+          guest_profile_id,
+          room_id,
+          requested_room_type,
+          check_in_date,
+          check_out_date,
+          status,
+          total_amount,
+          paid_amount,
+          extra_charges,
+          notes,
+          created_by,
+          updated_at,
+          payment_method,
+          guest_name,
+          guest_email,
+          guest_phone,
+          rooms(*),
+          profiles!guest_profile_id(*)
+        ''');
     return response as List<Map<String, dynamic>>;
   }
 
@@ -39,8 +60,13 @@ class DatabaseService {
   }
 
   // Update a stock item's quantity
+  // NOTE: stock_items table doesn't have current_quantity - stock is calculated from transactions
+  // This method is deprecated. Use stock_transactions instead.
+  @deprecated
   Future<void> updateStockQuantity(String stockItemId, int newQuantity) async {
-    await _supabase.from('stock_items').update({'current_quantity': newQuantity}).eq('id', stockItemId);
+    // Stock items don't have a current_quantity column
+    // Stock levels are calculated from stock_transactions
+    throw UnimplementedError('Stock quantity is calculated from transactions, not stored directly. Use stock_transactions table instead.');
   }
 
   // Fetch all menu items
