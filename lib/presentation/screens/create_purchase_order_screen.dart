@@ -151,7 +151,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
     _supplierController.dispose();
     super.dispose();
   }
-
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,8 +167,8 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                 children: [
                   Expanded(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // Supplier Name
@@ -230,7 +230,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                               padding: const EdgeInsets.all(16.0),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
+          children: [
                                   const Text(
                                     'Total Cost:',
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),

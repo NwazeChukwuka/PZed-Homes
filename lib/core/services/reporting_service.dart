@@ -218,13 +218,15 @@ class ReportingService {
         await _loadRoomTypePrices();
       }
       
-      // 4. Calculate totals from the detailed lists with proper room pricing
+      // 4. Calculate totals from actual paid amounts (not base prices)
+      // Use paid_amount from bookings to reflect actual revenue after discounts
       final totalRevenue = revenueItems.fold<int>(0, (sum, booking) {
-        final roomType = booking['rooms']['type'] as String;
-        final roomPrice = _roomTypePrices?[roomType] ?? 0;
+        // Use paid_amount (actual amount received) instead of calculating from room prices
+        final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
+        // Add extra charges if any
         final extras = ((booking['extra_charges'] ?? []) as List)
             .fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
-        return sum + roomPrice + extras;
+        return sum + paidAmount + extras;
       });
 
       final totalExpenses = expenseItems.fold<int>(

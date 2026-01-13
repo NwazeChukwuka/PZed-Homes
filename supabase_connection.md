@@ -705,6 +705,7 @@ CREATE TABLE public.debts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
     debtor_name TEXT NOT NULL,
+    debtor_phone TEXT, -- Phone number of debtor
     debtor_type TEXT DEFAULT 'customer', -- 'customer', 'supplier', 'staff', 'other'
     amount INT8 NOT NULL, -- Stored in Kobo/Cents
     owed_to TEXT, -- Who is owed the money
@@ -715,6 +716,10 @@ CREATE TABLE public.debts (
     last_payment_date DATE,
     notes TEXT,
     created_by UUID REFERENCES public.profiles(id),
+    sold_by UUID REFERENCES public.profiles(id), -- Staff who made the credit sale
+    approved_by TEXT, -- Manually entered name of supervisor/staff who approved (optional)
+    booking_id UUID REFERENCES public.bookings(id), -- Link to booking if debt from room booking
+    sale_id UUID, -- Generic sale ID (can link to department_sales or mini_mart_sales)
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -722,6 +727,77 @@ ALTER TABLE public.debts ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Active admin finance access debts" ON public.debts FOR ALL 
 USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+-- Allow staff who created debt to update it
+CREATE POLICY "Staff can update own debts" ON public.debts FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      debts.sold_by = auth.uid() -- Staff who created the debt
+      OR (p.roles && ARRAY['manager', 'owner', 'accountant']) -- Or accountant/manager/owner
+    )
+  )
+);
+
+-- ==============================================
+-- 10.4.1. DEBT PAYMENTS
+-- ==============================================
+CREATE TABLE public.debt_payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    debt_id UUID REFERENCES public.debts(id) ON DELETE CASCADE NOT NULL,
+    amount INT8 NOT NULL, -- Payment amount in Kobo/Cents
+    payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'transfer', 'card', 'other')),
+    payment_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    collected_by UUID REFERENCES public.profiles(id), -- Staff who collected the payment
+    created_by UUID REFERENCES public.profiles(id), -- Staff who recorded the payment
+    notes TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.debt_payments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Active admin finance access debt payments" ON public.debt_payments FOR ALL 
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+-- Allow staff who created debt to record payments
+CREATE POLICY "Staff can record payments for own debts" ON public.debt_payments FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      EXISTS (
+        SELECT 1 FROM public.debts d
+        WHERE d.id = debt_payments.debt_id
+        AND d.sold_by = auth.uid()
+      )
+      OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+    )
+  )
+);
+
+-- Allow accountant to record payments for any debt
+CREATE POLICY "Accountant can record payments" ON public.debt_payments FOR INSERT
+WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
@@ -1667,6 +1743,7 @@ CREATE TRIGGER update_income_records_updated_at BEFORE UPDATE ON public.income_r
 CREATE TRIGGER update_payroll_records_updated_at BEFORE UPDATE ON public.payroll_records FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_cash_deposits_updated_at BEFORE UPDATE ON public.cash_deposits FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_debts_updated_at BEFORE UPDATE ON public.debts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER update_debt_payments_updated_at BEFORE UPDATE ON public.debt_payments FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_mini_mart_items_updated_at BEFORE UPDATE ON public.mini_mart_items FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_mini_mart_sales_updated_at BEFORE UPDATE ON public.mini_mart_sales FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_department_sales_updated_at BEFORE UPDATE ON public.department_sales FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -1785,6 +1862,12 @@ CREATE INDEX IF NOT EXISTS idx_payroll_status ON public.payroll_records(status);
 CREATE INDEX IF NOT EXISTS idx_cash_deposits_date ON public.cash_deposits(date);
 CREATE INDEX IF NOT EXISTS idx_debts_status ON public.debts(status);
 CREATE INDEX IF NOT EXISTS idx_debts_debtor ON public.debts(debtor_name);
+CREATE INDEX IF NOT EXISTS idx_debts_sold_by ON public.debts(sold_by);
+CREATE INDEX IF NOT EXISTS idx_debts_booking_id ON public.debts(booking_id);
+CREATE INDEX IF NOT EXISTS idx_debts_sale_id ON public.debts(sale_id);
+CREATE INDEX IF NOT EXISTS idx_debt_payments_debt_id ON public.debt_payments(debt_id);
+CREATE INDEX IF NOT EXISTS idx_debt_payments_date ON public.debt_payments(payment_date);
+CREATE INDEX IF NOT EXISTS idx_debt_payments_collected_by ON public.debt_payments(collected_by);
 CREATE INDEX IF NOT EXISTS idx_mini_mart_items_name ON public.mini_mart_items(name);
 CREATE INDEX IF NOT EXISTS idx_mini_mart_items_barcode ON public.mini_mart_items(barcode);
 CREATE INDEX IF NOT EXISTS idx_mini_mart_sales_date ON public.mini_mart_sales(sale_date);

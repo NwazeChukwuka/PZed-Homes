@@ -40,6 +40,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final _debtDueDateController = TextEditingController();
   String _debtorType = 'customer'; // Default to 'customer'
   String _debtDepartment = 'all'; // Default department
+  
+  // Controllers for payment recording
+  final _paymentAmountController = TextEditingController();
+  final _paymentNotesController = TextEditingController();
+  String _paymentMethod = 'cash';
+  DateTime? _paymentDate;
 
   // Controllers for income recording
   final _incomeAmountController = TextEditingController();
@@ -92,6 +98,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     _bankNameController.dispose();
     _accountTypeController.dispose();
     _depositDescriptionController.dispose();
+    _paymentAmountController.dispose();
+    _paymentNotesController.dispose();
     super.dispose();
   }
 
@@ -510,7 +518,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             itemCount: _debts.length,
             itemBuilder: (context, index) {
               final debt = _debts[index];
-              final isPending = debt['status'] == 'pending';
+              final isPending = debt['status'] == 'outstanding' || debt['status'] == 'partially_paid';
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
@@ -518,12 +526,20 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${debt['debtor_type'] ?? ''} owes ₦${debt['amount'] ?? 0}'),
+                      Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira(debt['amount'] as int? ?? 0)}'),
+                      if (debt['paid_amount'] != null && (debt['paid_amount'] as int? ?? 0) > 0)
+                        Text(
+                          'Paid: ₦${PaymentService.koboToNaira(debt['paid_amount'] as int)} | Remaining: ₦${PaymentService.koboToNaira((debt['amount'] as int? ?? 0) - (debt['paid_amount'] as int? ?? 0))}',
+                          style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
+                        ),
                       Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                       if (debt['debtor_phone'] != null) 
                         Text('Phone: ${debt['debtor_phone']}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      if (debt['department'] != null)
-                        Text('Dept: ${debt['department']}', style: TextStyle(fontSize: 12, color: Colors.blue[700])),
+                      // Note: department info is stored in reason field, not a separate column
+                      if (debt['sold_by'] != null && debt['profiles'] != null)
+                        Text('Sold by: ${debt['profiles']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      if (debt['approved_by'] != null)
+                        Text('Approved by: ${debt['approved_by']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                     ],
                   ),
                   trailing: Column(
@@ -534,9 +550,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                         label: Text(debt['status'] ?? ''),
                         backgroundColor: isPending ? Colors.orange[100] : Colors.green[100],
                       ),
+                      if (canRecord && debt['status'] != 'paid')
+                        TextButton(
+                          onPressed: () => _showRecordPaymentDialog(debt),
+                          child: const Text('Record Payment', style: TextStyle(fontSize: 11)),
+                        ),
                     ],
                   ),
-                  onTap: isPending && canRecord ? () => _showMarkDebtPaidDialog(debt, index) : null,
+                  onTap: null,
                 ),
               );
             },
@@ -926,11 +947,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         'debtor_type': _debtorType,
         'amount': amountInKobo, // Store in kobo
         'owed_to': 'P-ZED Luxury Hotels & Suites',
-        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()),
+        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()) + 
+                  (_debtDepartment != 'all' ? ' (Department: $_debtDepartment)' : ''),
         'date': DateTime.now().toIso8601String().split('T')[0],
-        'due_date': dueDate.toIso8601String().split('T')[0],
-        'status': 'pending',
-        'department': _debtDepartment,
+        'status': 'outstanding', // Use 'outstanding' instead of 'pending' to match schema
+        'notes': 'Due date: ${dueDate.toIso8601String().split('T')[0]}', // Store due date in notes since column doesn't exist
       };
 
       await _dataService.recordDebt(debt);
@@ -1338,24 +1359,91 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  // Mark debt as paid dialog
-  Future<void> _showMarkDebtPaidDialog(Map<String, dynamic> debt, int index) async {
+  // Record payment dialog
+  Future<void> _showRecordPaymentDialog(Map<String, dynamic> debt) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Mark Debt as Paid'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Debtor: ${debt['debtor_name']}'),
-            const SizedBox(height: 8),
-            Text('Amount: ₦${debt['amount']}'),
-            const SizedBox(height: 8),
-            Text('Reason: ${debt['reason']}'),
-            const SizedBox(height: 16),
-            const Text('Are you sure this debt has been paid?'),
-          ],
+        title: const Text('Record Payment'),
+        content: Builder(
+          builder: (context) {
+            _paymentAmountController.clear();
+            _paymentNotesController.clear();
+            _paymentMethod = 'cash';
+            _paymentDate = DateTime.now();
+            
+            final totalAmount = debt['amount'] as int? ?? 0;
+            final paidAmount = debt['paid_amount'] as int? ?? 0;
+            final remaining = totalAmount - paidAmount;
+            
+            return SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Debtor: ${debt['debtor_name']}'),
+                  const SizedBox(height: 8),
+                  Text('Total Amount: ₦${PaymentService.koboToNaira(totalAmount)}'),
+                  Text('Paid So Far: ₦${PaymentService.koboToNaira(paidAmount)}'),
+                  Text('Remaining: ₦${PaymentService.koboToNaira(remaining)}', 
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange[700])),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _paymentAmountController,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Amount (₦)',
+                      border: OutlineInputBorder(),
+                      prefixText: '₦',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _paymentMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                      DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                      DropdownMenuItem(value: 'card', child: Text('Card')),
+                      DropdownMenuItem(value: 'other', child: Text('Other')),
+                    ],
+                    onChanged: (value) => setState(() => _paymentMethod = value!),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    title: const Text('Payment Date'),
+                    subtitle: Text(_paymentDate != null 
+                      ? '${_paymentDate!.day}/${_paymentDate!.month}/${_paymentDate!.year}'
+                      : 'Select date'),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _paymentDate ?? DateTime.now(),
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setState(() => _paymentDate = picked);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _paymentNotesController,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes (Optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -1364,36 +1452,58 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           ElevatedButton(
             onPressed: () async {
+              final amountText = _paymentAmountController.text.trim();
+              if (amountText.isEmpty) {
+                ErrorHandler.showWarningMessage(context, 'Please enter payment amount');
+                return;
+              }
+              
+              final amountInNaira = double.tryParse(amountText.replaceAll(',', ''));
+              if (amountInNaira == null || amountInNaira <= 0) {
+                ErrorHandler.showWarningMessage(context, 'Please enter a valid amount greater than zero');
+                return;
+              }
+              
+              final totalAmount = debt['amount'] as int? ?? 0;
+              final paidAmount = debt['paid_amount'] as int? ?? 0;
+              final remaining = totalAmount - paidAmount;
+              
+              if (amountInNaira > PaymentService.koboToNaira(remaining)) {
+                ErrorHandler.showWarningMessage(context, 'Payment amount cannot exceed remaining debt');
+                return;
+              }
+              
               try {
-                final debtId = debt['id'] as String;
-                await _dataService.updateDebtStatus(debtId, 'paid');
+                final authService = Provider.of<AuthService>(context, listen: false);
+                final userId = authService.currentUser?.id ?? 'system';
                 
-                setState(() {
-                  _debts[index]['status'] = 'paid';
-                  _debts[index]['paid_date'] = DateTime.now().toIso8601String();
-                });
+                await _dataService.recordDebtPayment(
+                  debtId: debt['id'] as String,
+                  amount: PaymentService.nairaToKobo(amountInNaira),
+                  paymentMethod: _paymentMethod,
+                  collectedBy: userId,
+                  createdBy: userId,
+                  paymentDate: _paymentDate,
+                  notes: _paymentNotesController.text.trim().isEmpty ? null : _paymentNotesController.text.trim(),
+                );
                 
                 Navigator.pop(context);
                 if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Debt marked as paid',
-                  );
-                  _loadFinancialData(); // Refresh to get updated data
+                  ErrorHandler.showSuccessMessage(context, 'Payment recorded successfully!');
+                  _loadFinancialData();
                 }
               } catch (e) {
-                Navigator.pop(context);
                 if (mounted) {
                   ErrorHandler.handleError(
                     context,
                     e,
-                    customMessage: 'Failed to update debt status. Please try again.',
+                    customMessage: 'Failed to record payment. Please try again.',
                   );
                 }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Mark as Paid'),
+            child: const Text('Record Payment'),
           ),
         ],
       ),

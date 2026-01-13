@@ -49,6 +49,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   double _saleTotal = 0.0;
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
+  final _approvedByController = TextEditingController(); // For credit sales
   String _paymentMethod = 'cash';
 
   // Search controller
@@ -74,6 +75,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _categoryController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
+    _approvedByController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -803,28 +805,42 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             onChanged: (value) => setState(() => _paymentMethod = value!),
           ),
           
-          // Show warning for credit payment
+          // Show warning and fields for credit payment
           if (_paymentMethod == 'credit')
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
-                border: Border.all(color: Colors.orange[300]!),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Customer name and phone are required for credit sales. This will be recorded as a debt.',
-                      style: TextStyle(color: Colors.orange[900], fontSize: 12),
-                    ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    border: Border.all(color: Colors.orange[300]!),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Customer name and phone are required for credit sales. This will be recorded as a debt.',
+                          style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextField(
+                  controller: _approvedByController,
+                  decoration: const InputDecoration(
+                    labelText: 'Approved By (Optional)',
+                    hintText: 'Enter name of supervisor/staff who approved',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
             ),
           
           const SizedBox(height: 16),
@@ -965,6 +981,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       _saleTotal = 0.0;
       _customerNameController.clear();
       _customerPhoneController.clear();
+      _approvedByController.clear();
       _paymentMethod = 'cash';
     });
   }
@@ -1236,11 +1253,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'debtor_type': 'customer',
           'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
-          'reason': 'Bar sale on credit - ${_currentSale.length} items',
-          'date': DateTime.now().toIso8601String(),
-          'due_date': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
-          'status': 'pending',
-          'department': department,
+          'reason': 'Bar sale on credit - ${_currentSale.length} items (Department: $department)',
+          'date': DateTime.now().toIso8601String().split('T')[0],
+          'status': 'outstanding',
+          'sold_by': userId, // Staff who made the sale
+          'approved_by': _approvedByController.text.trim().isEmpty 
+              ? null 
+              : _approvedByController.text.trim(), // Optional approved by
         };
         
         await _dataService.recordDebt(debt);

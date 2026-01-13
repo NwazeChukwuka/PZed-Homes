@@ -71,6 +71,11 @@ class DataService {
             guest_name,
             guest_email,
             guest_phone,
+            discount_applied,
+            discount_amount,
+            discount_percentage,
+            discount_reason,
+            discount_applied_by,
             rooms(*),
             profiles!guest_profile_id(*)
           ''')
@@ -80,8 +85,8 @@ class DataService {
     });
   }
 
-  Future<void> createBooking(Map<String, dynamic> booking) async {
-    await _retryOperation(() async {
+  Future<String> createBooking(Map<String, dynamic> booking) async {
+    return await _retryOperation(() async {
       // booking should contain 'guest_profile_id' (not guest_name/email/phone)
       // If it doesn't, we need to create/get the profile first
       String? guestProfileId = booking['guest_profile_id'] as String?;
@@ -152,7 +157,7 @@ class DataService {
         throw Exception('guest_profile_id or guest_email is required');
       }
       
-      await _supabase.from('bookings').insert({
+      final response = await _supabase.from('bookings').insert({
         'guest_profile_id': guestProfileId,
         'room_id': booking['room_id'],
         'requested_room_type': booking['requested_room_type'],
@@ -161,7 +166,18 @@ class DataService {
         'status': booking['status'] ?? 'Pending Check-in',
         'total_amount': booking['total_amount'],
         'paid_amount': booking['paid_amount'],
-      });
+        'payment_method': booking['payment_method'] ?? 'cash',
+        'guest_name': booking['guest_name'],
+        'guest_email': booking['guest_email'],
+        'guest_phone': booking['guest_phone'],
+        'discount_applied': booking['discount_applied'] ?? false,
+        'discount_amount': booking['discount_amount'] ?? 0,
+        'discount_percentage': booking['discount_percentage'] ?? 0.0,
+        'discount_reason': booking['discount_reason'],
+        'discount_applied_by': booking['discount_applied_by'],
+      }).select('id').single();
+      
+      return response['id'] as String;
     });
   }
 
@@ -461,7 +477,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('debts')
-          .select()
+          .select('*, profiles!sold_by(full_name), profiles!created_by(full_name)')
           .order('date', ascending: false)
           .limit(100);
       return List<Map<String, dynamic>>.from(response);
@@ -472,13 +488,69 @@ class DataService {
     await _retryOperation(() async {
       await _supabase.from('debts').insert({
         'debtor_name': debt['debtor_name'],
+        'debtor_phone': debt['debtor_phone'], // Phone number of debtor
         'debtor_type': debt['debtor_type'],
         'amount': debt['amount'],
         'owed_to': debt['owed_to'],
         'reason': debt['reason'],
         'date': debt['date'] ?? DateTime.now().toIso8601String().split('T')[0],
-        'status': debt['status'] ?? 'pending',
+        'status': debt['status'] ?? 'outstanding',
+        'sold_by': debt['sold_by'], // Staff who made the credit sale
+        'approved_by': debt['approved_by'], // Manually entered name (optional)
+        'booking_id': debt['booking_id'], // Link to booking if applicable
+        'sale_id': debt['sale_id'], // Link to sale if applicable
+        'notes': debt['notes'], // Optional notes
       });
+    });
+  }
+
+  /// Record a payment for a debt
+  /// Updates debt paid_amount, status, and linked booking automatically
+  Future<void> recordDebtPayment({
+    required String debtId,
+    required int amount, // Amount in kobo
+    required String paymentMethod, // 'cash', 'transfer', 'card', 'other'
+    required String collectedBy, // UUID of staff who collected payment
+    required String createdBy, // UUID of staff who recorded payment
+    DateTime? paymentDate,
+    String? notes,
+  }) async {
+    await _retryOperation(() async {
+      // Insert payment record (trigger will auto-update debt)
+      await _supabase.from('debt_payments').insert({
+        'debt_id': debtId,
+        'amount': amount,
+        'payment_method': paymentMethod.toLowerCase(),
+        'payment_date': paymentDate?.toIso8601String().split('T')[0] ?? DateTime.now().toIso8601String().split('T')[0],
+        'collected_by': collectedBy,
+        'created_by': createdBy,
+        'notes': notes,
+      });
+    });
+  }
+
+  /// Get payment history for a debt
+  Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('debt_payments')
+          .select('*, profiles!collected_by(full_name), profiles!created_by(full_name)')
+          .eq('debt_id', debtId)
+          .order('payment_date', ascending: false)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  /// Get debt with full details including payment history
+  Future<Map<String, dynamic>?> getDebtDetails(String debtId) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('debts')
+          .select('*, profiles!sold_by(full_name), profiles!created_by(full_name)')
+          .eq('id', debtId)
+          .maybeSingle();
+      return response;
     });
   }
 
@@ -488,7 +560,7 @@ class DataService {
           .from('debts')
           .update({
             'status': status,
-            'paid_date': status == 'paid' ? DateTime.now().toIso8601String().split('T')[0] : null,
+            'last_payment_date': status == 'paid' ? DateTime.now().toIso8601String().split('T')[0] : null,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', debtId);

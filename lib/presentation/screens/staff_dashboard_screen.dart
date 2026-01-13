@@ -167,9 +167,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'card_sales': cardSales,
       'transfer_sales': transferSales,
       'credit_sales': creditSales,
-      'pending_debts': _myDebts.where((d) => d['status'] == 'pending').length,
+      'pending_debts': _myDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid').length,
       'total_debt_amount': _myDebts
-          .where((d) => d['status'] == 'pending')
+          .where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid')
           .fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0)),
     };
   }
@@ -212,9 +212,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_sales': totalSales,
       'transaction_count': transactionCount,
       'staff_sales': staffSales,
-      'pending_debts': _departmentDebts.where((d) => d['status'] == 'pending').length,
+      'pending_debts': _departmentDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid').length,
       'total_debt_amount': _departmentDebts
-          .where((d) => d['status'] == 'pending')
+          .where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid')
           .fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0)),
     };
   }
@@ -247,7 +247,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           break;
         case 'checked_out':
           checkedOutBookings++;
-          final amount = (booking['total_amount'] as num?)?.toDouble() ?? 0.0;
+          // Use paid_amount instead of total_amount for actual revenue
+          final amount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
           totalRevenue += amount;
           break;
       }
@@ -735,7 +736,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     ),
                     Chip(
                       label: Text(
-                        debt['status'] ?? 'pending',
+                        debt['status'] ?? 'outstanding',
                         style: const TextStyle(fontSize: 10),
                       ),
                       backgroundColor: debt['status'] == 'paid' 
@@ -903,7 +904,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     ),
                     Chip(
                       label: Text(
-                        debt['status'] ?? 'pending',
+                        debt['status'] ?? 'outstanding',
                         style: const TextStyle(fontSize: 10),
                       ),
                       backgroundColor: debt['status'] == 'paid' 
@@ -914,7 +915,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     ),
                   ],
                 ),
-                onTap: debt['status'] == 'pending' 
+                onTap: debt['status'] == 'outstanding' || debt['status'] == 'partially_paid' 
                     ? () => _showMarkDebtPaidDialog(debt, index)
                     : null,
               );
@@ -1002,18 +1003,39 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _departmentDebts[index]['status'] = 'paid';
-                _departmentDebts[index]['paid_date'] = DateTime.now().toIso8601String();
-              });
-              Navigator.pop(context);
-              if (mounted) {
-                ErrorHandler.showSuccessMessage(
-                  context,
-                  'Debt marked as paid',
+            onPressed: () async {
+              try {
+                // Use proper payment recording method instead of local state update
+                final debt = _departmentDebts[index];
+                final authService = Provider.of<AuthService>(context, listen: false);
+                final userId = authService.currentUser?.id ?? 'system';
+                
+                // Record full payment
+                await _dataService.recordDebtPayment(
+                  debtId: debt['id'] as String,
+                  amount: (debt['amount'] as int? ?? 0) - (debt['paid_amount'] as int? ?? 0), // Remaining amount
+                  paymentMethod: 'cash',
+                  collectedBy: userId,
+                  createdBy: userId,
+                  paymentDate: DateTime.now(),
                 );
-                _loadData();
+                
+                Navigator.pop(context);
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Debt payment recorded successfully!',
+                  );
+                  _loadData();
+                }
+              } catch (e) {
+                if (mounted) {
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to record payment. Please try again.',
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
