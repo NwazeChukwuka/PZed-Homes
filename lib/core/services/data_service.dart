@@ -477,7 +477,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('debts')
-          .select('*, profiles!sold_by(full_name), profiles!created_by(full_name)')
+          .select('*, sold_by_profile:profiles!sold_by(full_name), created_by_profile:profiles!created_by(full_name)')
           .order('date', ascending: false)
           .limit(100);
       return List<Map<String, dynamic>>.from(response);
@@ -547,7 +547,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('debts')
-          .select('*, profiles!sold_by(full_name), profiles!created_by(full_name)')
+          .select('*, sold_by_profile:profiles!sold_by(full_name), created_by_profile:profiles!created_by(full_name)')
           .eq('id', debtId)
           .maybeSingle();
       return response;

@@ -449,6 +449,8 @@ class AppRouter {
                location.startsWith('/communications') ||
                location.startsWith('/housekeeping') ||
                location.startsWith('/mini_mart') ||
+               location.startsWith('/kitchen') ||
+               location.startsWith('/inventory') ||
                location.startsWith('/booking/') ||
                location.startsWith('/profile');
       

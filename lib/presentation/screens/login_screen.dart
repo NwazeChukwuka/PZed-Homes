@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isSigningUp = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _rememberMe = false;
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -60,6 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
         errorMessage = await authService.login(
           email: _emailController.text.trim(),
           password: _passwordController.text,
+          rememberMe: _rememberMe,
         );
         
         if (mounted && errorMessage == null) {

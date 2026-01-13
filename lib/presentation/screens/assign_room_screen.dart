@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/presentation/screens/booking_details_screen.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 class AssignRoomScreen extends StatefulWidget {
   final Booking booking;
@@ -102,9 +103,9 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
             title: const Text('Payment Incomplete'),
             content: Text(
               'This booking has not been fully paid.\n'
-              'Total: ₦${(totalAmount / 100).toStringAsFixed(0)}\n'
-              'Paid: ₦${(paidAmount / 100).toStringAsFixed(0)}\n'
-              'Outstanding: ₦${((totalAmount - paidAmount) / 100).toStringAsFixed(0)}\n\n'
+              'Total: ₦${PaymentService.koboToNaira(totalAmount).toStringAsFixed(2)}\n'
+              'Paid: ₦${PaymentService.koboToNaira(paidAmount).toStringAsFixed(2)}\n'
+              'Outstanding: ₦${PaymentService.koboToNaira(totalAmount - paidAmount).toStringAsFixed(2)}\n\n'
               'Do you want to assign the room anyway?',
             ),
             actions: [

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService with ChangeNotifier {
   SupabaseClient? _supabase;
@@ -19,6 +20,13 @@ class AuthService with ChangeNotifier {
   bool _isLoadingUserData = false;
   // Track if we're currently performing a login to prevent auth state listener interference
   bool _isLoggingIn = false;
+  // Track if we're creating a staff account (owner creating new user) - ignore auth state changes
+  bool _isCreatingStaffAccount = false;
+  
+  // Session management
+  Timer? _sessionRefreshTimer;
+  Timer? _sessionWarningTimer;
+  static const int _sessionWarningMinutes = 5; // Warn 5 minutes before expiry
 
   AppUser? get currentUser => _currentUser;
   AppRole? get userRole => _currentUser?.role;
@@ -29,6 +37,12 @@ class AuthService with ChangeNotifier {
   DateTime? get clockInTime => _clockInTime;
   bool get isRoleAssumed => _isRoleAssumed;
   AppRole? get assumedRole => _assumedRole;
+  
+  /// Set flag to ignore auth state changes during staff account creation
+  /// This prevents the app from auto-logging in as the newly created staff member
+  void setCreatingStaffAccount(bool value) {
+    _isCreatingStaffAccount = value;
+  }
 
   AuthService() {
     _isLoading = false;
@@ -70,24 +84,30 @@ class AuthService with ChangeNotifier {
       return;
     }
 
+    // ALWAYS start at guest page - don't auto-login on app start
+    // This prevents persistent login issues and ensures users explicitly log in
+    // Clear any existing session to force re-login
     try {
       final initialSession = _supabase!.auth.currentSession;
       if (initialSession != null) {
-        _isLoading = true;
-        notifyListeners();
-        await _loadUserData(initialSession.user);
+        // Sign out any existing session to force explicit login
+        await _supabase!.auth.signOut();
       }
     } catch (e) {
-      _isLoading = false;
-      _isLoggedIn = false;
-      _currentUser = null;
-      notifyListeners();
+      // Ignore errors during sign out
     }
+    
+    // Always start logged out
+    _isLoading = false;
+    _isLoggedIn = false;
+    _currentUser = null;
+    notifyListeners();
     
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
-        // Skip if we're currently logging in or loading user data to avoid race conditions
-        if (_isLoggingIn || _isLoadingUserData) {
+        // Skip if we're currently logging in, loading user data, or creating staff account
+        // This prevents auto-login when owner creates a new staff member
+        if (_isLoggingIn || _isLoadingUserData || _isCreatingStaffAccount) {
           return;
         }
         
@@ -258,6 +278,7 @@ class AuthService with ChangeNotifier {
   Future<String?> login({
     required String email,
     required String password,
+    bool rememberMe = false,
   }) async {
     // Ensure Supabase is initialized before attempting login
     final isInitialized = await _ensureSupabaseInitialized();
@@ -302,6 +323,19 @@ class AuthService with ChangeNotifier {
       if (_currentUser == null) {
         await _supabase!.auth.signOut();
         throw Exception('Failed to load user data');
+      }
+      
+      // Step 4: Save remember me preference
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('remember_me', rememberMe);
+      
+      // Step 5: Start session monitoring if remember me is enabled
+      if (rememberMe && response.session != null) {
+        _startSessionMonitoring(response.session!);
+      } else {
+        // Clear timers if remember me is disabled
+        _sessionRefreshTimer?.cancel();
+        _sessionWarningTimer?.cancel();
       }
       
       // Give listeners time to update
@@ -362,8 +396,12 @@ class AuthService with ChangeNotifier {
   }
 
 
-  Future<void> logout() async {
+  Future<void> logout({bool clearRememberMe = true}) async {
     if (_supabase == null) return;
+    
+    // Stop session monitoring timers
+    _sessionRefreshTimer?.cancel();
+    _sessionWarningTimer?.cancel();
     
     if (_isClockedIn) {
       try {
@@ -374,6 +412,13 @@ class AuthService with ChangeNotifier {
     }
     
     await _supabase!.auth.signOut();
+    
+    // Clear remember me preference if requested
+    if (clearRememberMe) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('remember_me', false);
+    }
+    
     _currentUser = null;
     _isLoggedIn = false;
     _isClockedIn = false;
@@ -540,9 +585,90 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  /// Start monitoring session for refresh and timeout warnings
+  void _startSessionMonitoring(Session session) {
+    // Stop existing timers
+    _sessionRefreshTimer?.cancel();
+    _sessionWarningTimer?.cancel();
+    
+    final expiresAt = session.expiresAt;
+    if (expiresAt == null) return;
+    
+    final expiryTime = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+    final now = DateTime.now();
+    final timeUntilExpiry = expiryTime.difference(now);
+    
+    // If session expires in less than 5 minutes, refresh immediately
+    if (timeUntilExpiry.inMinutes < 5) {
+      _refreshSessionIfNeeded();
+    } else {
+      // Schedule refresh 5 minutes before expiry
+      final refreshTime = timeUntilExpiry - const Duration(minutes: 5);
+      if (refreshTime.inMinutes > 0) {
+        _sessionRefreshTimer = Timer(refreshTime, () {
+          _refreshSessionIfNeeded();
+        });
+      }
+    }
+    
+    // Schedule warning 5 minutes before expiry
+    final warningTime = timeUntilExpiry - const Duration(minutes: _sessionWarningMinutes);
+    if (warningTime.inMinutes > 0) {
+      _sessionWarningTimer = Timer(warningTime, () {
+        _showSessionTimeoutWarning();
+      });
+    }
+  }
+  
+  /// Refresh session if needed (called automatically or manually)
+  Future<void> _refreshSessionIfNeeded() async {
+    try {
+      if (_supabase == null) return;
+      
+      final currentSession = _supabase!.auth.currentSession;
+      if (currentSession == null) return;
+      
+      final expiresAt = currentSession.expiresAt;
+      if (expiresAt == null) return;
+      
+      final expiryTime = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+      final now = DateTime.now();
+      final timeUntilExpiry = expiryTime.difference(now);
+      
+      // Refresh if expiring in less than 5 minutes
+      if (timeUntilExpiry.inMinutes < 5) {
+        final refreshedSession = await _supabase!.auth.refreshSession();
+        if (refreshedSession.session != null) {
+          _startSessionMonitoring(refreshedSession.session!);
+          if (kDebugMode) {
+            debugPrint('Session refreshed successfully');
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Failed to refresh session: $e');
+      }
+      // If refresh fails, session might be invalid - will require re-login
+    }
+  }
+  
+  /// Show session timeout warning (5 minutes before expiry)
+  void _showSessionTimeoutWarning() {
+    // This will be handled by a dialog in the UI
+    // For now, we'll just log it
+    if (kDebugMode) {
+      debugPrint('Session will expire in 5 minutes');
+    }
+    // TODO: Show dialog to user with option to extend session
+    // This can be implemented later with a callback to show UI
+  }
+
   @override
   void dispose() {
     _authStateSubscription?.cancel();
+    _sessionRefreshTimer?.cancel();
+    _sessionWarningTimer?.cancel();
     super.dispose();
   }
 }

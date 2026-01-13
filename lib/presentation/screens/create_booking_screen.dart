@@ -611,7 +611,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                     prefixIcon: const Icon(Icons.attach_money),
                     helperText: 'Enter the exact amount the customer paid',
                     suffixText: _baseTotalAmount > 0 
-                        ? 'Base: ₦${(_baseTotalAmount / 100).toStringAsFixed(2)}'
+                        ? 'Base: ₦${PaymentService.koboToNaira(_baseTotalAmount).toStringAsFixed(2)}'
                         : null,
                   ),
                   keyboardType: TextInputType.number,
@@ -710,7 +710,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               children: [
                 const Text('Base Price:'),
                 Text(
-                  '₦${(_baseTotalAmount / 100).toStringAsFixed(2)}',
+                  '₦${PaymentService.koboToNaira(_baseTotalAmount).toStringAsFixed(2)}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],

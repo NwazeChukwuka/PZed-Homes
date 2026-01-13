@@ -45,10 +45,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
     final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+    final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
     
-    // Owner/Manager can view dispatches without assuming role
+    // Owner/Manager/Receptionist can view dispatches without assuming role
     // But need to assume role for full functionality
-    final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager;
+    final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager || isReceptionist;
 
     if (!canAccess) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -208,9 +209,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
         final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
         final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
         final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+        final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
         
-        // Show full functionality if kitchen staff or assumed kitchen staff
-        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff;
+        // Show full functionality if kitchen staff, assumed kitchen staff, or receptionist
+        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist;
         final destinations = _locations.where((l) => l['id'] != _sourceLocationId).toList();
 
         return Scaffold(

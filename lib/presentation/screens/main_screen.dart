@@ -461,7 +461,8 @@ class MainScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () {
-              // Handle settings
+              // Navigate to user profile screen (settings)
+              context.push('/profile');
             },
           ),
           const SizedBox(width: 24),

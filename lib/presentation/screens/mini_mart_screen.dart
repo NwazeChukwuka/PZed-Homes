@@ -926,7 +926,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                         ],
                       ),
                       trailing: Text(
-                        '₦${NumberFormat('#,##0.00').format(sale['total_amount'] ?? 0)}',
+                        '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(sale['total_amount'] as int? ?? 0))}',
                         style: TextStyle(
                           color: Colors.green[700],
                           fontWeight: FontWeight.bold,

@@ -267,12 +267,12 @@ class _HrScreenState extends State<HrScreen>
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh'),
               ),
-              // Only owner can hire new staff
+              // Owner and manager can hire new staff
               Consumer<AuthService>(
                 builder: (context, authService, _) {
-                  final isOwner =
-                      authService.currentUser?.role == AppRole.owner;
-                  if (!isOwner) return const SizedBox.shrink();
+                  final currentRole = authService.currentUser?.role;
+                  final isOwnerOrManager = currentRole == AppRole.owner || currentRole == AppRole.manager;
+                  if (!isOwnerOrManager) return const SizedBox.shrink();
 
                   return Padding(
                     padding: const EdgeInsets.only(left: 12),
@@ -1737,7 +1737,7 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // Hire New Staff Dialog (Owner Only)
+  // Hire New Staff Dialog (Owner and Manager Only)
   void _showHireNewStaffDialog() {
     final fullNameController = TextEditingController();
     final emailController = TextEditingController();
@@ -1978,24 +1978,72 @@ class _HrScreenState extends State<HrScreen>
                   // Generate secure random password with "Pzed" prefix
                   final securePassword = _generateSecurePassword();
                   
-                  // Create auth user (this will create guest profile via trigger)
+                  // CRITICAL: Save owner's session info before creating staff account
+                  // This prevents the app from auto-logging in as the new staff member
                   final supabase = Supabase.instance.client;
-                  final signUpResponse = await supabase.auth.signUp(
-                    email: staffEmail,
-                    password: securePassword,
-                    data: {
-                      'full_name': staffName,
-                    },
-                  );
+                  final ownerSession = supabase.auth.currentSession;
+                  final ownerEmail = currentUser?.email;
+                  final ownerPassword = ''; // We don't have the password, but we'll handle this differently
+                  
+                  // Set flag to ignore auth state changes during staff creation
+                  authService.setCreatingStaffAccount(true);
+                  
+                  // Declare userId outside try block so it's accessible later
+                  String? userId;
+                  
+                  try {
+                    // Create auth user (this will create guest profile via trigger)
+                    // NOTE: This will temporarily switch the session to the new user,
+                    // but the auth state listener will be ignored due to the flag above
+                    final signUpResponse = await supabase.auth.signUp(
+                      email: staffEmail,
+                      password: securePassword,
+                      data: {
+                        'full_name': staffName,
+                      },
+                    );
 
-                  if (signUpResponse.user == null) {
-                    throw Exception('Failed to create user account');
+                    if (signUpResponse.user == null) {
+                      throw Exception('Failed to create user account');
+                    }
+
+                    userId = signUpResponse.user!.id;
+                    
+                    // Wait a moment for trigger to create profile
+                    await Future.delayed(const Duration(milliseconds: 1000));
+                    
+                    // Immediately sign out the new user
+                    // The flag _isCreatingStaffAccount prevents the auth state listener
+                    // from switching to the new user
+                    await supabase.auth.signOut();
+                    
+                    // Wait a moment for sign out to complete
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    
+                    // Try to restore owner's session
+                    // Since we don't have the password, we can't sign in again
+                    // But if the session was still valid, Supabase might restore it
+                    // If not, the owner will need to log in again (edge case)
+                    // The auth state listener will handle this when the flag is cleared
+                  } finally {
+                    // Always clear the flag, even if there was an error
+                    // This will allow the auth state listener to process any session changes
+                    authService.setCreatingStaffAccount(false);
+                    
+                    // If owner's session is gone, they'll need to log in again
+                    // This is a rare edge case, but better than auto-logging in as the new staff
+                    final currentSession = supabase.auth.currentSession;
+                    if (currentSession == null && ownerSession != null) {
+                      // Owner's session was lost - they'll need to log in again
+                      // Show a message to the owner
+                      if (mounted) {
+                        ErrorHandler.showWarningMessage(
+                          context,
+                          'Please log in again to continue. Your session was reset during staff creation.',
+                        );
+                      }
+                    }
                   }
-
-                  final userId = signUpResponse.user!.id;
-
-                  // Wait a moment for trigger to create profile
-                  await Future.delayed(const Duration(milliseconds: 1000));
 
                   // Update profile to staff role using the user ID directly
                   try {
@@ -2020,7 +2068,7 @@ class _HrScreenState extends State<HrScreen>
                         role: staffRole,
                         phone: staffPhone,
                         department: null,
-                        userId: userId,
+                        userId: userId!,
                       );
                     } catch (retryError) {
                       // If it still fails, throw the original error
@@ -2118,8 +2166,8 @@ class _HrScreenState extends State<HrScreen>
                     } else if (errorString.contains('profile') || 
                                errorString.contains('createstaffprofile')) {
                       errorMsg = 'Failed to create staff profile. Please verify all information is correct and try again.';
-                    } else if (errorString.contains('only owner')) {
-                      errorMsg = 'Only owner can create staff profiles';
+                    } else if (errorString.contains('only owner') || errorString.contains('Only owner')) {
+                      errorMsg = 'Only owner or manager can create staff profiles';
                     } else {
                       errorMsg = 'Failed to create staff account: ${e.toString()}';
                     }

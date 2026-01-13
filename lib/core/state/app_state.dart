@@ -195,6 +195,7 @@ class PermissionManager {
           AppRole.supervisor,
           AppRole.bartender,
           AppRole.kitchen_staff,
+          AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
         ].contains(userRole);
       
       case 'finance':
@@ -219,6 +220,7 @@ class PermissionManager {
           AppRole.supervisor,
           AppRole.kitchen_staff,
           AppRole.bartender,
+          AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
         ].contains(userRole);
       
       case 'communications':

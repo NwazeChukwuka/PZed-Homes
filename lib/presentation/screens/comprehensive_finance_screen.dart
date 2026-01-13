@@ -536,8 +536,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       if (debt['debtor_phone'] != null) 
                         Text('Phone: ${debt['debtor_phone']}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                       // Note: department info is stored in reason field, not a separate column
-                      if (debt['sold_by'] != null && debt['profiles'] != null)
-                        Text('Sold by: ${debt['profiles']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      if (debt['sold_by'] != null && debt['sold_by_profile'] != null)
+                        Text('Sold by: ${debt['sold_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      if (debt['created_by'] != null && debt['created_by_profile'] != null)
+                        Text('Created by: ${debt['created_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                       if (debt['approved_by'] != null)
                         Text('Approved by: ${debt['approved_by']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                     ],

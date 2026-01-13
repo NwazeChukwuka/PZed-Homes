@@ -444,8 +444,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           children: [
             Text('Item: ${transaction['item_id']}'),
             Text('Quantity: ${transaction['quantity']}'),
-            Text('Unit Price: ₦${transaction['unit_price']}'),
-            Text('Total: ₦${transaction['total_amount']}'),
+            Text('Unit Price: ₦${PaymentService.koboToNaira(transaction['unit_price'] as int? ?? 0).toStringAsFixed(2)}'),
+            Text('Total: ₦${PaymentService.koboToNaira(transaction['total_amount'] as int? ?? 0).toStringAsFixed(2)}'),
             Text('Time: ${transaction['timestamp']}'),
           ],
         ),
