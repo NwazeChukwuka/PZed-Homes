@@ -21,6 +21,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   bool _isLoading = true;
   bool _showDepartmentView = false; // Toggle between personal and department view
   
+  // Clock-in/Clock-out state
+  bool _isClockedIn = false;
+  bool _isLoadingAttendance = true;
+  Map<String, dynamic>? _lastAttendanceRecord;
+  
   // Personal stats
   Map<String, dynamic> _personalStats = {};
   List<Map<String, dynamic>> _myTransactions = [];
@@ -45,6 +50,15 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
+    // Sync clock-in status with AuthService
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      if (mounted) {
+        setState(() {
+          _isClockedIn = auth.isClockedIn;
+        });
+      }
+    });
   }
 
   Future<void> _loadData() async {
@@ -79,17 +93,111 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         await _loadRoomData(staffId);
       }
       
+      // Load attendance status
+      await _fetchLastAttendance();
+      
       if (mounted) {
         setState(() => _isLoading = false);
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _isLoadingAttendance = false;
+        });
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load dashboard data. Please check your connection and try again.',
           onRetry: _loadData,
+        );
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchLastAttendance() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      if (authService.currentUser == null) {
+        if (mounted) {
+          setState(() => _isLoadingAttendance = false);
+        }
+        return null;
+      }
+      
+      // Get current attendance from database
+      final attendance = await _dataService.getCurrentAttendance(authService.currentUser!.id);
+      
+      // Update local state to match AuthService
+      if (mounted) {
+        setState(() {
+          _isClockedIn = authService.isClockedIn;
+          _lastAttendanceRecord = attendance;
+          _isLoadingAttendance = false;
+        });
+      }
+      
+      return attendance;
+    } catch (e) {
+      // If error, check AuthService state
+      final authService = Provider.of<AuthService>(context, listen: false);
+      if (mounted) {
+        setState(() {
+          _isClockedIn = authService.isClockedIn;
+          _isLoadingAttendance = false;
+        });
+      }
+      return null;
+    }
+  }
+
+  Future<void> _handleClockIn() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.clockIn();
+      if (mounted) {
+        setState(() {
+          _isClockedIn = true;
+          _lastAttendanceRecord = {
+            'clock_in_time': authService.clockInTime?.toIso8601String() ?? DateTime.now().toIso8601String(),
+          };
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Clocked in successfully',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to clock in. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _handleClockOut() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.clockOut();
+      if (mounted) {
+        setState(() {
+          _isClockedIn = false;
+          _lastAttendanceRecord = null;
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Clocked out successfully',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to clock out. Please try again.',
         );
       }
     }
@@ -398,6 +506,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildHeader(user),
+                  const SizedBox(height: 16),
+                  _buildAttendanceCard(),
                   const SizedBox(height: 16),
                   _buildTimeFilter(),
                   const SizedBox(height: 16),
@@ -1271,6 +1381,57 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceCard() {
+    if (_isLoadingAttendance) return const LinearProgressIndicator();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _isClockedIn ? Colors.green[50] : Colors.blue[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _isClockedIn ? Colors.green[200]! : Colors.blue[200]!,
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Attendance',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isClockedIn ? 'You are clocked IN' : 'You are clocked OUT',
+            style: TextStyle(
+              color: _isClockedIn ? Colors.green[700] : Colors.blue[700],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (_lastAttendanceRecord != null && _lastAttendanceRecord!['clock_in_time'] != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Clocked in at: ${DateFormat('hh:mm a').format(DateTime.parse(_lastAttendanceRecord!['clock_in_time']))}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _isClockedIn ? _handleClockOut : _handleClockIn,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isClockedIn ? Colors.red : Colors.green,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 48),
+            ),
+            child: Text(_isClockedIn ? 'Clock Out' : 'Clock In'),
           ),
         ],
       ),

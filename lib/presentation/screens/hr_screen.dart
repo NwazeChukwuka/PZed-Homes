@@ -1956,8 +1956,11 @@ class _HrScreenState extends State<HrScreen>
                   final authService = Provider.of<AuthService>(context, listen: false);
                   final currentUser = authService.currentUser;
                   
-                  if (currentUser?.role != AppRole.owner) {
-                    throw Exception('Only owner can create staff profiles');
+                  // Allow owner, HR manager, and manager to create staff profiles
+                  if (currentUser?.role != AppRole.owner && 
+                      currentUser?.role != AppRole.hr && 
+                      currentUser?.role != AppRole.manager) {
+                    throw Exception('Only owner, HR manager, or manager can create staff profiles');
                   }
 
                   // Save and sanitize values before disposing controllers
@@ -1966,7 +1969,7 @@ class _HrScreenState extends State<HrScreen>
                   final staffPhone = phoneController.text.trim().isEmpty 
                       ? null 
                       : InputSanitizer.sanitizePhone(phoneController.text.trim());
-                  final staffRole = selectedRole!;
+                  final staffRole = selectedRole!; // This is already a String from the dropdown
                   
                   if (staffName.isEmpty) {
                     throw Exception('Staff name cannot be empty');
@@ -1978,12 +1981,13 @@ class _HrScreenState extends State<HrScreen>
                   // Generate secure random password with "Pzed" prefix
                   final securePassword = _generateSecurePassword();
                   
-                  // CRITICAL: Save owner's session info before creating staff account
-                  // This prevents the app from auto-logging in as the new staff member
+                  // CRITICAL: Save current user's session token before creating staff account
+                  // This allows us to restore the current user's session after creating the staff account
+                  // Works for owner, HR manager, or manager
                   final supabase = Supabase.instance.client;
-                  final ownerSession = supabase.auth.currentSession;
-                  final ownerEmail = currentUser?.email;
-                  final ownerPassword = ''; // We don't have the password, but we'll handle this differently
+                  final currentUserSession = supabase.auth.currentSession;
+                  final currentUserAccessToken = currentUserSession?.accessToken;
+                  final currentUserRefreshToken = currentUserSession?.refreshToken;
                   
                   // Set flag to ignore auth state changes during staff creation
                   authService.setCreatingStaffAccount(true);
@@ -2020,22 +2024,33 @@ class _HrScreenState extends State<HrScreen>
                     // Wait a moment for sign out to complete
                     await Future.delayed(const Duration(milliseconds: 500));
                     
-                    // Try to restore owner's session
-                    // Since we don't have the password, we can't sign in again
-                    // But if the session was still valid, Supabase might restore it
-                    // If not, the owner will need to log in again (edge case)
-                    // The auth state listener will handle this when the flag is cleared
+                    // CRITICAL: Restore current user's session using the saved refresh token
+                    // setSession expects a refresh token string
+                    // Works for owner, HR manager, or manager
+                    if (currentUserRefreshToken != null) {
+                      try {
+                        // Use setSession with the refresh token string
+                        await supabase.auth.setSession(currentUserRefreshToken);
+                      } catch (e) {
+                        // If setSession fails, the user will need to log in again
+                        if (mounted) {
+                          ErrorHandler.showWarningMessage(
+                            context,
+                            'Please log in again to continue. Your session was reset during staff creation.',
+                          );
+                        }
+                      }
+                    }
                   } finally {
                     // Always clear the flag, even if there was an error
                     // This will allow the auth state listener to process any session changes
                     authService.setCreatingStaffAccount(false);
                     
-                    // If owner's session is gone, they'll need to log in again
-                    // This is a rare edge case, but better than auto-logging in as the new staff
-                    final currentSession = supabase.auth.currentSession;
-                    if (currentSession == null && ownerSession != null) {
-                      // Owner's session was lost - they'll need to log in again
-                      // Show a message to the owner
+                    // Verify current user's session is restored
+                    final restoredSession = supabase.auth.currentSession;
+                    if (restoredSession == null && currentUserSession != null) {
+                      // Current user's session was lost - they'll need to log in again
+                      // This applies to owner, HR manager, or manager
                       if (mounted) {
                         ErrorHandler.showWarningMessage(
                           context,
@@ -2051,7 +2066,7 @@ class _HrScreenState extends State<HrScreen>
                       email: staffEmail,
                       password: securePassword, // Not used in function but kept for consistency
                       fullName: staffName,
-                      role: staffRole,
+                      role: staffRole, // staffRole is already a String
                       phone: staffPhone,
                       department: null,
                       userId: userId, // Pass the user ID directly to avoid querying auth.users
@@ -2065,7 +2080,7 @@ class _HrScreenState extends State<HrScreen>
                         email: staffEmail,
                         password: securePassword,
                         fullName: staffName,
-                        role: staffRole,
+                        role: staffRole, // staffRole is already a String
                         phone: staffPhone,
                         department: null,
                         userId: userId!,

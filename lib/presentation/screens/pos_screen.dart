@@ -151,13 +151,13 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       return;
     }
 
-    // Check if staff is clocked in
+    // Verify user is logged in (clock-in no longer required for transactions)
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (!authService.canMakeTransactions()) {
+    if (authService.currentUser == null) {
       if (mounted) {
         ErrorHandler.showWarningMessage(
           context,
-          'You must clock in before making transactions',
+          'You must be logged in to make transactions',
         );
       }
       return;

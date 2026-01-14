@@ -579,8 +579,9 @@ class AuthService with ChangeNotifier {
   }
 
   bool canMakeTransactions() {
-    if (isManagementRole()) return true;
-    return _isClockedIn;
+    // All active staff can make transactions - clock-in is no longer required
+    // Clock-in/clock-out is now only for attendance tracking purposes
+    return _currentUser != null;
   }
 
   void assumeRole(AppRole role) {

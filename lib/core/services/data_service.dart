@@ -1145,31 +1145,9 @@ class DataService {
     String? userId, // Optional: if provided, use it directly instead of querying
   }) async {
     return await _retryOperation(() async {
-      // If userId is provided, update profile directly
-      if (userId != null) {
-        // Update the profile that was created by the trigger
-        // This requires the "Owner can update staff profiles" RLS policy
-        final updateResult = await _supabase
-            .from('profiles')
-            .update({
-              'full_name': fullName,
-              'email': email,
-              'phone': phone,
-              'roles': [role],
-              'status': 'Active',
-              'department': department,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', userId)
-            .select()
-            .single();
-        
-        // Return the updated profile
-        return Map<String, dynamic>.from(updateResult);
-      }
-      
-      // Fallback: Call the database function to update profile
-      // This requires the function to be able to access auth.users
+      // Always use the database function instead of direct UPDATE
+      // The function uses SECURITY DEFINER and bypasses RLS, which is more reliable
+      // especially after signOut() when the session might be lost
       final response = await _supabase.rpc('create_staff_profile', params: {
         'p_email': email,
         'p_full_name': fullName,
@@ -1178,12 +1156,19 @@ class DataService {
         'p_department': department,
       });
       
-      // Get the created profile
-      final profile = await _supabase
-          .from('profiles')
-          .select()
-          .eq('email', email)
-          .single();
+      // Get the created/updated profile
+      // Use userId if provided, otherwise use email
+      final profile = userId != null
+          ? await _supabase
+              .from('profiles')
+              .select()
+              .eq('id', userId)
+              .single()
+          : await _supabase
+              .from('profiles')
+              .select()
+              .eq('email', email)
+              .single();
       
       return Map<String, dynamic>.from(profile);
     });
