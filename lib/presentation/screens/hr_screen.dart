@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -51,15 +52,34 @@ class _HrScreenState extends State<HrScreen>
   }
 
   /// Generate a secure random password with "Pzed" prefix
+  /// Format: Pzed + (3 numbers + 2 alphabets) OR (2 numbers + 3 alphabets)
+  /// Examples: Pzed123ab, Pzed12abc, Pzed456XY, Pzed45XYZ
   String _generateSecurePassword() {
     const prefix = 'Pzed';
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
+    const numbers = '0123456789';
+    const allLetters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     final random = Random.secure();
     final suffix = StringBuffer();
     
-    // Generate 8 random characters
-    for (int i = 0; i < 8; i++) {
-      suffix.write(chars[random.nextInt(chars.length)]);
+    // Randomly choose between: 3 numbers + 2 alphabets OR 2 numbers + 3 alphabets
+    final useThreeNumbers = random.nextBool();
+    
+    if (useThreeNumbers) {
+      // Pattern: 3 numbers + 2 alphabets
+      for (int i = 0; i < 3; i++) {
+        suffix.write(numbers[random.nextInt(numbers.length)]);
+      }
+      for (int i = 0; i < 2; i++) {
+        suffix.write(allLetters[random.nextInt(allLetters.length)]);
+      }
+    } else {
+      // Pattern: 2 numbers + 3 alphabets
+      for (int i = 0; i < 2; i++) {
+        suffix.write(numbers[random.nextInt(numbers.length)]);
+      }
+      for (int i = 0; i < 3; i++) {
+        suffix.write(allLetters[random.nextInt(allLetters.length)]);
+      }
     }
     
     return '$prefix$suffix';
@@ -1986,8 +2006,11 @@ class _HrScreenState extends State<HrScreen>
                   // Works for owner, HR manager, or manager
                   final supabase = Supabase.instance.client;
                   final currentUserSession = supabase.auth.currentSession;
-                  final currentUserAccessToken = currentUserSession?.accessToken;
                   final currentUserRefreshToken = currentUserSession?.refreshToken;
+                  
+                  if (currentUserRefreshToken == null) {
+                    throw Exception('Unable to save current session. Please log in again.');
+                  }
                   
                   // Set flag to ignore auth state changes during staff creation
                   authService.setCreatingStaffAccount(true);
@@ -2016,52 +2039,15 @@ class _HrScreenState extends State<HrScreen>
                     // Wait a moment for trigger to create profile
                     await Future.delayed(const Duration(milliseconds: 1000));
                     
-                    // Immediately sign out the new user
-                    // The flag _isCreatingStaffAccount prevents the auth state listener
-                    // from switching to the new user
-                    await supabase.auth.signOut();
+                    // CRITICAL: Restore creator's session BEFORE calling createStaffProfile
+                    // The RPC function checks auth.uid() to verify permissions, so we need
+                    // the creator's session active when calling it
+                    await supabase.auth.setSession(currentUserRefreshToken);
                     
-                    // Wait a moment for sign out to complete
+                    // Wait a moment for session restoration
                     await Future.delayed(const Duration(milliseconds: 500));
                     
-                    // CRITICAL: Restore current user's session using the saved refresh token
-                    // setSession expects a refresh token string
-                    // Works for owner, HR manager, or manager
-                    if (currentUserRefreshToken != null) {
-                      try {
-                        // Use setSession with the refresh token string
-                        await supabase.auth.setSession(currentUserRefreshToken);
-                      } catch (e) {
-                        // If setSession fails, the user will need to log in again
-                        if (mounted) {
-                          ErrorHandler.showWarningMessage(
-                            context,
-                            'Please log in again to continue. Your session was reset during staff creation.',
-                          );
-                        }
-                      }
-                    }
-                  } finally {
-                    // Always clear the flag, even if there was an error
-                    // This will allow the auth state listener to process any session changes
-                    authService.setCreatingStaffAccount(false);
-                    
-                    // Verify current user's session is restored
-                    final restoredSession = supabase.auth.currentSession;
-                    if (restoredSession == null && currentUserSession != null) {
-                      // Current user's session was lost - they'll need to log in again
-                      // This applies to owner, HR manager, or manager
-                      if (mounted) {
-                        ErrorHandler.showWarningMessage(
-                          context,
-                          'Please log in again to continue. Your session was reset during staff creation.',
-                        );
-                      }
-                    }
-                  }
-
-                  // Update profile to staff role using the user ID directly
-                  try {
+                    // Now update profile to staff role - creator's session is active
                     await _dataService.createStaffProfile(
                       email: staffEmail,
                       password: securePassword, // Not used in function but kept for consistency
@@ -2069,44 +2055,57 @@ class _HrScreenState extends State<HrScreen>
                       role: staffRole, // staffRole is already a String
                       phone: staffPhone,
                       department: null,
-                      userId: userId, // Pass the user ID directly to avoid querying auth.users
+                      userId: userId, // Pass the user ID directly
                     );
+                    
+                    // Sign out the new user (they should not be logged in)
+                    // We need to use admin API or sign them out without affecting our session
+                    // Since we can't use admin API from client, we'll just ensure our session is restored
+                    // The new user won't be logged in because we restored our session above
+                    
                   } catch (profileError) {
-                    // If profile update fails, wait a bit more and retry
-                    // This handles cases where the trigger hasn't created the profile yet
+                    // If profile update fails, try to restore session and retry
                     try {
+                      // Ensure creator's session is restored
+                      await supabase.auth.setSession(currentUserRefreshToken);
                       await Future.delayed(const Duration(milliseconds: 1000));
+                      
                       await _dataService.createStaffProfile(
                         email: staffEmail,
                         password: securePassword,
                         fullName: staffName,
-                        role: staffRole, // staffRole is already a String
+                        role: staffRole,
                         phone: staffPhone,
                         department: null,
                         userId: userId!,
                       );
                     } catch (retryError) {
-                      // If it still fails, throw the original error
+                      // If it still fails, restore session and throw error
+                      try {
+                        await supabase.auth.setSession(currentUserRefreshToken);
+                      } catch (_) {
+                        // Ignore session restore error in error handler
+                      }
                       throw Exception('Failed to update staff profile: $profileError');
                     }
-                  }
-
-                  // Send password reset email to the new staff member
-                  // This allows them to set their own password and log in
-                  try {
-                    final supabase = Supabase.instance.client;
-                    await supabase.auth.resetPasswordForEmail(
-                      staffEmail,
-                      redirectTo: _getPasswordResetUrl(),
-                    );
-                    if (kDebugMode) {
-                      debugPrint('Password reset email sent to $staffEmail');
-                    }
-                  } catch (emailError) {
-                    // Log but don't fail - password was already generated and shown to owner
-                    // Staff can use "Forgot Password" later if needed
-                    if (kDebugMode) {
-                      debugPrint('Warning: Could not send password reset email to $staffEmail: $emailError');
+                  } finally {
+                    // Always clear the flag, even if there was an error
+                    authService.setCreatingStaffAccount(false);
+                    
+                    // Ensure creator's session is still active
+                    final finalSession = supabase.auth.currentSession;
+                    if (finalSession == null || finalSession.user.id != currentUserSession?.user.id) {
+                      // Session was lost - try to restore it
+                      try {
+                        await supabase.auth.setSession(currentUserRefreshToken);
+                      } catch (e) {
+                        if (mounted) {
+                          ErrorHandler.showWarningMessage(
+                            context,
+                            'Please log in again to continue. Your session was reset during staff creation.',
+                          );
+                        }
+                      }
                     }
                   }
 
@@ -2116,40 +2115,123 @@ class _HrScreenState extends State<HrScreen>
 
                   if (mounted) {
                     Navigator.pop(context);
-                    // Show password to owner (they should communicate it securely to staff)
+                    // Show password dialog - creator stays logged in
+                    // They can copy/screenshot the password and send it to the staff member
                     showDialog(
                       context: context,
+                      barrierDismissible: false, // Prevent dismissing by tapping outside
                       builder: (context) => AlertDialog(
-                        title: const Text('Staff Account Created'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        title: Row(
                           children: [
-                            Text('$staffName hired as ${staffRole.replaceAll('_', ' ')}'),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Temporary Password:',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            SelectableText(
-                              securePassword,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              '⚠️ Please securely communicate this password to the staff member. They should change it on first login.',
-                              style: TextStyle(fontSize: 12, color: Colors.orange),
+                            Icon(Icons.check_circle, color: Colors.green[700], size: 28),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text('Staff Account Created Successfully'),
                             ),
                           ],
                         ),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$staffName has been hired as ${staffRole.replaceAll('_', ' ').toUpperCase()}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(Icons.lock, size: 16, color: Colors.grey[700]),
+                                        const SizedBox(width: 4),
+                                        const Text(
+                                          'Temporary Password:',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SelectableText(
+                                      securePassword,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue[50],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Please copy or screenshot this password and share it securely with the staff member.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue[900],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
+                          // Copy button
+                          TextButton.icon(
+                            onPressed: () async {
+                              // Copy password to clipboard
+                              await Clipboard.setData(ClipboardData(text: securePassword));
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Password copied to clipboard'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.copy),
+                            label: const Text('Copy Password'),
+                          ),
+                          // OK button
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[700],
+                              foregroundColor: Colors.white,
+                            ),
                             child: const Text('OK'),
                           ),
                         ],
