@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ManageWebsiteScreen extends StatefulWidget {
   const ManageWebsiteScreen({super.key});
@@ -84,7 +85,24 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
               return Card(
                 margin: const EdgeInsets.all(8),
                 child: ListTile(
-                  leading: Image.network(item['media_url'], width: 60, height: 60, fit: BoxFit.cover),
+                  leading: CachedNetworkImage(
+                    imageUrl: item['media_url'],
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      width: 60,
+                      height: 60,
+                      color: Colors.grey[300],
+                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      width: 60,
+                      height: 60,
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.broken_image, size: 30),
+                    ),
+                  ),
                   title: Text(item['title']),
                   subtitle: Text(item['description'] ?? 'No description'),
                   trailing: IconButton(

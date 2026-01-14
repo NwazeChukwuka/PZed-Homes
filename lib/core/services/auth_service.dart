@@ -8,6 +8,7 @@ class AuthService with ChangeNotifier {
   SupabaseClient? _supabase;
   AppUser? _currentUser;
   bool _isLoading = true;
+  bool _initializationComplete = false; // Track if initialization is done
   bool _isLoggedIn = false;
   bool _isClockedIn = false;
   DateTime? _clockInTime;
@@ -103,24 +104,55 @@ class AuthService with ChangeNotifier {
     _currentUser = null;
     notifyListeners();
     
+    // Mark initialization as complete after a short delay
+    // This allows the sign-out to complete before we start listening
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _initializationComplete = true;
+    });
+    
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
-        // Skip if we're currently logging in, loading user data, or creating staff account
-        // This prevents auto-login when owner creates a new staff member
+        // CRITICAL: Skip ALL auth state changes during initialization or explicit login
+        // This prevents auto-login when browser reopens
         if (_isLoggingIn || _isLoadingUserData || _isCreatingStaffAccount) {
           return;
         }
         
+        // IMPORTANT: If initialization just completed and we see a session,
+        // it's from localStorage persistence - sign out to force explicit login
         final session = data.session;
         if (session != null && session.user != null) {
-          // Only reload if we don't have a current user or user ID changed
-          if (_currentUser == null || _currentUser!.id != session.user.id) {
+          // If we don't have a current user AND initialization just completed,
+          // this session is from localStorage - sign out immediately
+          if (_currentUser == null && _initializationComplete) {
+            try {
+              await _supabase!.auth.signOut();
+              _currentUser = null;
+              _isLoggedIn = false;
+              _isClockedIn = false;
+              _clockInTime = null;
+              _currentAttendanceId = null;
+              _isLoading = false;
+              notifyListeners();
+              return;
+            } catch (e) {
+              // If sign out fails, still don't auto-login
+              _currentUser = null;
+              _isLoggedIn = false;
+              _isLoading = false;
+              notifyListeners();
+              return;
+            }
+          }
+          
+          // If we have a current user, this is a legitimate session change
+          // Only reload if user ID changed
+          if (_currentUser != null && _currentUser!.id != session.user.id) {
             _isLoading = true;
             notifyListeners();
             try {
               await _loadUserData(session.user);
             } catch (e) {
-              // Silently handle errors from auth state listener
               _isLoading = false;
               notifyListeners();
             }

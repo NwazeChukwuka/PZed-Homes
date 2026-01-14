@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:pzed_homes/data/models/gallery_item.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class GalleryViewerScreen extends StatefulWidget {
   final List<GalleryItem> items;
@@ -242,18 +243,13 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
       minScale: 0.5,
       maxScale: 4.0,
       child: item.url.startsWith('http')
-          ? Image.network(
-              item.url,
+          ? CachedNetworkImage(
+              imageUrl: item.url,
               fit: BoxFit.contain,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return _buildErrorWidget('Failed to load image');
-              },
+              placeholder: (context, url) => const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+              errorWidget: (context, url, error) => _buildErrorWidget('Failed to load image'),
             )
           : Image.asset(
               item.url,

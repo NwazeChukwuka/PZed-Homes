@@ -304,6 +304,10 @@ class MainScreen extends StatelessWidget {
 
   Widget _buildSidebarNavItem(BuildContext context, NavigationItem item) {
     final isSelected = _isCurrentRoute(context, item.route);
+    // Use responsive font size - larger on smaller screens (when desktop view is used on mobile)
+    final screenWidth = MediaQuery.of(context).size.width;
+    final fontSize = screenWidth < 1000 ? 16.0 : 14.0; // Larger on smaller screens
+    final iconSize = screenWidth < 1000 ? 24.0 : 20.0; // Larger icons on smaller screens
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -315,15 +319,19 @@ class MainScreen extends StatelessWidget {
         leading: Icon(
           item.icon,
           color: isSelected ? Colors.white : Colors.green[200],
-          size: 20,
+          size: iconSize,
         ),
         title: Text(
           item.label,
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.green[200],
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            fontSize: 14,
+            fontSize: fontSize,
           ),
+        ),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: screenWidth < 1000 ? 12 : 8, // More padding on smaller screens
         ),
         onTap: () => _navigateToRoute(context, item.route),
         shape: RoundedRectangleBorder(
@@ -699,14 +707,17 @@ class MainScreen extends StatelessWidget {
       leading: Icon(
         item.icon,
         color: isSelected ? Colors.green[800] : Colors.grey[600],
+        size: 28, // Larger icon for better touch targets
       ),
       title: Text(
         item.label,
         style: TextStyle(
           color: isSelected ? Colors.green[800] : Colors.grey[700],
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          fontSize: 18, // Larger font for better readability on mobile
         ),
       ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // More padding for easier tapping
       selected: isSelected,
       onTap: () {
         Navigator.of(context).pop(); // Close drawer
@@ -724,8 +735,12 @@ class MainScreen extends StatelessWidget {
         ),
       ),
       child: ListTile(
-        leading: const Icon(Icons.logout, color: Colors.red),
-        title: const Text('Logout'),
+        leading: const Icon(Icons.logout, color: Colors.red, size: 28), // Larger icon
+        title: const Text(
+          'Logout',
+          style: TextStyle(fontSize: 18), // Larger font for better readability
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // More padding
         onTap: () {
           Navigator.of(context).pop(); // Close drawer
           _showLogoutDialog(context);
@@ -903,16 +918,17 @@ class MainScreen extends StatelessWidget {
         leading: Icon(
           item.icon,
           color: isSelected ? Colors.white : Colors.grey[600],
-          size: 24,
+          size: 26, // Larger icon for better touch targets
         ),
         title: Text(
           item.label,
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.grey[700],
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            fontSize: 16,
+            fontSize: 18, // Larger font for better readability
           ),
         ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10), // More padding for easier tapping
         onTap: () {
           Navigator.of(context).pop(); // Close drawer
           context.go(item.route);
@@ -933,8 +949,12 @@ class MainScreen extends StatelessWidget {
         ),
       ),
       child: ListTile(
-        leading: const Icon(Icons.logout, color: Colors.red),
-        title: const Text('Logout'),
+        leading: const Icon(Icons.logout, color: Colors.red, size: 26), // Larger icon
+        title: const Text(
+          'Logout',
+          style: TextStyle(fontSize: 18), // Larger font for better readability
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10), // More padding
         onTap: () {
           Navigator.of(context).pop(); // Close drawer
           _showLogoutDialog(context);

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -584,22 +585,29 @@ class RootDecider extends StatelessWidget {
           return _buildConfigErrorScreen(initError);
         }
 
-        // If user is logged in, show appropriate dashboard
-        // This prevents navigation conflicts with login screen
-        final user = authService.currentUser;
-        final userRole = authService.isRoleAssumed 
-            ? (authService.assumedRole ?? user?.role) 
-            : user?.role;
+        // If user is logged in, navigate to dashboard route (which includes MainScreen with sidebar)
+        // This ensures the sidebar/drawer is always available
+        // Use a post-frame callback to avoid navigation during build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) {
+            try {
+              context.go('/dashboard');
+            } catch (e) {
+              // If navigation fails, show a fallback
+              if (kDebugMode) {
+                print('Navigation error in RootDecider: $e');
+              }
+            }
+          }
+        });
         
-        final isManagement = userRole == AppRole.owner || 
-                             userRole == AppRole.manager || 
-                             userRole == AppRole.supervisor ||
-                             userRole == AppRole.accountant ||
-                             userRole == AppRole.hr;
-        
-        return isManagement 
-            ? const DashboardScreen() 
-            : const StaffDashboardScreen();
+        // Show a loading screen while navigating
+        // This prevents showing the dashboard without sidebar
+        return const Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
       },
     );
   }

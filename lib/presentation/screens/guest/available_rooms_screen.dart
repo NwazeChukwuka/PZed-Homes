@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_booking_screen.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class AvailableRoomsScreen extends StatefulWidget {
   const AvailableRoomsScreen({super.key});
@@ -603,34 +604,24 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (imageUrl.isNotEmpty)
-                            Image.network(
-                              imageUrl,
+                            CachedNetworkImage(
+                              imageUrl: imageUrl,
                               height: imageHeight,
                               width: double.infinity,
                               fit: BoxFit.cover,
-                              loadingBuilder: (context, child, loadingProgress) {
-                                if (loadingProgress == null) return child;
-                                return Container(
-                                  height: imageHeight,
-                                  color: Colors.grey[300],
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      value: loadingProgress.expectedTotalBytes != null
-                                          ? loadingProgress.cumulativeBytesLoaded / 
-                                            loadingProgress.expectedTotalBytes!
-                                          : null,
-                                    ),
-                                  ),
-                                );
-                              },
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  height: imageHeight,
-                                  color: Colors.grey[300],
-                                  alignment: Alignment.center,
-                                  child: const Icon(Icons.image_not_supported, size: 48, color: Colors.grey),
-                                );
-                              },
+                              placeholder: (context, url) => Container(
+                                height: imageHeight,
+                                color: Colors.grey[300],
+                                child: const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                height: imageHeight,
+                                color: Colors.grey[300],
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.image_not_supported, size: 48, color: Colors.grey),
+                              ),
                             )
                           else
                             Container(

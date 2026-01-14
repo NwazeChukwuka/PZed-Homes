@@ -534,7 +534,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('debt_payments')
-          .select('*, profiles!collected_by(full_name), profiles!created_by(full_name)')
+          .select('*, collected_by_profile:profiles!collected_by(full_name), created_by_profile:profiles!created_by(full_name)')
           .eq('debt_id', debtId)
           .order('payment_date', ascending: false)
           .order('created_at', ascending: false);

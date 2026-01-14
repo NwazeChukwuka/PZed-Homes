@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart'; // You'll need to run: flutter pub add image_picker
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:io';
 
 class ManageGalleryScreen extends StatefulWidget {
@@ -93,7 +94,24 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
             itemBuilder: (context, index) {
               final item = items[index];
               return ListTile(
-                leading: Image.network(item['thumbnail_url'] ?? item['media_url'], width: 50, height: 50, fit: BoxFit.cover),
+                leading: CachedNetworkImage(
+                  imageUrl: item['thumbnail_url'] ?? item['media_url'],
+                  width: 50,
+                  height: 50,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    width: 50,
+                    height: 50,
+                    color: Colors.grey[300],
+                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    width: 50,
+                    height: 50,
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.broken_image, size: 24),
+                  ),
+                ),
                 title: Text(item['title']),
                 subtitle: Text(item['is_video'] ? 'Video' : 'Image'),
                 trailing: IconButton(

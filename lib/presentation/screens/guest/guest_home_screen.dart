@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class GuestHomeScreen extends StatefulWidget {
   const GuestHomeScreen({super.key});
@@ -72,17 +73,23 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Background image
-        Image.network(
-          'https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80',
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          color: Colors.black.withOpacity(0.4),
-          colorBlendMode: BlendMode.darken,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(color: Colors.grey[300]);
-          },
+        // Background image with caching
+        ColorFiltered(
+          colorFilter: ColorFilter.mode(
+            Colors.black.withOpacity(0.4),
+            BlendMode.darken,
+          ),
+          child: CachedNetworkImage(
+            imageUrl: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80',
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            placeholder: (context, url) => Container(
+              color: Colors.grey[300],
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+            errorWidget: (context, url, error) => Container(color: Colors.grey[300]),
+          ),
         ),
         
         // Content
