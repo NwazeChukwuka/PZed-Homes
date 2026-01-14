@@ -570,11 +570,11 @@ class RootDecider extends StatelessWidget {
         // PRIORITY: Show guest page immediately if not logged in
         // Don't wait for auth check - render first, check auth in background
         // Even if isLoading is true, show guest page (non-blocking)
-        if (!authService.isLoggedIn) {
+        if (!authService.isLoggedIn || authService.currentUser == null) {
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is logged in but still loading, show loading with short timeout
+        // If user is logged in but still loading user data, show loading with short timeout
         // After 3 seconds, force show dashboard anyway
         if (authService.isLoading) {
           return _LoadingScreenWithTimeout(maxWaitSeconds: 3);
@@ -585,20 +585,34 @@ class RootDecider extends StatelessWidget {
           return _buildConfigErrorScreen(initError);
         }
 
-        // If user is logged in, navigate to dashboard route (which includes MainScreen with sidebar)
+        // CRITICAL: Only navigate if user is fully loaded (has user data)
+        // This prevents showing dashboard without proper initialization
+        if (authService.currentUser == null) {
+          return _buildGuestPageWithWarning(isSupabaseInitialized);
+        }
+
+        // If user is logged in and fully loaded, navigate to dashboard route (which includes MainScreen with sidebar)
         // This ensures the sidebar/drawer is always available
-        // Use a post-frame callback to avoid navigation during build
+        // Use a post-frame callback with a small delay to ensure ShellRoute is ready
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted) {
-            try {
-              context.go('/dashboard');
-            } catch (e) {
-              // If navigation fails, show a fallback
-              if (kDebugMode) {
-                print('Navigation error in RootDecider: $e');
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (context.mounted && authService.isLoggedIn && authService.currentUser != null) {
+              try {
+                // Use go() to navigate to dashboard, which is inside ShellRoute
+                // This ensures MainScreen wrapper is applied
+                context.go('/dashboard');
+              } catch (e) {
+                // If navigation fails, show a fallback
+                if (kDebugMode) {
+                  print('Navigation error in RootDecider: $e');
+                }
+                // Fallback: try navigating to guest page
+                if (context.mounted) {
+                  context.go('/guest');
+                }
               }
             }
-          }
+          });
         });
         
         // Show a loading screen while navigating

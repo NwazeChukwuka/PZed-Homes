@@ -118,13 +118,27 @@ class AuthService with ChangeNotifier {
           return;
         }
         
+        // CRITICAL: If initialization is not complete, ignore ALL auth state changes
+        // This prevents auto-login from localStorage persistence
+        if (!_initializationComplete) {
+          // If we see a session during initialization, sign it out immediately
+          final session = data.session;
+          if (session != null && session.user != null) {
+            try {
+              await _supabase!.auth.signOut();
+            } catch (e) {
+              // Ignore errors
+            }
+          }
+          return;
+        }
+        
         // IMPORTANT: If initialization just completed and we see a session,
         // it's from localStorage persistence - sign out to force explicit login
         final session = data.session;
         if (session != null && session.user != null) {
-          // If we don't have a current user AND initialization just completed,
-          // this session is from localStorage - sign out immediately
-          if (_currentUser == null && _initializationComplete) {
+          // If we don't have a current user, this session is from localStorage - sign out immediately
+          if (_currentUser == null) {
             try {
               await _supabase!.auth.signOut();
               _currentUser = null;
