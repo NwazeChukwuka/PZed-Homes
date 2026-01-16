@@ -35,6 +35,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Map<String, dynamic> _departmentStats = {};
   List<Map<String, dynamic>> _departmentTransactions = [];
   List<Map<String, dynamic>> _departmentDebts = [];
+  List<Map<String, dynamic>> _departmentStockLevels = [];
   
   // Receptionist booking data
   List<Map<String, dynamic>> _bookings = [];
@@ -81,6 +82,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       // Load department data if applicable
       if (department != null) {
         await _loadDepartmentData(department);
+        await _loadDepartmentStockLevels(department);
       }
       
       // Load booking data for receptionists
@@ -212,6 +214,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         return 'mini_mart';
       case AppRole.kitchen_staff:
         return 'kitchen';
+      case AppRole.housekeeper:
+        return 'housekeeping';
+      case AppRole.laundry_attendant:
+        return 'laundry';
+      case AppRole.cleaner:
+        return 'housekeeping';
       default:
         return null;
     }
@@ -325,6 +333,17 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           .where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid')
           .fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0)),
     };
+  }
+
+  Future<void> _loadDepartmentStockLevels(String department) async {
+    final locationName = _getLocationNameForDepartment(department);
+    if (locationName == null) {
+      _departmentStockLevels = [];
+      return;
+    }
+
+    final stockLevels = await _dataService.getStockLevels(locationName: locationName);
+    _departmentStockLevels = stockLevels;
   }
 
   Future<void> _loadBookingData() async {
@@ -616,6 +635,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
+
+        if (_departmentStockLevels.isNotEmpty) ...[
+          _buildDepartmentStockLevels(),
+          const SizedBox(height: 24),
+        ],
         
         // Show booking stats for receptionist
         if (userRole == AppRole.receptionist) ...[
@@ -664,12 +688,53 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         const SizedBox(height: 12),
         _buildStatsGrid(_departmentStats, isPersonal: false),
         const SizedBox(height: 24),
+        if (_departmentStockLevels.isNotEmpty) ...[
+          _buildDepartmentStockLevels(),
+          const SizedBox(height: 24),
+        ],
         _buildStaffPerformance(),
         const SizedBox(height: 24),
         _buildDepartmentDebts(),
         const SizedBox(height: 24),
         _buildDepartmentTransactions(),
       ],
+    );
+  }
+
+  Widget _buildDepartmentStockLevels() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Department Stock Levels',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ..._departmentStockLevels.take(10).map((item) {
+              final name = item['name']?.toString() ?? 'Unknown';
+              final qty = item['current_stock']?.toString() ?? '0';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: Text(name)),
+                    Text(qty, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              );
+            }),
+            if (_departmentStockLevels.length > 10)
+              Text(
+                'Showing 10 of ${_departmentStockLevels.length} items',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -685,6 +750,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         return 'Kitchen';
       default:
         return department;
+    }
+  }
+
+  String? _getLocationNameForDepartment(String department) {
+    switch (department) {
+      case 'vip_bar':
+        return 'VIP Bar';
+      case 'outside_bar':
+        return 'Outside Bar';
+      case 'mini_mart':
+        return 'Mini Mart';
+      case 'kitchen':
+        return 'Kitchen';
+      case 'housekeeping':
+        return 'Housekeeping';
+      case 'laundry':
+        return 'Laundry';
+      case 'reception':
+        return 'Reception';
+      default:
+        return null;
     }
   }
 

@@ -233,6 +233,20 @@ class PermissionManager {
           AppRole.supervisor,
           AppRole.security,
         ].contains(userRole);
+
+      case 'stock':
+        return [
+          AppRole.owner,
+          AppRole.manager,
+          AppRole.supervisor,
+          AppRole.storekeeper,
+          AppRole.bartender,
+          AppRole.kitchen_staff,
+          AppRole.receptionist,
+          AppRole.housekeeper,
+          AppRole.laundry_attendant,
+          AppRole.cleaner,
+        ].contains(userRole);
       
       case 'reporting':
         return [
@@ -281,6 +295,7 @@ class PermissionManager {
       'kitchen',
       'communications',
       'maintenance',
+      'stock',
       'reporting',
       'purchasing',
       'storekeeping',

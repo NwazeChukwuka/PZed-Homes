@@ -20,7 +20,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -94,6 +94,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
           tabs: const [
             Tab(text: 'Confirm Purchases'),
             Tab(text: 'Direct Stock Entry'),
+            Tab(text: 'Issue to Department'),
           ],
         ),
       ),
@@ -102,6 +103,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         children: const [
           ConfirmPurchasesScreen(),
           DirectStockEntryForm(),
+          StockTransferForm(),
         ],
       ),
     );
@@ -387,6 +389,271 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
                   onPressed: _recordDirectEntry,
                   style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: const Text('Add to Stock Ledger'),
+                ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Stock Transfer Form (Main Store -> Department) ---
+class StockTransferForm extends StatefulWidget {
+  const StockTransferForm({super.key});
+  @override
+  State<StockTransferForm> createState() => _StockTransferFormState();
+}
+
+class _StockTransferFormState extends State<StockTransferForm> {
+  final _formKey = GlobalKey<FormState>();
+  final _quantityController = TextEditingController();
+  final _notesController = TextEditingController();
+  final _dataService = DataService();
+
+  String? _selectedStockItemId;
+  String? _sourceLocationId;
+  String? _destinationLocationId;
+  String? _selectedRecipientId;
+  bool _isLoading = false;
+
+  List<Map<String, dynamic>> _stockItems = [];
+  List<Map<String, dynamic>> _locations = [];
+  List<Map<String, dynamic>> _staffProfiles = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _quantityController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final items = await _dataService.getStockItems();
+      final locations = await _dataService.getLocations();
+      final staff = await _dataService.getStaffProfiles();
+
+      setState(() {
+        _stockItems = items;
+        _locations = locations;
+        _staffProfiles = staff;
+        _sourceLocationId = _defaultMainStoreLocationId();
+      });
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load transfer data. Please try again.',
+          onRetry: _loadData,
+        );
+      }
+    }
+  }
+
+  String? _defaultMainStoreLocationId() {
+    if (_locations.isEmpty) return null;
+    final match = _locations.firstWhere(
+      (loc) {
+        final name = (loc['name'] ?? '').toString().toLowerCase();
+        return name.contains('main') || name.contains('store');
+      },
+      orElse: () => <String, dynamic>{},
+    );
+    return match.isNotEmpty ? match['id']?.toString() : _locations.first['id']?.toString();
+  }
+
+  List<Map<String, dynamic>> _eligibleRecipients() {
+    if (_destinationLocationId == null) return [];
+    final destination = _locations.firstWhere(
+      (loc) => loc['id']?.toString() == _destinationLocationId,
+      orElse: () => <String, dynamic>{},
+    );
+    final locationName = (destination['name'] ?? '').toString();
+    final roleFilters = _rolesForLocation(locationName);
+
+    if (roleFilters.isEmpty) return _staffProfiles;
+
+    return _staffProfiles.where((profile) {
+      final roles = (profile['roles'] as List?)?.map((r) => r.toString()).toList() ?? [];
+      return roles.any((r) => roleFilters.contains(r));
+    }).toList();
+  }
+
+  List<String> _rolesForLocation(String locationName) {
+    final name = locationName.toLowerCase();
+    if (name.contains('vip')) return ['bartender'];
+    if (name.contains('outside') || name.contains('bar')) return ['bartender'];
+    if (name.contains('kitchen')) return ['kitchen_staff'];
+    if (name.contains('laundry')) return ['laundry_attendant'];
+    if (name.contains('housekeeping')) return ['housekeeper', 'cleaner'];
+    if (name.contains('reception') || name.contains('front')) return ['receptionist'];
+    if (name.contains('mini')) return ['receptionist'];
+    return [];
+  }
+
+  Future<void> _submitTransfer() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedStockItemId == null ||
+        _sourceLocationId == null ||
+        _destinationLocationId == null ||
+        _selectedRecipientId == null) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Please select item, source, destination, and recipient',
+        );
+      }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final issuedById = authService.currentUser?.id ?? 'system';
+      final quantity = int.parse(_quantityController.text.trim());
+
+      await _dataService.createStockTransfer(
+        stockItemId: _selectedStockItemId!,
+        sourceLocationId: _sourceLocationId!,
+        destinationLocationId: _destinationLocationId!,
+        quantity: quantity,
+        issuedById: issuedById,
+        receivedById: _selectedRecipientId!,
+        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      );
+
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Stock transferred successfully!');
+        _formKey.currentState?.reset();
+        _quantityController.clear();
+        _notesController.clear();
+        setState(() {
+          _selectedStockItemId = null;
+          _destinationLocationId = null;
+          _selectedRecipientId = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to transfer stock. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recipients = _eligibleRecipients();
+
+    return Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.all(16.0),
+        children: [
+          const Text(
+            'Use this form to issue stock from the main store to a department and record who received it.',
+            style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          _stockItems.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<String>(
+                  value: _selectedStockItemId,
+                  decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
+                  items: _stockItems.map((item) => DropdownMenuItem<String>(
+                    value: item['id']?.toString(),
+                    child: Text(item['name']?.toString() ?? 'Unknown'),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _selectedStockItemId = val),
+                  validator: (val) => val == null ? 'Please select an item' : null,
+                ),
+          const SizedBox(height: 16),
+          _locations.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : DropdownButtonFormField<String>(
+                  value: _sourceLocationId,
+                  decoration: const InputDecoration(labelText: 'Source Location', border: OutlineInputBorder()),
+                  items: _locations.map((loc) => DropdownMenuItem<String>(
+                    value: loc['id']?.toString(),
+                    child: Text(loc['name']?.toString() ?? 'Unknown'),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _sourceLocationId = val),
+                  validator: (val) => val == null ? 'Please select a source location' : null,
+                ),
+          const SizedBox(height: 16),
+          _locations.isEmpty
+              ? const SizedBox.shrink()
+              : DropdownButtonFormField<String>(
+                  value: _destinationLocationId,
+                  decoration: const InputDecoration(labelText: 'Destination Location', border: OutlineInputBorder()),
+                  items: _locations
+                      .where((loc) => loc['id']?.toString() != _sourceLocationId)
+                      .map((loc) => DropdownMenuItem<String>(
+                            value: loc['id']?.toString(),
+                            child: Text(loc['name']?.toString() ?? 'Unknown'),
+                          ))
+                      .toList(),
+                  onChanged: (val) => setState(() {
+                    _destinationLocationId = val;
+                    _selectedRecipientId = null;
+                  }),
+                  validator: (val) => val == null ? 'Please select a destination location' : null,
+                ),
+          const SizedBox(height: 16),
+          recipients.isEmpty
+              ? const Text('No eligible staff found for selected location.')
+              : DropdownButtonFormField<String>(
+                  value: _selectedRecipientId,
+                  decoration: const InputDecoration(labelText: 'Recipient Staff', border: OutlineInputBorder()),
+                  items: recipients.map((staff) => DropdownMenuItem<String>(
+                    value: staff['id']?.toString(),
+                    child: Text(staff['full_name']?.toString() ?? 'Unknown'),
+                  )).toList(),
+                  onChanged: (val) => setState(() => _selectedRecipientId = val),
+                  validator: (val) => val == null ? 'Please select a recipient' : null,
+                ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _quantityController,
+            decoration: const InputDecoration(labelText: 'Quantity', border: OutlineInputBorder()),
+            keyboardType: TextInputType.number,
+            validator: (val) {
+              if (val == null || val.trim().isEmpty) return 'Please enter quantity';
+              final qty = int.tryParse(val.trim()) ?? 0;
+              if (qty <= 0) return 'Quantity must be greater than 0';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _notesController,
+            decoration: const InputDecoration(labelText: 'Notes (Optional)', border: OutlineInputBorder()),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 24),
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _submitTransfer,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Record Transfer'),
+                  ),
                 ),
         ],
       ),

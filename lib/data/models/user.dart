@@ -24,6 +24,7 @@ class AppUser {
   final AppRole role;
   final List<AppRole> roles;
   final List<String> permissions;
+  final String? department;
 
   AppUser({
     required this.id,
@@ -32,5 +33,6 @@ class AppUser {
     required this.role,
     required this.roles,
     required this.permissions,
+    this.department,
   });
 }

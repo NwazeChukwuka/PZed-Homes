@@ -246,6 +246,7 @@ class AuthService with ChangeNotifier {
         role: primaryRole,
         roles: roles.map((role) => AppRole.values.byName(role as String)).toList(),
         permissions: permissions,
+        department: profileResponse['department'] as String?,
       );
       
       _isLoggedIn = true;
@@ -570,12 +571,15 @@ class AuthService with ChangeNotifier {
 
   bool isManagementRole() {
     if (_currentUser == null) return false;
-    final role = _isRoleAssumed ? (_assumedRole ?? _currentUser!.role) : _currentUser!.role;
-    return role == AppRole.owner ||
-           role == AppRole.manager ||
-           role == AppRole.supervisor ||
-           role == AppRole.accountant ||
-           role == AppRole.hr;
+    final roles = <AppRole>{
+      ..._currentUser!.roles,
+      if (_isRoleAssumed && _assumedRole != null) _assumedRole!,
+    };
+    return roles.contains(AppRole.owner) ||
+        roles.contains(AppRole.manager) ||
+        roles.contains(AppRole.supervisor) ||
+        roles.contains(AppRole.accountant) ||
+        roles.contains(AppRole.hr);
   }
 
   bool canMakeTransactions() {

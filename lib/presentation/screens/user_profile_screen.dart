@@ -385,10 +385,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final effectiveRole = authService.isRoleAssumed
         ? (authService.assumedRole ?? currentUser?.role)
         : currentUser?.role;
-    final bool isManagement = effectiveRole == AppRole.owner || effectiveRole == AppRole.manager || effectiveRole == AppRole.hr || effectiveRole == AppRole.supervisor || effectiveRole == AppRole.accountant;
-    final bool isHR = effectiveRole == AppRole.hr;
+    final roles = <AppRole>{
+      ...?currentUser?.roles,
+      if (authService.isRoleAssumed && authService.assumedRole != null)
+        authService.assumedRole!,
+    };
+    final bool isManagement = roles.contains(AppRole.owner) ||
+        roles.contains(AppRole.manager) ||
+        roles.contains(AppRole.hr) ||
+        roles.contains(AppRole.supervisor) ||
+        roles.contains(AppRole.accountant);
+    final bool isHR = roles.contains(AppRole.hr);
     final bool isAdmin = isManagement || isHR;
-    final bool isOwner = effectiveRole == AppRole.owner;
+    final bool isOwner = roles.contains(AppRole.owner);
     final bool viewingSelf = (currentUser?.id != null) && (widget.userProfile['id'] == currentUser!.id);
 
     final userStatus = widget.userProfile['status'] as String? ?? 'Active';

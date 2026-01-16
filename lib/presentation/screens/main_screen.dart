@@ -785,6 +785,9 @@ class MainScreen extends StatelessWidget {
     if (accessibleFeatures.contains('maintenance')) {
       items.add(NavigationItem(icon: Icons.build, label: 'Maintenance', route: '/maintenance'));
     }
+    if (accessibleFeatures.contains('stock')) {
+      items.add(NavigationItem(icon: Icons.inventory_2, label: 'Daily Stock Count', route: '/stock'));
+    }
     if (accessibleFeatures.contains('reporting')) {
       items.add(NavigationItem(icon: Icons.analytics, label: 'Reporting', route: '/reporting'));
     }

@@ -452,11 +452,13 @@ class AppRouter {
                location.startsWith('/mini_mart') ||
                location.startsWith('/kitchen') ||
                location.startsWith('/inventory') ||
+               location.startsWith('/stock') ||
                location.startsWith('/booking/') ||
                location.startsWith('/profile');
       
       case AppRole.housekeeper:
         return location.startsWith('/housekeeping') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
@@ -469,6 +471,7 @@ class AppRouter {
       case AppRole.bartender:
         return location.startsWith('/kitchen') ||
                location.startsWith('/inventory') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
@@ -478,11 +481,13 @@ class AppRouter {
       
       case AppRole.laundry_attendant:
         return location.startsWith('/housekeeping') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
       case AppRole.cleaner:
         return location.startsWith('/housekeeping') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
                
@@ -506,6 +511,7 @@ class AppRouter {
                location.startsWith('/inventory') ||
                location.startsWith('/finance') ||
                location.startsWith('/reporting') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
@@ -516,6 +522,7 @@ class AppRouter {
       
       case AppRole.storekeeper:
         return location.startsWith('/storekeeping') ||
+               location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       

@@ -48,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _incomeRecords = [];
   List<Map<String, dynamic>> _expenseRecords = [];
   List<Map<String, dynamic>> _stockTransactions = [];
+  List<Map<String, dynamic>> _stockLevels = [];
   List<Map<String, dynamic>> _payrollRecords = [];
   List<Map<String, dynamic>> _cashDeposits = [];
 
@@ -106,6 +107,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final income = await _dataService.getIncomeRecords();
       final expenses = await _dataService.getExpenses();
       final stockTx = await _dataService.getStockTransactions();
+      final stockLevels = await _dataService.getStockLevels();
       final payroll = await _dataService.getPayrollRecords();
       final deposits = await _dataService.getCashDeposits();
       final checkedInGuests = await _dataService.getCheckedInGuests();
@@ -126,6 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _incomeRecords = income;
           _expenseRecords = expenses;
           _stockTransactions = stockTx;
+          _stockLevels = stockLevels;
           _payrollRecords = payroll;
           _cashDeposits = deposits;
           _checkedInGuests = checkedInGuests;
@@ -1683,11 +1686,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final expenses = sumAmount(inRangeExpenses);
     final profit = income - expenses;
 
-    return _inlineCards(context, [
-      ('Income', '₦$income', Icons.trending_up),
-      ('Expenses', '₦$expenses', Icons.trending_down),
-      ('Net Profit', '₦$profit', Icons.account_balance),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _inlineCards(context, [
+          ('Income', '₦$income', Icons.trending_up),
+          ('Expenses', '₦$expenses', Icons.trending_down),
+          ('Net Profit', '₦$profit', Icons.account_balance),
+        ]),
+        const SizedBox(height: 16),
+        _buildStockLevelsSummary(),
+      ],
+    );
+  }
+
+  Widget _buildStockLevelsSummary() {
+    if (_stockLevels.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final item in _stockLevels) {
+      final location = item['location_name']?.toString() ?? 'Unknown';
+      grouped.putIfAbsent(location, () => []).add(item);
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Department Stock Levels',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ...grouped.entries.map((entry) {
+              final location = entry.key;
+              final items = entry.value;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(location, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    ...items.take(6).map((item) {
+                      final name = item['name']?.toString() ?? 'Unknown';
+                      final qty = item['current_stock']?.toString() ?? '0';
+                      return Text('• $name: $qty');
+                    }),
+                    if (items.length > 6)
+                      Text('+ ${items.length - 6} more', style: const TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
   }
 
   // Accountant extra insights

@@ -72,7 +72,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
   Future<void> _loadStockAndLocations() async {
     setState(() => _isLoading = true);
     try {
-      final stockResponse = await _dataService.getInventoryItems();
+      final menuItems = await _dataService.getMenuItems();
+      final stockResponse = menuItems
+          .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'kitchen')
+          .toList();
       final locResponse = [
         {'id': 'loc001', 'name': 'Kitchen'},
         {'id': 'loc002', 'name': 'VIP Bar'},
@@ -136,10 +139,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
         orElse: () => <String, dynamic>{},
       );
       if (selected.isEmpty) throw Exception('Selected stock item not found');
-      final currentStock = (selected['current_stock'] as num?)?.toInt() ?? 0;
-      if (currentStock < quantity) {
-        throw Exception('Insufficient stock. Available: $currentStock');
-      }
+      // Note: menu_items do not track per-location stock directly here.
+      // Stock checks should be handled via stock_transactions/stock_levels if needed.
 
       // Get destination location name
       final destination = _locations.firstWhere(
@@ -152,7 +153,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> {
       await _dataService.createDepartmentTransfer({
         'source_department': 'Kitchen',
         'destination_department': destinationName,
-        'menu_item_id': _selectedStockItemId, // Using stock item as menu item for now
+        'menu_item_id': _selectedStockItemId,
         'quantity': quantity,
         'dispatched_by_id': staffId,
         'status': 'Pending',

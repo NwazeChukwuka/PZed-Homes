@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/data/models/user.dart';
 
 class DailyStockCountScreen extends StatefulWidget {
   const DailyStockCountScreen({super.key});
@@ -19,6 +20,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   String? _selectedLocationId;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _stockItems = [];
+  List<String> _allowedLocationNames = [];
   bool _isLoading = false;
   bool _isLoadingData = true;
   String _countType = 'Opening';
@@ -31,26 +33,23 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
   Future<void> _loadData() async {
     try {
-      final [locations, stockItems] = await Future.wait([
-        _supabase.from('locations').select(),
-        _supabase.from('stock_items').select('id, name, unit'),
-      ]);
+      final locations = await _supabase.from('locations').select();
+      final filteredLocations = _filterLocationsByRole(
+        List<Map<String, dynamic>>.from(locations),
+      );
 
       setState(() {
-        _locations = List<Map<String, dynamic>>.from(locations);
-        _stockItems = List<Map<String, dynamic>>.from(stockItems);
-        
-        // Initialize controllers and previous counts
-        // Note: stock_items don't have current_stock - it's calculated from transactions
-        // We'll initialize previous counts as 0, or calculate from transactions if needed
-        for (var item in _stockItems) {
-          final itemId = item['id'] as String;
-          _controllers[itemId] = TextEditingController();
-          _previousCounts[itemId] = 0; // Will be calculated from stock_transactions if needed
+        _locations = filteredLocations;
+        if (_locations.length == 1) {
+          _selectedLocationId = _locations.first['id'] as String?;
         }
         
         _isLoadingData = false;
       });
+
+      if (_selectedLocationId != null) {
+        await _loadItemsForLocation(_selectedLocationId!);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingData = false);
@@ -59,6 +58,111 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
           e,
           customMessage: 'Failed to load stock data. Please check your connection and try again.',
           onRetry: _loadData,
+        );
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> _filterLocationsByRole(List<Map<String, dynamic>> locations) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    if (user == null) return [];
+
+    final roles = <AppRole>{
+      ...user.roles,
+      if (authService.isRoleAssumed && authService.assumedRole != null)
+        authService.assumedRole!,
+    };
+
+    final isManagement = roles.contains(AppRole.owner) ||
+        roles.contains(AppRole.manager) ||
+        roles.contains(AppRole.supervisor) ||
+        roles.contains(AppRole.storekeeper);
+
+    if (isManagement) {
+      _allowedLocationNames = [];
+      return locations;
+    }
+
+    final allowed = <String>{};
+    if (roles.contains(AppRole.bartender)) {
+      allowed.addAll(['VIP Bar', 'Outside Bar']);
+    }
+    if (roles.contains(AppRole.kitchen_staff)) {
+      allowed.add('Kitchen');
+    }
+    if (roles.contains(AppRole.receptionist)) {
+      allowed.add('Mini Mart');
+    }
+    if (roles.contains(AppRole.housekeeper) || roles.contains(AppRole.cleaner)) {
+      allowed.add('Housekeeping');
+    }
+    if (roles.contains(AppRole.laundry_attendant)) {
+      allowed.add('Laundry');
+    }
+
+    _allowedLocationNames = allowed.toList();
+
+    return locations.where((loc) {
+      final name = (loc['name'] ?? '').toString();
+      return allowed.contains(name);
+    }).toList();
+  }
+
+  Future<void> _loadItemsForLocation(String locationId) async {
+    final location = _locations.firstWhere(
+      (loc) => loc['id'] == locationId,
+      orElse: () => <String, dynamic>{},
+    );
+    final locationName = (location['name'] ?? '').toString();
+    if (locationName.isEmpty) return;
+
+    try {
+      final stockLevels = await _supabase
+          .from('stock_levels')
+          .select('id, name, current_stock, location_name')
+          .eq('location_name', locationName);
+
+      final levelList = List<Map<String, dynamic>>.from(stockLevels);
+      final itemIds = levelList.map((e) => e['id']).toList();
+
+      List<Map<String, dynamic>> stockItems = [];
+      if (itemIds.isNotEmpty) {
+        final itemsResponse = await _supabase
+            .from('stock_items')
+            .select('id, name, unit')
+            .inFilter('id', itemIds);
+        stockItems = List<Map<String, dynamic>>.from(itemsResponse);
+      }
+
+      final byId = {for (final i in stockItems) i['id']: i};
+      final merged = levelList.map((level) {
+        final id = level['id'];
+        final base = byId[id] ?? {};
+        return {
+          'id': level['id'],
+          'name': level['name'],
+          'unit': base['unit'] ?? 'units',
+          'current_stock': level['current_stock'] ?? 0,
+        };
+      }).toList();
+
+      setState(() {
+        _stockItems = merged;
+        _controllers.clear();
+        _previousCounts.clear();
+        for (var item in _stockItems) {
+          final itemId = item['id'] as String;
+          _controllers[itemId] = TextEditingController();
+          _previousCounts[itemId] = (item['current_stock'] as num?)?.toInt() ?? 0;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load stock for this location.',
         );
       }
     }
@@ -173,7 +277,12 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                               value: loc['id'] as String,
                               child: Text(loc['name'] as String),
                             )).toList(),
-                            onChanged: (val) => setState(() => _selectedLocationId = val),
+                            onChanged: (val) async {
+                              setState(() => _selectedLocationId = val);
+                              if (val != null) {
+                                await _loadItemsForLocation(val);
+                              }
+                            },
                           ),
                           const SizedBox(height: 16),
                           SegmentedButton<String>(

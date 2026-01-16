@@ -184,6 +184,22 @@ class DataService {
     });
   }
 
+  // Stock Levels (per location)
+  Future<List<Map<String, dynamic>>> getStockLevels({String? locationName}) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('stock_levels')
+          .select('id, name, location_name, current_stock, min_stock');
+
+      if (locationName != null && locationName.isNotEmpty) {
+        query = query.eq('location_name', locationName);
+      }
+
+      final response = await query.order('name');
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
   // Staff Profiles (using profiles table with role filtering)
   Future<List<Map<String, dynamic>>> getStaffProfiles() async {
     return await _retryOperation(() async {
@@ -304,6 +320,29 @@ class DataService {
         'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
         'quantity': transaction['quantity'], // Required: positive or negative
         'notes': transaction['notes'], // Optional
+      });
+    });
+  }
+
+  // Stock Transfers (Main Store -> Department)
+  Future<void> createStockTransfer({
+    required String stockItemId,
+    required String sourceLocationId,
+    required String destinationLocationId,
+    required int quantity,
+    required String issuedById,
+    required String receivedById,
+    String? notes,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.rpc('create_stock_transfer', params: {
+        'p_stock_item_id': stockItemId,
+        'p_source_location_id': sourceLocationId,
+        'p_destination_location_id': destinationLocationId,
+        'p_quantity': quantity,
+        'p_issued_by_id': issuedById,
+        'p_received_by_id': receivedById,
+        'p_notes': notes,
       });
     });
   }

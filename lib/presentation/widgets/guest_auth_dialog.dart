@@ -103,8 +103,8 @@ class _AuthFormState extends State<AuthForm> {
       
       if (error == null) {
         final user = authService.currentUser;
-        // FIXED: Changed to use singular 'role' property
-        final isStaff = user != null && user.role != AppRole.guest;
+        // Treat staff as anyone with any non-guest role
+        final isStaff = user != null && user.roles.any((role) => role != AppRole.guest);
 
         if (isStaff) {
           // Use GoRouter navigation for staff users

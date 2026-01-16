@@ -100,6 +100,7 @@ class AppStateManager extends ChangeNotifier {
           role: userRoles.isNotEmpty ? userRoles.first : AppRole.guest,
           roles: userRoles,
           permissions: const [],
+          department: user.userMetadata?['department'] as String?,
         );
         _userRoles = _currentUser?.roles ?? [];
         _accessibleFeatures = _getAccessibleFeatures();

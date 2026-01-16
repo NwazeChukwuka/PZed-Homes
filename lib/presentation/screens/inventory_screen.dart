@@ -292,10 +292,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   List<Map<String, dynamic>> _filterItemsByBar(List<Map<String, dynamic>> items) {
-    if (_selectedBar == null) return items;
+    if (_selectedBar == null) {
+      return items.where((item) {
+        final department = item['department'] as String?;
+        return department == 'vip_bar' || department == 'outside_bar';
+      }).toList();
+    }
     return items.where((item) {
       final department = item['department'] as String?;
-      return department == _selectedBar || department == 'both';
+      return department == _selectedBar;
     }).toList();
   }
 
@@ -596,13 +601,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Management assuming bartender role
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
-        return department == _selectedBarForSales || department == 'both';
+        return department == _selectedBarForSales;
       }).toList();
     } else if (userDepartment.isNotEmpty) {
       // Regular bartender
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
-        return department == userDepartment || department == 'both';
+        return department == userDepartment;
       }).toList();
     }
 
@@ -1357,6 +1362,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Future<void> _saveNewItem() async {
     try {
+      if (_selectedBar == null) {
+        throw Exception('Please select a bar before adding a new item.');
+      }
       final item = {
         'name': _nameController.text,
         'description': _descriptionController.text,
@@ -1365,7 +1373,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         'vip_bar_price': double.parse(_vipPriceController.text),
         'outside_bar_price': double.parse(_outsidePriceController.text),
         'category': _categoryController.text,
-        'department': 'both', // Default to both bars
+        'department': _selectedBar, // Assign to selected bar only
       };
 
       await _dataService.addInventoryItem(item);
