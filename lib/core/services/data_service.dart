@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../config/app_config.dart';
 
 class DataService {
   static final DataService _instance = DataService._internal();
@@ -87,78 +85,7 @@ class DataService {
 
   Future<String> createBooking(Map<String, dynamic> booking) async {
     return await _retryOperation(() async {
-      // booking should contain 'guest_profile_id' (not guest_name/email/phone)
-      // If it doesn't, we need to create/get the profile first
-      String? guestProfileId = booking['guest_profile_id'] as String?;
-      
-      if (guestProfileId == null && booking['guest_email'] != null) {
-        // Get or create profile
-        final existing = await _supabase
-            .from('profiles')
-            .select('id')
-            .eq('email', booking['guest_email'] as String)
-            .maybeSingle();
-        
-        if (existing != null) {
-          guestProfileId = existing['id'] as String;
-        } else {
-          // Profile doesn't exist - need to create auth user first
-          // Generate a secure temporary password
-          final tempPassword = _generateSecurePassword();
-          final fullName = booking['guest_name'] as String? ?? 'Guest';
-          final email = booking['guest_email'] as String;
-          final phone = booking['guest_phone'] as String?;
-          
-          // Create auth user - this will trigger the profile creation via database trigger
-          final authResponse = await _supabase.auth.signUp(
-            email: email,
-            password: tempPassword,
-            data: {
-              'full_name': fullName,
-              'phone': phone ?? '',
-            },
-          );
-
-          if (authResponse.user == null) {
-            throw Exception('Failed to create auth user for guest');
-          }
-
-          guestProfileId = authResponse.user!.id;
-
-          // Wait a moment for the trigger to create the profile
-          await Future.delayed(const Duration(milliseconds: 500));
-
-          // Update phone if it wasn't set by trigger
-          if (phone != null && phone.isNotEmpty) {
-            await _supabase
-                .from('profiles')
-                .update({'phone': phone})
-                .eq('id', guestProfileId);
-          }
-
-          // CRITICAL: Send password reset email so guest can set their own password
-          // This allows guests to log in and view their bookings
-          try {
-            await _supabase.auth.resetPasswordForEmail(
-              email,
-              redirectTo: AppConfig.passwordResetUrl,
-            );
-          } catch (e) {
-            // Log error but don't fail the booking creation
-            // Guest can use "Forgot Password" later
-            if (kDebugMode) {
-              debugPrint('Warning: Could not send password reset email to $email: $e');
-            }
-          }
-        }
-      }
-      
-      if (guestProfileId == null) {
-        throw Exception('guest_profile_id or guest_email is required');
-      }
-      
-      final response = await _supabase.from('bookings').insert({
-        'guest_profile_id': guestProfileId,
+      final payload = <String, dynamic>{
         'room_id': booking['room_id'],
         'requested_room_type': booking['requested_room_type'],
         'check_in_date': booking['check_in'],
@@ -175,8 +102,19 @@ class DataService {
         'discount_percentage': booking['discount_percentage'] ?? 0.0,
         'discount_reason': booking['discount_reason'],
         'discount_applied_by': booking['discount_applied_by'],
-      }).select('id').single();
-      
+      };
+
+      final guestProfileId = booking['guest_profile_id'] as String?;
+      if (guestProfileId != null) {
+        payload['guest_profile_id'] = guestProfileId;
+      }
+
+      final response = await _supabase
+          .from('bookings')
+          .insert(payload)
+          .select('id')
+          .single();
+
       return response['id'] as String;
     });
   }
@@ -1210,15 +1148,4 @@ class DataService {
     });
   }
 
-  /// Generate a secure temporary password for guest accounts
-  String _generateSecurePassword() {
-    // Generate a random password - guest can reset via email if needed
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    final password = StringBuffer();
-    for (int i = 0; i < 16; i++) {
-      password.write(chars[(random + i) % chars.length]);
-    }
-    return password.toString();
-  }
 }

@@ -6,7 +6,6 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateBookingScreen extends StatefulWidget {
@@ -19,7 +18,6 @@ class CreateBookingScreen extends StatefulWidget {
 class _CreateBookingScreenState extends State<CreateBookingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _guestNameController = TextEditingController();
-  final _guestEmailController = TextEditingController();
   final _guestPhoneController = TextEditingController();
   final _amountPaidController = TextEditingController();
   final _discountReasonController = TextEditingController();
@@ -47,7 +45,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   @override
   void dispose() {
     _guestNameController.dispose();
-    _guestEmailController.dispose();
     _guestPhoneController.dispose();
     _amountPaidController.dispose();
     _discountReasonController.dispose();
@@ -220,53 +217,12 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = authService.currentUser?.id ?? 'system';
       
-      // Get or create guest profile
-      String guestProfileId;
-      // Sanitize inputs to prevent XSS and other security issues
-      final email = InputSanitizer.sanitizeEmail(_guestEmailController.text.trim());
+      // Guest details are optional and stored only on the booking record
       final fullName = InputSanitizer.sanitizeText(_guestNameController.text.trim());
-      final phone = InputSanitizer.sanitizePhone(_guestPhoneController.text.trim());
-      
-      final existingProfile = await _supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle();
-
-      if (existingProfile != null) {
-        guestProfileId = existingProfile['id'] as String;
-      } else {
-        // Profile doesn't exist - need to create auth user first
-        // Generate a secure temporary password
-        final tempPassword = _generateSecurePassword();
-        
-        // Create auth user - this will trigger the profile creation via database trigger
-        final authResponse = await _supabase.auth.signUp(
-          email: email,
-          password: tempPassword,
-          data: {
-            'full_name': fullName,
-            'phone': phone,
-          },
-        );
-
-        if (authResponse.user == null) {
-          throw Exception('Failed to create auth user for guest');
-        }
-
-        guestProfileId = authResponse.user!.id;
-
-        // Wait a moment for the trigger to create the profile
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        // Update phone if it wasn't set by trigger
-        if (phone.isNotEmpty) {
-          await _supabase
-              .from('profiles')
-              .update({'phone': phone})
-              .eq('id', guestProfileId);
-        }
-      }
+      final phoneRaw = _guestPhoneController.text.trim();
+      final phone = phoneRaw.isEmpty ? null : InputSanitizer.sanitizePhone(phoneRaw);
+      final displayGuestName = fullName.isEmpty ? 'Guest' : fullName;
+      final guestNameForRecord = fullName.isEmpty ? null : fullName;
 
       // Get room type name for requested_room_type
       final selectedRoomType = _roomTypes.firstWhere(
@@ -313,7 +269,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       }
       
       final bookingId = await _dataService.createBooking({
-        'guest_profile_id': guestProfileId, // Use the profile ID we just created/got
         'room_id': _selectedRoomId, // Can be null - receptionist can assign later
         'requested_room_type': selectedRoomType['type'] as String?,
         'check_in': _checkInDate!.toIso8601String(),
@@ -327,16 +282,15 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         'discount_percentage': _discountPercentage,
         'discount_reason': _discountApplied ? (_discountReasonController.text.trim().isEmpty ? null : _discountReasonController.text.trim()) : null,
         'discount_applied_by': _discountApplied ? userId : null,
-        'guest_name': fullName,
-        'guest_email': email,
+        'guest_name': guestNameForRecord,
         'guest_phone': phone,
       });
 
       // If credit payment, create debt linked to booking
       if (_paymentMethod.toLowerCase() == 'credit') {
         final debt = {
-          'debtor_name': fullName,
-          'debtor_phone': phone,
+          'debtor_name': displayGuestName,
+          'debtor_phone': phone ?? '',
           'debtor_type': 'customer',
           'amount': totalAmount, // Total booking amount in kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
@@ -355,7 +309,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Booking created successfully!');
-        context.pop(true);
+        _resetBookingForm();
       }
     } catch (e) {
       if (mounted) {
@@ -371,16 +325,23 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     }
   }
 
-  /// Generate a secure temporary password for guest accounts
-  String _generateSecurePassword() {
-    // Generate a random password - guest can reset via email if needed
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    final password = StringBuffer();
-    for (int i = 0; i < 16; i++) {
-      password.write(chars[(random + i) % chars.length]);
-    }
-    return password.toString();
+  void _resetBookingForm() {
+    _formKey.currentState?.reset();
+    _guestNameController.clear();
+    _guestPhoneController.clear();
+    _amountPaidController.clear();
+    _discountReasonController.clear();
+    _approvedByController.clear();
+    setState(() {
+      _checkInDate = null;
+      _checkOutDate = null;
+      _selectedRoomTypeId = null;
+      _selectedRoomId = null;
+      _availableRooms = [];
+      _paymentMethod = 'Cash';
+      _discountApplied = false;
+      _isFetchingRooms = false;
+    });
   }
 
   @override
@@ -465,7 +426,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
               // Guest Information
               const Text(
-                'Guest Information',
+                'Guest Information (Optional)',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
@@ -473,37 +434,20 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               TextFormField(
                 controller: _guestNameController,
                 decoration: const InputDecoration(
-                  labelText: 'Guest Full Name',
+                  labelText: 'Guest Full Name (Optional)',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.person),
                 ),
-                validator: (val) => val?.isEmpty == true ? 'Please enter guest name' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _guestEmailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email Address',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (val) {
-                  if (val?.isEmpty == true) return 'Please enter email';
-                  if (!val!.contains('@')) return 'Please enter valid email';
-                  return null;
-                },
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _guestPhoneController,
                 decoration: const InputDecoration(
-                  labelText: 'Phone Number',
+                  labelText: 'Phone Number (Optional)',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone),
                 ),
                 keyboardType: TextInputType.phone,
-                validator: (val) => val?.isEmpty == true ? 'Please enter phone number' : null,
               ),
               const SizedBox(height: 16),
 

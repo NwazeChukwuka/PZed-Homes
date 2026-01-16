@@ -216,6 +216,11 @@ class AppRouter {
             builder: (context, state) => const HousekeepingScreen(),
           ),
           GoRoute(
+            path: '/booking/create',
+            name: 'create-booking',
+            builder: (context, state) => const CreateBookingScreen(),
+          ),
+          GoRoute(
             path: '/inventory',
             name: 'inventory',
             builder: (context, state) => const InventoryScreen(),
@@ -287,11 +292,6 @@ class AppRouter {
           final roomType = extra?['roomType'] as Map<String, dynamic>? ?? {};
           return RoomDetailsScreen(roomType: roomType);
         },
-      ),
-      GoRoute(
-        path: '/booking/create',
-        name: 'create-booking',
-        builder: (context, state) => const CreateBookingScreen(),
       ),
       GoRoute(
         path: '/booking/details',
