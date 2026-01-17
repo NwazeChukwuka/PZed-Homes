@@ -1,4 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:typed_data';
+import 'package:file_selector/file_selector.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -294,6 +301,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           'debtor_type': 'customer',
           'amount': totalAmount, // Total booking amount in kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': 'reception',
           'reason': 'Room booking on credit - ${_nightsCount} night(s)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
@@ -309,6 +317,17 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Booking created successfully!');
+        await _showBookingReceiptDialog(
+          bookingId: bookingId,
+          guestName: displayGuestName,
+          roomType: selectedRoomType['type'] as String? ?? 'Unknown',
+          checkIn: _checkInDate!,
+          checkOut: _checkOutDate!,
+          nights: _nightsCount,
+          totalAmountKobo: totalAmount,
+          paidAmountKobo: paidAmount,
+          paymentMethod: _paymentMethod,
+        );
         _resetBookingForm();
       }
     } catch (e) {
@@ -342,6 +361,392 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       _discountApplied = false;
       _isFetchingRooms = false;
     });
+  }
+
+  Future<void> _showBookingReceiptDialog({
+    required String bookingId,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    final totalNaira = PaymentService.koboToNaira(totalAmountKobo);
+    final paidNaira = PaymentService.koboToNaira(paidAmountKobo);
+    final dateFormatter = DateFormat('MMM dd, yyyy');
+    final receiptText = StringBuffer()
+      ..writeln('P-ZED Homes Booking Receipt')
+      ..writeln('Booking ID: $bookingId')
+      ..writeln('Guest: $guestName')
+      ..writeln('Room Type: $roomType')
+      ..writeln('Check-in: ${dateFormatter.format(checkIn)}')
+      ..writeln('Check-out: ${dateFormatter.format(checkOut)}')
+      ..writeln('Nights: $nights')
+      ..writeln('Payment Method: $paymentMethod')
+      ..writeln('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}')
+      ..writeln('Paid: ₦${NumberFormat('#,##0.00').format(paidNaira)}')
+      ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Booking Receipt'),
+          content: SingleChildScrollView(
+            child: SelectableText(receiptText.toString()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await _saveBookingReceiptPdf(
+                  bookingId: bookingId,
+                  guestName: guestName,
+                  roomType: roomType,
+                  checkIn: checkIn,
+                  checkOut: checkOut,
+                  nights: nights,
+                  totalAmountKobo: totalAmountKobo,
+                  paidAmountKobo: paidAmountKobo,
+                  paymentMethod: paymentMethod,
+                );
+              },
+              child: const Text('Save PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _printBookingReceipt(
+                  bookingId: bookingId,
+                  guestName: guestName,
+                  roomType: roomType,
+                  checkIn: checkIn,
+                  checkOut: checkOut,
+                  nights: nights,
+                  totalAmountKobo: totalAmountKobo,
+                  paidAmountKobo: paidAmountKobo,
+                  paymentMethod: paymentMethod,
+                );
+              },
+              child: const Text('Print/PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _shareBookingReceiptPdf(
+                  bookingId: bookingId,
+                  guestName: guestName,
+                  roomType: roomType,
+                  checkIn: checkIn,
+                  checkOut: checkOut,
+                  nights: nights,
+                  totalAmountKobo: totalAmountKobo,
+                  paidAmountKobo: paidAmountKobo,
+                  paymentMethod: paymentMethod,
+                );
+              },
+              child: const Text('Share PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _emailBookingReceiptPdf(
+                  bookingId: bookingId,
+                  receiptText: receiptText.toString(),
+                  guestName: guestName,
+                  roomType: roomType,
+                  checkIn: checkIn,
+                  checkOut: checkOut,
+                  nights: nights,
+                  totalAmountKobo: totalAmountKobo,
+                  paidAmountKobo: paidAmountKobo,
+                  paymentMethod: paymentMethod,
+                );
+              },
+              child: const Text('Email PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: receiptText.toString()));
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Receipt copied to clipboard',
+                  );
+                }
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Uint8List> _buildBookingReceiptPdf({
+    required String bookingId,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    final totalNaira = PaymentService.koboToNaira(totalAmountKobo);
+    final paidNaira = PaymentService.koboToNaira(paidAmountKobo);
+    final dateFormatter = DateFormat('MMM dd, yyyy');
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('P-ZED Homes Booking Receipt', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Text('Booking ID: $bookingId'),
+              pw.Text('Guest: $guestName'),
+              pw.Text('Room Type: $roomType'),
+              pw.Text('Check-in: ${dateFormatter.format(checkIn)}'),
+              pw.Text('Check-out: ${dateFormatter.format(checkOut)}'),
+              pw.Text('Nights: $nights'),
+              pw.Text('Payment Method: $paymentMethod'),
+              pw.SizedBox(height: 8),
+              pw.Text('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}'),
+              pw.Text('Paid: ₦${NumberFormat('#,##0.00').format(paidNaira)}'),
+              pw.SizedBox(height: 12),
+              pw.Text('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 10)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _saveBookingReceiptPdf({
+    required String bookingId,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    try {
+      final bytes = await _buildBookingReceiptPdf(
+        bookingId: bookingId,
+        guestName: guestName,
+        roomType: roomType,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        nights: nights,
+        totalAmountKobo: totalAmountKobo,
+        paidAmountKobo: paidAmountKobo,
+        paymentMethod: paymentMethod,
+      );
+
+      final location = await getSaveLocation(
+        suggestedName: 'booking_receipt_$bookingId.pdf',
+        acceptedTypeGroups: [const XTypeGroup(label: 'PDF', extensions: ['pdf'])],
+      );
+      if (location == null) return;
+
+      final file = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: 'booking_receipt_$bookingId.pdf',
+      );
+      await file.saveTo(location.path);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _shareBookingReceiptPdf({
+    required String bookingId,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    try {
+      final bytes = await _buildBookingReceiptPdf(
+        bookingId: bookingId,
+        guestName: guestName,
+        roomType: roomType,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        nights: nights,
+        totalAmountKobo: totalAmountKobo,
+        paidAmountKobo: paidAmountKobo,
+        paymentMethod: paymentMethod,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'booking_receipt_$bookingId.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to share receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _printBookingReceipt({
+    required String bookingId,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    try {
+      final docBytes = await _buildBookingReceiptPdf(
+        bookingId: bookingId,
+        guestName: guestName,
+        roomType: roomType,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        nights: nights,
+        totalAmountKobo: totalAmountKobo,
+        paidAmountKobo: paidAmountKobo,
+        paymentMethod: paymentMethod,
+      );
+      await Printing.layoutPdf(
+        onLayout: (format) async => docBytes,
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to generate receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _emailBookingReceiptPdf({
+    required String bookingId,
+    required String receiptText,
+    required String guestName,
+    required String roomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int nights,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+  }) async {
+    final email = await _promptForEmailAddress();
+    if (email == null || email.isEmpty) return;
+    try {
+      final bytes = await _buildBookingReceiptPdf(
+        bookingId: bookingId,
+        guestName: guestName,
+        roomType: roomType,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        nights: nights,
+        totalAmountKobo: totalAmountKobo,
+        paidAmountKobo: paidAmountKobo,
+        paymentMethod: paymentMethod,
+      );
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            bytes,
+            mimeType: 'application/pdf',
+            name: 'booking_receipt_$bookingId.pdf',
+          ),
+        ],
+        subject: 'P-ZED Homes Booking Receipt',
+        text: receiptText,
+      );
+    } catch (e) {
+      if (mounted) {
+        final fallbackUri = Uri(
+          scheme: 'mailto',
+          path: email,
+          queryParameters: {
+            'subject': 'P-ZED Homes Booking Receipt',
+            'body': receiptText,
+          },
+        );
+        final fallbackOpened = await launchUrl(
+          fallbackUri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!fallbackOpened) {
+          ErrorHandler.handleError(
+            context,
+            e,
+            customMessage: 'Could not open email client. Please try again.',
+          );
+        }
+      }
+    }
+  }
+
+  Future<String?> _promptForEmailAddress() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Email Receipt'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Recipient Email',
+              hintText: 'name@example.com',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

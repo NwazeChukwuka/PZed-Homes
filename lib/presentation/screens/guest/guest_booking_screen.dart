@@ -139,42 +139,22 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString();
       if (roomTypeName == null) throw Exception('Invalid room type');
 
-      // Get total rooms of this type
-      final totalRooms = await _supabase!
-          .from('rooms')
-          .select('id')
-          .eq('type', roomTypeName)
-          .eq('status', 'Vacant');
+      final response = await _supabase!.rpc(
+        'get_available_room_types',
+        params: {
+          'start_date': checkInDate.toIso8601String(),
+          'end_date': checkOutDate.toIso8601String(),
+        },
+      );
 
-      if ((totalRooms as List).isEmpty) {
-        return false; // No rooms of this type exist
-      }
+      final rows = List<Map<String, dynamic>>.from(response as List);
+      final match = rows.firstWhere(
+        (row) => (row['type'] as String?)?.toLowerCase() == roomTypeName.toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
 
-      // Count bookings for this room type during the selected dates
-      // Include bookings with room_id assigned AND bookings by requested_room_type
-      // Correct overlap logic: booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
-      final conflictingBookings = await _supabase!
-          .from('bookings')
-          .select('room_id, requested_room_type')
-          .or('status.eq.Pending Check-in,status.eq.Checked-in')
-          .lt('check_in_date', checkOutDate.toIso8601String())
-          .gt('check_out_date', checkInDate.toIso8601String());
-
-      // Count rooms directly assigned
-      final assignedRoomIds = (conflictingBookings as List)
-          .where((b) => b['room_id'] != null)
-          .map((b) => b['room_id'] as String)
-          .toSet();
-
-      // Count bookings by requested room type (without room_id)
-      final bookingsByType = (conflictingBookings as List)
-          .where((b) => b['room_id'] == null && b['requested_room_type'] == roomTypeName)
-          .length;
-
-      // Check if we have enough available rooms
-      final availableCount = (totalRooms as List).length - assignedRoomIds.length - bookingsByType;
-      
-      return availableCount > 0;
+      final available = (match['available_count'] as num?)?.toInt() ?? 0;
+      return available > 0;
     } catch (e) {
       throw Exception('Error checking room availability: $e');
     }

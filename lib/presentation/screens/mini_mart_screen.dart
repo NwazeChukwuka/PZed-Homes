@@ -10,6 +10,13 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:flutter/services.dart';
+import 'dart:typed_data';
+import 'package:file_selector/file_selector.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 
 class MiniMartScreen extends StatefulWidget {
   const MiniMartScreen({super.key});
@@ -329,6 +336,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         }
       }
 
+      // Capture receipt data before clearing
+      final receiptItems = List<Map<String, dynamic>>.from(_currentSale);
+      final receiptTotal = _saleTotal;
+
       // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'Credit') {
         final debt = {
@@ -337,6 +348,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           'debtor_type': 'customer',
           'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': 'mini_mart',
           'reason': 'Mini Mart sale on credit - ${_currentSale.length} items (Department: mini_mart)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
@@ -361,6 +373,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             'Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
           );
         }
+      }
+
+      if (mounted) {
+        await _showMiniMartReceiptDialog(
+          items: receiptItems,
+          totalNaira: receiptTotal,
+          paymentMethod: _paymentMethod,
+          customerName: customerName,
+        );
       }
 
       // Clear sale
@@ -388,6 +409,325 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       _approvedByController.clear();
       _paymentMethod = 'Cash';
     });
+  }
+
+  Future<void> _showMiniMartReceiptDialog({
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    final receiptText = StringBuffer()
+      ..writeln('P-ZED Homes Mini Mart Receipt')
+      ..writeln('Customer: $customerName')
+      ..writeln('Payment Method: $paymentMethod')
+      ..writeln('Items:');
+
+    for (final item in items) {
+      final name = item['name']?.toString() ?? 'Item';
+      final qty = item['quantity'] ?? 0;
+      final price = item['price'] as num? ?? 0;
+      receiptText.writeln('- $name x$qty @ ₦${NumberFormat('#,##0.00').format(price)}');
+    }
+
+    receiptText
+      ..writeln('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}')
+      ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Mini Mart Receipt'),
+          content: SingleChildScrollView(
+            child: SelectableText(receiptText.toString()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await _saveMiniMartReceiptPdf(
+                  items: items,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  customerName: customerName,
+                );
+              },
+              child: const Text('Save PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _printMiniMartReceipt(
+                  items: items,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  customerName: customerName,
+                );
+              },
+              child: const Text('Print/PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _shareMiniMartReceiptPdf(
+                  items: items,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  customerName: customerName,
+                );
+              },
+              child: const Text('Share PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _emailMiniMartReceiptPdf(
+                  receiptText: receiptText.toString(),
+                  items: items,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  customerName: customerName,
+                );
+              },
+              child: const Text('Email PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: receiptText.toString()));
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Receipt copied to clipboard',
+                  );
+                }
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _shareMiniMartReceiptPdf({
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    try {
+      final bytes = await _buildMiniMartReceiptPdf(
+        items: items,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        customerName: customerName,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'mini_mart_receipt_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to share receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<Uint8List> _buildMiniMartReceiptPdf({
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    final doc = pw.Document();
+    final dateText = DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now());
+
+    doc.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('P-ZED Homes Mini Mart Receipt', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Text('Customer: $customerName'),
+              pw.Text('Payment Method: $paymentMethod'),
+              pw.SizedBox(height: 8),
+              pw.Text('Items:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 6),
+              ...items.map((item) {
+                final name = item['name']?.toString() ?? 'Item';
+                final qty = item['quantity'] ?? 0;
+                final price = item['price'] as num? ?? 0;
+                return pw.Text('- $name x$qty @ ₦${NumberFormat('#,##0.00').format(price)}');
+              }),
+              pw.SizedBox(height: 10),
+              pw.Text('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}'),
+              pw.SizedBox(height: 12),
+              pw.Text('Generated: $dateText', style: const pw.TextStyle(fontSize: 10)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _saveMiniMartReceiptPdf({
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    try {
+      final bytes = await _buildMiniMartReceiptPdf(
+        items: items,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        customerName: customerName,
+      );
+
+      final location = await getSaveLocation(
+        suggestedName: 'mini_mart_receipt_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        acceptedTypeGroups: [const XTypeGroup(label: 'PDF', extensions: ['pdf'])],
+      );
+      if (location == null) return;
+
+      final file = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: 'mini_mart_receipt.pdf',
+      );
+      await file.saveTo(location.path);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to save receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _printMiniMartReceipt({
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    try {
+      final docBytes = await _buildMiniMartReceiptPdf(
+        items: items,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        customerName: customerName,
+      );
+      await Printing.layoutPdf(
+        onLayout: (format) async => docBytes,
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to generate receipt. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _emailMiniMartReceiptPdf({
+    required String receiptText,
+    required List<Map<String, dynamic>> items,
+    required double totalNaira,
+    required String paymentMethod,
+    required String customerName,
+  }) async {
+    final email = await _promptForEmailAddress();
+    if (email == null || email.isEmpty) return;
+
+    try {
+      final bytes = await _buildMiniMartReceiptPdf(
+        items: items,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        customerName: customerName,
+      );
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            bytes,
+            mimeType: 'application/pdf',
+            name: 'mini_mart_receipt_${DateTime.now().millisecondsSinceEpoch}.pdf',
+          ),
+        ],
+        subject: 'P-ZED Homes Mini Mart Receipt',
+        text: receiptText,
+      );
+    } catch (e) {
+      if (mounted) {
+        final fallbackUri = Uri(
+          scheme: 'mailto',
+          path: email,
+          queryParameters: {
+            'subject': 'P-ZED Homes Mini Mart Receipt',
+            'body': receiptText,
+          },
+        );
+        final fallbackOpened = await launchUrl(
+          fallbackUri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!fallbackOpened) {
+          ErrorHandler.handleError(
+            context,
+            e,
+            customMessage: 'Could not open email client. Please try again.',
+          );
+        }
+      }
+    }
+  }
+
+  Future<String?> _promptForEmailAddress() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Email Receipt'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Recipient Email',
+              hintText: 'name@example.com',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

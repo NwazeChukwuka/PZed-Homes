@@ -61,7 +61,8 @@ BEGIN
         EXECUTE 'DROP POLICY IF EXISTS "Staff view all bookings" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Guests view own bookings" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Staff can insert bookings" ON public.' || quote_ident(r.tablename);
-        EXECUTE 'DROP POLICY IF EXISTS "Staff can update bookings" ON public.' || quote_ident(r.tablename);
+  EXECUTE 'DROP POLICY IF EXISTS "Staff can update bookings" ON public.' || quote_ident(r.tablename);
+  EXECUTE 'DROP POLICY IF EXISTS "Public can check availability" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Allow read access" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Staff view stock" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Staff can insert stock transactions" ON public.' || quote_ident(r.tablename);
@@ -505,8 +506,7 @@ USING (
 -- Allow public/anon access to bookings for availability checking
 -- Note: This allows reading booking dates and room info for availability checking
 -- Sensitive data (guest_profile_id, amounts) are still protected as they require joins
-CREATE POLICY "Public can check availability" ON public.bookings FOR SELECT 
-USING (true);
+-- Public availability should be served via RPC only (no direct bookings access)
 
 CREATE POLICY "Guests view own bookings" ON public.bookings FOR SELECT 
 USING (auth.uid() = guest_profile_id);
@@ -978,6 +978,7 @@ CREATE TABLE public.debts (
     debtor_type TEXT DEFAULT 'customer', -- 'customer', 'supplier', 'staff', 'other'
     amount INT8 NOT NULL, -- Stored in Kobo/Cents
     owed_to TEXT, -- Who is owed the money
+    department TEXT, -- e.g., 'reception', 'mini_mart', 'restaurant'
     reason TEXT,
     date DATE DEFAULT CURRENT_DATE,
     status TEXT DEFAULT 'outstanding' CHECK (status IN ('outstanding', 'partially_paid', 'paid', 'written_off')),
@@ -1001,6 +1002,23 @@ USING (
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+-- Allow sales staff to create debts for their own credit sales
+CREATE POLICY "Staff can insert debts" ON public.debts FOR INSERT
+WITH CHECK (
+  is_user_active(auth.uid())
+  AND sold_by = auth.uid()
+  AND (
+    user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'kitchen_staff')
+    OR user_has_role(auth.uid(), 'vip_bartender')
+    OR user_has_role(auth.uid(), 'outside_bartender')
+    OR user_has_role(auth.uid(), 'bartender')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'accountant')
   )
 );
 
@@ -1097,14 +1115,25 @@ CREATE TABLE public.mini_mart_items (
 
 ALTER TABLE public.mini_mart_items ENABLE ROW LEVEL SECURITY;
 
--- Reception staff can view and manage mini mart items
-CREATE POLICY "Reception staff access mini mart items" ON public.mini_mart_items FOR ALL 
+-- Reception staff can view mini mart items (read-only)
+CREATE POLICY "Reception staff access mini mart items" ON public.mini_mart_items FOR SELECT 
 USING (
   EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND ('receptionist' = ANY(p.roles) OR 'manager' = ANY(p.roles) OR 'owner' = ANY(p.roles))
+  )
+);
+
+-- Only management can manage mini mart items
+CREATE POLICY "Management can manage mini mart items" ON public.mini_mart_items FOR ALL 
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner'])
   )
 );
 

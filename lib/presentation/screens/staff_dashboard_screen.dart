@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/data/models/booking.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 /// Personalized dashboard for individual staff members
@@ -224,7 +226,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       case AppRole.receptionist:
         return 'mini_mart';
       case AppRole.kitchen_staff:
-        return 'kitchen';
+        return 'restaurant';
       case AppRole.housekeeper:
         return 'housekeeping';
       case AppRole.laundry_attendant:
@@ -283,8 +285,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     // Load debts created by this staff member
     final allDebts = await _dataService.getDebts();
     _myDebts = allDebts.where((d) => 
-      d['recorded_by'] == staffId || 
-      d['staff_id'] == staffId
+      d['sold_by'] == staffId || 
+      d['created_by'] == staffId
     ).toList();
     
     _personalStats = {
@@ -331,9 +333,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     
     // Load department debts
     final allDebts = await _dataService.getDebts();
-    _departmentDebts = allDebts.where((d) => 
-      d['department'] == department
-    ).toList();
+    if (department == 'mini_mart') {
+      _departmentDebts = allDebts.where((d) =>
+        d['department'] == 'mini_mart' || d['department'] == 'reception'
+      ).toList();
+    } else {
+      _departmentDebts = allDebts.where((d) => d['department'] == department).toList();
+    }
     
     _departmentStats = {
       'total_sales': totalSales,
@@ -347,6 +353,18 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadDepartmentStockLevels(String department) async {
+    if (department == 'mini_mart') {
+      final items = await _dataService.getMiniMartItems();
+      _departmentStockLevels = items.map((item) {
+        return {
+          'name': item['name'],
+          'current_stock': item['stock_quantity'] ?? 0,
+          'min_stock': item['min_stock_level'] ?? 0,
+        };
+      }).toList();
+      return;
+    }
+
     final locationName = _getLocationNameForDepartment(department);
     if (locationName == null) {
       _departmentStockLevels = [];
@@ -372,22 +390,31 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     double totalRevenue = 0;
     
     for (var booking in _bookings) {
-      final status = booking['status']?.toString().toLowerCase();
+      final rawStatus = booking['status']?.toString().toLowerCase() ?? '';
+      final status = rawStatus.replaceAll('_', '-');
       switch (status) {
         case 'pending':
+        case 'pending check-in':
+        case 'pending checkin':
           pendingBookings++;
           break;
         case 'confirmed':
           confirmedBookings++;
           break;
-        case 'checked_in':
+        case 'checked-in':
+        case 'checked in':
           checkedInBookings++;
           break;
-        case 'checked_out':
+        case 'checked-out':
+        case 'checked out':
           checkedOutBookings++;
           // Use paid_amount instead of total_amount for actual revenue
           final amount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
           totalRevenue += amount;
+          break;
+        case 'cancelled':
+          break;
+        default:
           break;
       }
     }
@@ -661,8 +688,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(height: 24),
         ],
         
-        // Show booking stats for receptionist
+        // Receptionist quick actions + booking stats
         if (userRole == AppRole.receptionist) ...[
+          _buildReceptionistQuickActions(),
+          const SizedBox(height: 16),
           _buildBookingStats(),
           const SizedBox(height: 24),
           _buildRecentBookings(),
@@ -684,6 +713,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             userRole == AppRole.receptionist ||
             userRole == AppRole.kitchen_staff) ...[
           _buildStatsGrid(_personalStats, isPersonal: true),
+          if (userRole == AppRole.receptionist) ...[
+            const SizedBox(height: 16),
+            _buildDebtSummaryCard(
+              title: 'My Outstanding Debts',
+              stats: _personalStats,
+            ),
+          ],
           const SizedBox(height: 24),
           _buildPaymentMethodBreakdown(_personalStats),
           const SizedBox(height: 24),
@@ -711,6 +747,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
         const SizedBox(height: 12),
         _buildStatsGrid(_departmentStats, isPersonal: false),
+        if (department == 'mini_mart') ...[
+          const SizedBox(height: 16),
+          _buildDebtSummaryCard(
+            title: 'Department Outstanding Debts',
+            stats: _departmentStats,
+          ),
+        ],
         const SizedBox(height: 24),
         if (_departmentStockLevels.isNotEmpty) ...[
           _buildDepartmentStockLevels(),
@@ -757,6 +800,96 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 style: TextStyle(color: Colors.grey[600], fontSize: 12),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic>? _getNextBookingNeedingRoom() {
+    for (final booking in _bookings) {
+      final roomId = booking['room_id'];
+      final status = booking['status']?.toString().toLowerCase() ?? '';
+      final needsRoom = roomId == null || roomId.toString().isEmpty;
+      final isPending = status == 'pending check-in' || status == 'pending';
+      if (needsRoom && isPending) {
+        return booking;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildReceptionistQuickActions() {
+    final pendingBooking = _getNextBookingNeedingRoom();
+    final hasPendingBooking = pendingBooking != null;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Quick Actions',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildQuickActionButton(
+                  icon: Icons.add_home_work_outlined,
+                  label: 'Create Booking',
+                  onPressed: () => context.go('/booking/create'),
+                ),
+                _buildQuickActionButton(
+                  icon: Icons.meeting_room_outlined,
+                  label: 'Assign Room',
+                  onPressed: hasPendingBooking
+                      ? () => context.go(
+                            '/booking/details',
+                            extra: Booking.fromMap(pendingBooking),
+                          )
+                      : null,
+                ),
+                _buildQuickActionButton(
+                  icon: Icons.storefront_outlined,
+                  label: 'Mini Mart Sale',
+                  onPressed: () => context.go('/mini_mart'),
+                ),
+                _buildQuickActionButton(
+                  icon: Icons.restaurant_outlined,
+                  label: 'Kitchen Sales/Dispatch',
+                  onPressed: () => context.go('/kitchen'),
+                ),
+              ],
+            ),
+            if (!hasPendingBooking) ...[
+              const SizedBox(height: 8),
+              Text(
+                'No pending bookings need room assignment right now.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox(
+      width: 180,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label, overflow: TextOverflow.ellipsis),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         ),
       ),
     );
@@ -971,6 +1104,40 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDebtSummaryCard({
+    required String title,
+    required Map<String, dynamic> stats,
+  }) {
+    final pendingCount = stats['pending_debts'] ?? 0;
+    final amountKobo = (stats['total_debt_amount'] as num?)?.toDouble() ?? 0.0;
+    final amountNaira = PaymentService.koboToNaira(amountKobo.toInt());
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const Icon(Icons.receipt, color: Colors.orange),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pending: $pendingCount  •  Amount: ₦${NumberFormat('#,##0.00').format(amountNaira)}',
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

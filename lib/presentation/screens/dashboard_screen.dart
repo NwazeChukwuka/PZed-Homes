@@ -156,11 +156,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<Map<String, dynamic>> _calculateDashboardStats() async {
     // Calculate stats from actual bookings
       return {
-      'checked_in_count': _bookings.where((b) => (b['status']?.toString() ?? '') == 'Checked-in').length,
-      'pending_count': _bookings.where((b) => (b['status']?.toString() ?? '') == 'Pending Check-in').length,
+      'checked_in_count': _bookings.where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-in').length,
+      'pending_count': _bookings.where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'pending').length,
       'occupancy_rate': (_stats['occupancy_rate'] ?? 65),
       'total_revenue': _stats['total_revenue'] ?? 0,
     };
+  }
+
+  String _normalizeBookingStatus(String? raw) {
+    if (raw == null) return '';
+    final normalized = raw.trim().toLowerCase().replaceAll('_', '-');
+    switch (normalized) {
+      case 'pending':
+      case 'pending check-in':
+      case 'pending checkin':
+        return 'pending';
+      case 'checked-in':
+      case 'checked in':
+        return 'checked-in';
+      case 'checked-out':
+      case 'checked out':
+        return 'checked-out';
+      case 'cancelled':
+        return 'cancelled';
+      case 'confirmed':
+        return 'confirmed';
+      default:
+        return normalized;
+    }
   }
 
   Future<Map<String, dynamic>?> _fetchLastAttendance() async {
@@ -565,13 +588,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     Color statusColor(String status) {
-      switch (status.toLowerCase()) {
+      switch (_normalizeBookingStatus(status)) {
         case 'booked':
           return const Color(0xFF3B82F6);
-        case 'checked_in':
         case 'checked-in':
           return const Color(0xFF22C55E);
-        case 'checked_out':
         case 'checked-out':
           return const Color(0xFFF59E0B);
         case 'cancelled':
@@ -1126,7 +1147,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     int totalOccupied = 0;
     
     for (var booking in _bookings) {
-      if (booking['status'] == 'Checked-in' && booking['room_id'] != null) {
+      if (_normalizeBookingStatus(booking['status']?.toString()) == 'checked-in' &&
+          booking['room_id'] != null) {
         totalOccupied++;
         final roomType = booking['rooms']?['type'] as String? ?? 
                         booking['requested_room_type'] as String? ?? 
@@ -1189,7 +1211,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final roomTypeCounts = <String, int>{};
     
     for (var booking in _bookings) {
-      if (booking['status'] == 'Checked-in' && booking['room_id'] != null) {
+      if (_normalizeBookingStatus(booking['status']?.toString()) == 'checked-in' &&
+          booking['room_id'] != null) {
         final roomType = booking['rooms']?['type'] as String? ?? 
                         booking['requested_room_type'] as String? ?? 
                         'Unknown';
@@ -1404,7 +1427,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final roomNumber = room?['room_number']?.toString() ?? 
                                   booking['requested_room_type']?.toString() ?? 
                                   'Not Assigned';
-                final status = booking['status'] as String? ?? 'Unknown';
+                final statusRaw = booking['status'] as String? ?? 'Unknown';
+                final normalized = _normalizeBookingStatus(statusRaw);
+                final status = normalized.isEmpty
+                    ? 'Unknown'
+                    : normalized.replaceAll('-', ' ').toUpperCase().substring(0, 1) +
+                        normalized.replaceAll('-', ' ').substring(1);
                 final checkIn = booking['check_in_date'] != null 
                     ? DateFormat('MMM dd, yyyy').format(DateTime.parse(booking['check_in_date']))
                     : 'N/A';
@@ -1419,8 +1447,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     DataCell(
                       Chip(
                         label: Text(status),
-                        backgroundColor: _getStatusColor(status).withOpacity(0.1),
-                        labelStyle: TextStyle(color: _getStatusColor(status)),
+                        backgroundColor: _getStatusColor(statusRaw).withOpacity(0.1),
+                        labelStyle: TextStyle(color: _getStatusColor(statusRaw)),
                       ),
                     ),
                     DataCell(Text(checkIn)),
@@ -1495,17 +1523,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
+    switch (_normalizeBookingStatus(status)) {
       case 'checked-in':
         return Colors.green;
-      case 'pending check-in':
+      case 'pending':
         return Colors.orange;
       case 'checked-out':
         return Colors.blue;
+      case 'cancelled':
+        return Colors.red;
+      case 'confirmed':
+        return Colors.purple;
       default:
         return Colors.grey;
+    }
   }
-}
 
   // Toolbar to select time range filters
   Widget _buildTimeRangeToolbar(BuildContext context) {

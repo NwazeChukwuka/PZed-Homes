@@ -111,11 +111,35 @@ class ReportingService {
     }
 
     return bookings.where((b) {
-      if (b['status'] != 'Checked-out') return false;
+      final normalized = _normalizeBookingStatus(b['status']?.toString());
+      if (normalized != 'checked-out') return false;
       final checkOutDate = DateTime.parse(b['checkOutDate'] as String);
       return checkOutDate.isAfter(startDate) &&
           checkOutDate.isBefore(now.add(const Duration(days: 1)));
     }).toList();
+  }
+
+  String _normalizeBookingStatus(String? raw) {
+    if (raw == null) return '';
+    final normalized = raw.trim().toLowerCase().replaceAll('_', '-');
+    switch (normalized) {
+      case 'pending':
+      case 'pending check-in':
+      case 'pending checkin':
+        return 'pending';
+      case 'checked-in':
+      case 'checked in':
+        return 'checked-in';
+      case 'checked-out':
+      case 'checked out':
+        return 'checked-out';
+      case 'cancelled':
+        return 'cancelled';
+      case 'confirmed':
+        return 'confirmed';
+      default:
+        return normalized;
+    }
   }
 
   int _calculateTotalRevenue(List<Map<String, dynamic>> filteredBookings) {
@@ -196,11 +220,14 @@ class ReportingService {
             rooms!inner(type),
             profiles!guest_profile_id(full_name)
           ''')
-          .eq('status', 'Checked-out')
+          .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
           .gte('check_out_date', dateRange.start.toIso8601String())
           .lte('check_out_date', dateRange.end.toIso8601String());
 
-      final revenueItems = revenueResponse as List<Map<String, dynamic>>;
+      final revenueItemsRaw = revenueResponse as List<Map<String, dynamic>>;
+      final revenueItems = revenueItemsRaw
+          .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
+          .toList();
 
       // 2. Fetch detailed expense items
       final expenseResponse = await _supabase

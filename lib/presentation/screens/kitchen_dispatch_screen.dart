@@ -89,19 +89,21 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       final stockResponse = menuItems
           .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'kitchen')
           .toList();
-      final locResponse = [
-        {'id': 'loc001', 'name': 'Kitchen'},
-        {'id': 'loc002', 'name': 'VIP Bar'},
-        {'id': 'loc003', 'name': 'Outside Bar'},
-        {'id': 'loc004', 'name': 'Mini Mart'},
-        {'id': 'loc005', 'name': 'Store'},
+      final locResponse = await _dataService.getLocations();
+      final fallbackLocations = [
+        {'id': 'loc001', 'name': 'Kitchen', 'type': 'Kitchen'},
+        {'id': 'loc002', 'name': 'VIP Bar', 'type': 'Bar'},
+        {'id': 'loc003', 'name': 'Outside Bar', 'type': 'Bar'},
+        {'id': 'loc004', 'name': 'Mini Mart', 'type': 'Other'},
       ];
 
       if (!mounted) return;
 
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
-        _locations = List<Map<String, dynamic>>.from(locResponse);
+        _locations = locResponse.isNotEmpty
+            ? List<Map<String, dynamic>>.from(locResponse)
+            : List<Map<String, dynamic>>.from(fallbackLocations);
       });
 
       // Find Kitchen location id
@@ -401,7 +403,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         
         // Show full functionality if kitchen staff, assumed kitchen staff, or receptionist
         final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist;
-        final destinations = _locations.where((l) => l['id'] != _sourceLocationId).toList();
+        final destinations = _locations.where((l) {
+          final isSource = l['id'] == _sourceLocationId;
+          final type = l['type']?.toString().toLowerCase();
+          final name = (l['name'] as String?)?.toLowerCase();
+          final isKitchen = type == 'kitchen' || name == 'kitchen';
+          final isStorage = type == 'storage' || name == 'main storeroom';
+          return !isSource && !isKitchen && !isStorage;
+        }).toList();
 
         return Scaffold(
           appBar: AppBar(

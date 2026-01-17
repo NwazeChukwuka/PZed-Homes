@@ -490,6 +490,7 @@ class DataService {
         'debtor_type': debt['debtor_type'],
         'amount': debt['amount'],
         'owed_to': debt['owed_to'],
+        'department': debt['department'],
         'reason': debt['reason'],
         'date': debt['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'status': debt['status'] ?? 'outstanding',
