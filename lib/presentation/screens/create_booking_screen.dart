@@ -386,7 +386,9 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                 ),
                 items: _roomTypes.map((type) => DropdownMenuItem(
                   value: type['id'] as String,
-                  child: Text('${type['type']} - ₦${type['price']}'),
+                  child: Text(
+                    '${type['type']} - ₦${PaymentService.koboToNaira(type['price'] as int? ?? 0).toStringAsFixed(2)}',
+                  ),
                 )).toList(),
                 onChanged: (value) {
                   setState(() => _selectedRoomTypeId = value);

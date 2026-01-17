@@ -39,6 +39,10 @@ class ContextAwareRoleButton extends StatelessWidget {
               'Returned to ${user?.role.name.toUpperCase()} role',
             );
           } else {
+            if (suggestedRole == AppRole.bartender) {
+              _showBartenderChoice(context, authService);
+              return;
+            }
             authService.assumeRole(suggestedRole);
             ErrorHandler.showSuccessMessage(
               context,
@@ -55,6 +59,50 @@ class ContextAwareRoleButton extends StatelessWidget {
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
+      ),
+    );
+  }
+
+  void _showBartenderChoice(BuildContext context, AuthService authService) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Assume Bartender Role'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.local_bar),
+              title: const Text('VIP Bar Bartender'),
+              onTap: () {
+                authService.assumeRole(AppRole.vip_bartender);
+                Navigator.of(dialogContext).pop();
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Now assuming VIP Bar Bartender role',
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.local_bar_outlined),
+              title: const Text('Outside Bar Bartender'),
+              onTap: () {
+                authService.assumeRole(AppRole.outside_bartender);
+                Navigator.of(dialogContext).pop();
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Now assuming Outside Bar Bartender role',
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }

@@ -487,8 +487,10 @@ class _StockTransferFormState extends State<StockTransferForm> {
 
   List<String> _rolesForLocation(String locationName) {
     final name = locationName.toLowerCase();
-    if (name.contains('vip')) return ['bartender'];
-    if (name.contains('outside') || name.contains('bar')) return ['bartender'];
+    if (name.contains('vip')) return ['vip_bartender', 'bartender'];
+    if (name.contains('outside') || name.contains('bar')) {
+      return ['outside_bartender', 'bartender'];
+    }
     if (name.contains('kitchen')) return ['kitchen_staff'];
     if (name.contains('laundry')) return ['laundry_attendant'];
     if (name.contains('housekeeping')) return ['housekeeper', 'cleaner'];

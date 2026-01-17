@@ -83,12 +83,45 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   void _updateTabController() {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
-    final isBartender = user?.roles.any((role) => 
-        role.toString().contains('bartender') || 
-        (authService.isRoleAssumed && authService.assumedRole.toString().contains('bartender'))) ?? false;
+    final isBartender = _hasBartenderRole(authService, user);
     
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
     _tabController = TabController(length: tabCount, vsync: this);
+  }
+
+  bool _isBartenderRole(AppRole role) {
+    return role == AppRole.vip_bartender ||
+        role == AppRole.outside_bartender ||
+        role == AppRole.bartender;
+  }
+
+  bool _hasBartenderRole(AuthService authService, AppUser? user) {
+    return (user?.roles.any(_isBartenderRole) ?? false) ||
+        (authService.isRoleAssumed &&
+            authService.assumedRole != null &&
+            _isBartenderRole(authService.assumedRole!));
+  }
+
+  String? _bartenderDepartment(AuthService authService, AppUser? user) {
+    if (authService.isRoleAssumed && authService.assumedRole != null) {
+      final assumed = authService.assumedRole!;
+      if (assumed == AppRole.vip_bartender) return 'vip_bar';
+      if (assumed == AppRole.outside_bartender) return 'outside_bar';
+      if (assumed == AppRole.bartender) return _selectedBarForSales;
+    }
+
+    if (user != null) {
+      if (user.roles.contains(AppRole.vip_bartender)) return 'vip_bar';
+      if (user.roles.contains(AppRole.outside_bartender)) return 'outside_bar';
+      if (user.roles.contains(AppRole.bartender)) {
+        final department = user.department;
+        if (department == 'vip_bar' || department == 'outside_bar') {
+          return department;
+        }
+      }
+    }
+
+    return null;
   }
 
   Future<void> _loadInventory() async {
@@ -136,8 +169,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     return Consumer<AuthService>(
       builder: (context, authService, child) {
         final user = authService.currentUser;
-        final isBartender = (user?.roles.any((role) => role.name == 'bartender') ?? false) ||
-            (authService.isRoleAssumed && authService.assumedRole?.name == 'bartender');
+        final isBartender = _hasBartenderRole(authService, user);
         
         final showAddItemButton = user?.roles.any((role) => role.name == 'owner' || role.name == 'manager') ?? false;
 
@@ -292,6 +324,24 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   List<Map<String, dynamic>> _filterItemsByBar(List<Map<String, dynamic>> items) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final isManagement = user?.roles.any((role) =>
+            role.toString().contains('owner') ||
+            role.toString().contains('manager')) ??
+        false;
+
+    if (!isManagement) {
+      final userDepartment = _bartenderDepartment(authService, user);
+      if (userDepartment == null || userDepartment.isEmpty) {
+        return [];
+      }
+      return items.where((item) {
+        final department = item['department'] as String?;
+        return department == userDepartment;
+      }).toList();
+    }
+
     if (_selectedBar == null) {
       return items.where((item) {
         final department = item['department'] as String?;
@@ -322,9 +372,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             Text('Category: ${item['category'] ?? 'Unknown'}'),
             Text('Stock: ${item['current_stock'] ?? 0} ${item['unit'] ?? 'units'}'),
             if (item['vip_bar_price'] != null)
-              Text('VIP Price: ₦${item['vip_bar_price']}'),
+              Text(
+                'VIP Price: ₦${PaymentService.koboToNaira((item['vip_bar_price'] as num?)?.toInt() ?? 0).toStringAsFixed(2)}',
+              ),
             if (item['outside_bar_price'] != null)
-              Text('Outside Price: ₦${item['outside_bar_price']}'),
+              Text(
+                'Outside Price: ₦${PaymentService.koboToNaira((item['outside_bar_price'] as num?)?.toInt() ?? 0).toStringAsFixed(2)}',
+              ),
           ],
         ),
         trailing: Text(
@@ -551,10 +605,17 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isManagement = user?.roles.any((role) => 
         role.toString().contains('owner') || 
         role.toString().contains('manager')) ?? false;
-    final isBartenderAssumed = authService.isRoleAssumed && 
-        authService.assumedRole.toString().contains('bartender');
+    final isBartenderAssumed = authService.isRoleAssumed &&
+        authService.assumedRole != null &&
+        _isBartenderRole(authService.assumedRole!);
+    final hasLegacyBartenderRole = user?.roles.contains(AppRole.bartender) ?? false;
+    final hasFixedBarRole = (user?.roles.contains(AppRole.vip_bartender) ?? false) ||
+        (user?.roles.contains(AppRole.outside_bartender) ?? false);
 
-    if (!isManagement || !isBartenderAssumed) return const SizedBox.shrink();
+    if (!isManagement && !(hasLegacyBartenderRole && !hasFixedBarRole)) {
+      return const SizedBox.shrink();
+    }
+    if (isManagement && !isBartenderAssumed) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -584,9 +645,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   List<Map<String, dynamic>> _filterItemsForSales(List<Map<String, dynamic>> items) {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
-    final userDepartment = (user?.roles.any((role) => role.toString().contains('bartender')) ?? false) 
-        ? ((user?.roles.isNotEmpty == true && user!.roles.first.toString().contains('vip')) ? 'vip_bar' : 'outside_bar')
-        : '';
+    final userDepartment = _bartenderDepartment(authService, user);
 
     // Filter by search
     var filtered = items.where((item) {
@@ -597,13 +656,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }).toList();
 
     // Filter by bar/department
-    if (authService.isRoleAssumed && authService.assumedRole.toString().contains('bartender')) {
-      // Management assuming bartender role
+    if (authService.isRoleAssumed &&
+        authService.assumedRole != null &&
+        _isBartenderRole(authService.assumedRole!)) {
+      // Management assuming bartender role (explicit bar selection)
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
         return department == _selectedBarForSales;
       }).toList();
-    } else if (userDepartment.isNotEmpty) {
+    } else if (userDepartment != null && userDepartment.isNotEmpty) {
       // Regular bartender
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
@@ -660,7 +721,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
               const SizedBox(height: 4),
               Text(
-                '₦${NumberFormat('#,##0').format(price)}',
+                '₦${NumberFormat('#,##0.00').format(price)}',
                 style: TextStyle(
                   color: Colors.green[700],
                   fontWeight: FontWeight.bold,
@@ -685,25 +746,35 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   double _getItemPrice(Map<String, dynamic> item) {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
-    final userDepartment = (user?.roles.any((role) => role.toString().contains('bartender')) ?? false) 
-        ? ((user?.roles.isNotEmpty == true && user!.roles.first.toString().contains('vip')) ? 'vip_bar' : 'outside_bar')
-        : '';
+    final userDepartment = _bartenderDepartment(authService, user);
 
-    if (authService.isRoleAssumed && authService.assumedRole.toString().contains('bartender')) {
+    if (authService.isRoleAssumed &&
+        authService.assumedRole != null &&
+        _isBartenderRole(authService.assumedRole!)) {
       // Management assuming bartender role
       if (_selectedBarForSales == 'vip_bar') {
-        return (item['vip_bar_price'] as num?)?.toDouble() ?? 0.0;
+        return PaymentService.koboToNaira(
+          (item['vip_bar_price'] as num?)?.toInt() ?? 0,
+        );
       } else if (_selectedBarForSales == 'outside_bar') {
-        return (item['outside_bar_price'] as num?)?.toDouble() ?? 0.0;
+        return PaymentService.koboToNaira(
+          (item['outside_bar_price'] as num?)?.toInt() ?? 0,
+        );
       }
     } else if (userDepartment == 'vip_bar') {
-      return (item['vip_bar_price'] as num?)?.toDouble() ?? 0.0;
+      return PaymentService.koboToNaira(
+        (item['vip_bar_price'] as num?)?.toInt() ?? 0,
+      );
     } else if (userDepartment == 'outside_bar') {
-      return (item['outside_bar_price'] as num?)?.toDouble() ?? 0.0;
+      return PaymentService.koboToNaira(
+        (item['outside_bar_price'] as num?)?.toInt() ?? 0,
+      );
     }
 
     // Default to VIP bar price
-    return (item['vip_bar_price'] as num?)?.toDouble() ?? 0.0;
+    return PaymentService.koboToNaira(
+      (item['vip_bar_price'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Widget _buildCurrentSaleSection() {
@@ -741,7 +812,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  '₦${_saleTotal.toStringAsFixed(0)}',
+                  '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
@@ -900,7 +971,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     item['name'] ?? 'Unknown',
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
-                  Text('₦${price.toStringAsFixed(0)} each'),
+                  Text('₦${NumberFormat('#,##0.00').format(price)} each'),
                 ],
               ),
             ),
@@ -1272,7 +1343,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         if (mounted) {
           ErrorHandler.showWarningMessage(
             context,
-            'Sale on credit recorded! Total: ₦${_saleTotal.toStringAsFixed(0)} - Debt created',
+            'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created',
           );
         }
       } else {
@@ -1280,7 +1351,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         if (mounted) {
           ErrorHandler.showSuccessMessage(
             context,
-            'Sale processed successfully! Total: ₦${_saleTotal.toStringAsFixed(0)}',
+            'Sale processed successfully! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
           );
         }
       }
@@ -1328,12 +1399,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
               TextField(
                 controller: _vipPriceController,
-                decoration: const InputDecoration(labelText: 'VIP Bar Price'),
+                decoration: const InputDecoration(labelText: 'VIP Bar Price (₦)'),
                 keyboardType: TextInputType.number,
               ),
               TextField(
                 controller: _outsidePriceController,
-                decoration: const InputDecoration(labelText: 'Outside Bar Price'),
+                decoration: const InputDecoration(labelText: 'Outside Bar Price (₦)'),
                 keyboardType: TextInputType.number,
               ),
               TextField(
@@ -1365,13 +1436,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       if (_selectedBar == null) {
         throw Exception('Please select a bar before adding a new item.');
       }
+      final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
+      final outsidePriceNaira = double.tryParse(_outsidePriceController.text) ?? 0.0;
       final item = {
         'name': _nameController.text,
         'description': _descriptionController.text,
         'current_stock': int.parse(_quantityController.text),
         'unit': _unitController.text,
-        'vip_bar_price': double.parse(_vipPriceController.text),
-        'outside_bar_price': double.parse(_outsidePriceController.text),
+        'vip_bar_price': PaymentService.nairaToKobo(vipPriceNaira),
+        'outside_bar_price': PaymentService.nairaToKobo(outsidePriceNaira),
         'category': _categoryController.text,
         'department': _selectedBar, // Assign to selected bar only
       };

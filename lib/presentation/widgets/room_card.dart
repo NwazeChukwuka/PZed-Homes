@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/presentation/screens/room_details_screen.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import '../../data/models/room_category.dart';
 
 class RoomCard extends StatefulWidget {
@@ -51,6 +52,9 @@ class _RoomCardState extends State<RoomCard> {
                         roomType: {
                           'name': widget.roomCategory.type,
                           'price': widget.roomCategory.priceNgn,
+                          'price_kobo': PaymentService.nairaToKobo(
+                            widget.roomCategory.priceNgn.toDouble(),
+                          ),
                           'description': '${widget.roomCategory.roomCount} rooms available',
                           'id': widget.roomCategory.type.hashCode.toString(),
                           'images': images,

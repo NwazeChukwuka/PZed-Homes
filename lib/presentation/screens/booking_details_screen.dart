@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/assign_room_screen.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 class Booking {
   final String id;
@@ -63,7 +64,7 @@ class BookingDetailsScreen extends StatefulWidget {
 class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
   late Booking _currentBooking;
   final _supabase = Supabase.instance.client;
-  int _roomBasePrice = 0;
+  int _roomBasePriceKobo = 0;
   bool _isLoading = false;
 
   @override
@@ -85,18 +86,18 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       if (priceResponse != null) {
         final priceInKobo = priceResponse['price'] as int? ?? 0;
         setState(() {
-          _roomBasePrice = priceInKobo ~/ 100; // Convert kobo to naira
+          _roomBasePriceKobo = priceInKobo;
         });
       } else {
         // Room type not found - set to 0 or show error
         setState(() {
-          _roomBasePrice = 0;
+          _roomBasePriceKobo = 0;
         });
       }
     } catch (e) {
       print('Error fetching room price: $e');
       setState(() {
-        _roomBasePrice = 0;
+        _roomBasePriceKobo = 0;
       });
     }
   }
@@ -106,8 +107,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         .fold(0, (sum, item) => sum + (item['price'] as int));
   }
 
-  int get _totalBill {
-    return _roomBasePrice + _extraChargesTotal;
+  int get _totalBillKobo {
+    return _roomBasePriceKobo + _extraChargesTotal;
   }
 
   Future<void> _performCheckIn() async {
@@ -394,7 +395,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Confirm Check-out'),
         content: Text(
-          'The total bill for ${_currentBooking.guestName} is ${currencyFormatter.format(_totalBill)}.\n\nProceed with check-out?'
+          'The total bill for ${_currentBooking.guestName} is ${currencyFormatter.format(PaymentService.koboToNaira(_totalBillKobo))}.\n\nProceed with check-out?'
         ),
         actions: [
           TextButton(
@@ -490,14 +491,20 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           children: [
             const Text('Billing Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const Divider(height: 20),
-            _buildDetailRow(Icons.hotel, 'Room Charge', currencyFormatter.format(_roomBasePrice)),
+            _buildDetailRow(
+              Icons.hotel,
+              'Room Charge',
+              currencyFormatter.format(PaymentService.koboToNaira(_roomBasePriceKobo)),
+            ),
             const SizedBox(height: 8),
             if (_currentBooking.extraCharges.isNotEmpty) ...[
               const Text('Extra Charges:', style: TextStyle(fontWeight: FontWeight.bold)),
               ..._currentBooking.extraCharges.map((charge) => _buildDetailRow(
                 Icons.receipt_long,
                 charge['item'] as String,
-                currencyFormatter.format((charge['price'] as int) ~/ 100),
+                currencyFormatter.format(
+                  PaymentService.koboToNaira(charge['price'] as int? ?? 0),
+                ),
               )),
             ],
             const Divider(height: 20),
@@ -506,7 +513,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
               children: [
                 const Text('Total Bill', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 Text(
-                  currencyFormatter.format(_totalBill),
+                  currencyFormatter.format(PaymentService.koboToNaira(_totalBillKobo)),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
                 ),
               ],

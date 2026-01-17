@@ -172,6 +172,27 @@ class DataService {
     });
   }
 
+  Future<String> addStockItem({
+    required String name,
+    String? description,
+    String? unit,
+    int? minStock,
+  }) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('stock_items')
+          .insert({
+            'name': name,
+            'description': description,
+            'unit': unit?.isNotEmpty == true ? unit : 'units',
+            'min_stock': minStock ?? 10,
+          })
+          .select('id')
+          .single();
+      return response['id'] as String;
+    });
+  }
+
   // Locations
   Future<List<Map<String, dynamic>>> getLocations() async {
     return await _retryOperation(() async {

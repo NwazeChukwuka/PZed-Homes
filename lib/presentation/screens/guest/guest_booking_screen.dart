@@ -39,7 +39,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   void initState() {
     super.initState();
     // Fallback values if no extra data
-    roomType = {'name': 'Standard Room', 'price': 15000};
+    roomType = {'name': 'Standard Room', 'price': 1500000};
     checkInDate = DateTime.now();
     checkOutDate = DateTime.now().add(const Duration(days: 1));
   }
@@ -61,30 +61,26 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  /// Get total price in naira (for display)
-  /// Note: roomType['price'] is already in naira from available_rooms_screen
-  /// (available_rooms_screen converts from kobo to naira before passing to this screen)
-  int get _totalPriceInNaira {
-    final nights = checkOutDate.difference(checkInDate).inDays;
-    // roomType['price'] is in naira (converted in available_rooms_screen.dart:196)
-    final pricePerNight = (roomType['price'] is int)
-        ? roomType['price'] as int
-        : (roomType['price'] is double)
-            ? (roomType['price'] as double).round()
-            : int.tryParse('${roomType['price'] ?? 0}') ?? 0;
-    
-    // Validate price is reasonable (not in kobo by mistake)
-    if (pricePerNight > 1000000) {
-      // Price seems too high - might still be in kobo, convert it
-      return (pricePerNight ~/ 100) * nights;
+  int get _pricePerNightKobo {
+    final priceValue = roomType['price_kobo'] ?? roomType['price'];
+    if (priceValue is int) {
+      return priceValue;
     }
-    
-    return pricePerNight * nights;
+    if (priceValue is num) {
+      return priceValue.toInt();
+    }
+    return int.tryParse('${priceValue ?? 0}') ?? 0;
   }
 
   /// Get total price in kobo (for database storage)
   int get _totalPriceInKobo {
-    return PaymentService.nairaToKobo(_totalPriceInNaira.toDouble());
+    final nights = checkOutDate.difference(checkInDate).inDays;
+    return _pricePerNightKobo * nights;
+  }
+
+  /// Get total price in naira (for display)
+  double get _totalPriceInNaira {
+    return PaymentService.koboToNaira(_totalPriceInKobo);
   }
 
   int get _nightsCount {

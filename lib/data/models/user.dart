@@ -5,6 +5,8 @@ enum AppRole {
   accountant,
   hr,
   receptionist,
+  vip_bartender,
+  outside_bartender,
   bartender,
   security,
   laundry_attendant,

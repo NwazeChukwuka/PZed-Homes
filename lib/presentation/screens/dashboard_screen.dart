@@ -17,6 +17,7 @@ import 'package:pzed_homes/presentation/screens/create_booking_screen.dart';
 import 'package:pzed_homes/data/models/booking.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 enum TimeRange { today, week, month, custom }
 
@@ -203,6 +204,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }).toList();
       });
     }
+  }
+
+  String _formatKobo(num value) {
+    return NumberFormat('#,##0.00').format(
+      PaymentService.koboToNaira(value.toInt()),
+    );
   }
 
   Future<void> _handleClockIn() async {
@@ -837,7 +844,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildMetricCard(
           context,
           'Total Revenue',
-          '₦${_stats['total_revenue'] ?? 0}',
+          '₦${_formatKobo((_stats['total_revenue'] ?? 0) as num)}',
           Icons.attach_money,
           Colors.green[700]!, // Green for better readability
         ),
@@ -889,7 +896,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '₦${e.value}',
+                  '₦${_formatKobo(e.value)}',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: const Color(0xFF0A0A0A),
@@ -1569,6 +1576,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return _buildReceptionistPanel(context);
       case AppRole.bartender:
         return _buildBartenderPanel(context);
+      case AppRole.vip_bartender:
+        return _buildBartenderPanel(context);
+      case AppRole.outside_bartender:
+        return _buildBartenderPanel(context);
       case AppRole.kitchen_staff:
         return _buildKitchenPanel(context);
       case AppRole.storekeeper:
@@ -1604,7 +1615,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _quickButton(context, 'My Department', Icons.domain, () {
             if (role == AppRole.storekeeper) context.go('/storekeeping');
             else if (role == AppRole.purchaser) context.go('/purchasing');
-            else if (role == AppRole.kitchen_staff || role == AppRole.bartender) context.go('/kitchen');
+            else if (role == AppRole.kitchen_staff) context.go('/kitchen');
+            else if (role == AppRole.vip_bartender ||
+                role == AppRole.outside_bartender ||
+                role == AppRole.bartender) {
+              context.go('/inventory');
+            }
             else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
             else context.go('/dashboard');
           }),
@@ -1690,9 +1706,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _inlineCards(context, [
-          ('Income', '₦$income', Icons.trending_up),
-          ('Expenses', '₦$expenses', Icons.trending_down),
-          ('Net Profit', '₦$profit', Icons.account_balance),
+          ('Income', '₦${_formatKobo(income)}', Icons.trending_up),
+          ('Expenses', '₦${_formatKobo(expenses)}', Icons.trending_down),
+          ('Net Profit', '₦${_formatKobo(profit)}', Icons.account_balance),
         ]),
         const SizedBox(height: 16),
         _buildStockLevelsSummary(),
@@ -1793,7 +1809,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final value = sales.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
     return _inlineCards(context, [
       ('Items Sold', '$qty', Icons.local_bar),
-      ('Sales Value', '₦$value', Icons.point_of_sale),
+      ('Sales Value', '₦${_formatKobo(value)}', Icons.point_of_sale),
     ]);
   }
 
@@ -1809,7 +1825,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final total = inRange.fold<num>(0, (s, e) => s + (e['amount'] as num));
     return _inlineCards(context, [
       ('Food Dispatched', '${inRange.length}', Icons.restaurant),
-      ('Value', '₦$total', Icons.attach_money),
+      ('Value', '₦${_formatKobo(total)}', Icons.attach_money),
     ]);
   }
 
@@ -1832,7 +1848,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }).toList();
     final total = kitchenExpenses.fold<num>(0, (s, e) => s + (e['amount'] as num));
     return _inlineCards(context, [
-      ('Kitchen Purchases', '₦$total', Icons.shopping_cart),
+      ('Kitchen Purchases', '₦${_formatKobo(total)}', Icons.shopping_cart),
     ]);
   }
 

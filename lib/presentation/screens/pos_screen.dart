@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/screens/scanner_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -314,6 +315,7 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       itemBuilder: (context, index) {
         final item = items[index];
         final price = item['price'] as int? ?? 0;
+        final priceNaira = PaymentService.koboToNaira(price);
         
         return Card(
           child: InkWell(
@@ -332,7 +334,7 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    currencyFormatter.format(price),
+                    currencyFormatter.format(priceNaira),
                     style: TextStyle(
                       color: Colors.deepPurple,
                       fontWeight: FontWeight.bold,
@@ -391,17 +393,19 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                       final quantity = item['quantity'] as int? ?? 0;
                       final price = item['price'] as int? ?? 0;
                       final total = quantity * price;
+                      final priceNaira = PaymentService.koboToNaira(price);
+                      final totalNaira = PaymentService.koboToNaira(total);
                       
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 4),
                         child: ListTile(
                           title: Text(item['name'] as String? ?? 'Unknown'),
-                          subtitle: Text('$quantity x ${currencyFormatter.format(price)}'),
+                          subtitle: Text('$quantity x ${currencyFormatter.format(priceNaira)}'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                currencyFormatter.format(total),
+                                currencyFormatter.format(totalNaira),
                                 style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
                               IconButton(
@@ -433,7 +437,7 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
               children: [
                 const Text('Total:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 Text(
-                  currencyFormatter.format(_orderTotal),
+                  currencyFormatter.format(PaymentService.koboToNaira(_orderTotal)),
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
                 ),
               ],

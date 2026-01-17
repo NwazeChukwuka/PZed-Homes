@@ -499,7 +499,8 @@ class MainScreen extends StatelessWidget {
       builder: (context) {
         final authService = Provider.of<AuthService>(context, listen: false);
         final roles = <Map<String, dynamic>>[
-          {'label': 'Bartender', 'role': AppRole.bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
+          {'label': 'VIP Bar Bartender', 'role': AppRole.vip_bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
+          {'label': 'Outside Bar Bartender', 'role': AppRole.outside_bartender, 'icon': Icons.local_bar_outlined, 'color': Colors.deepPurple},
           {'label': 'Receptionist', 'role': AppRole.receptionist, 'icon': Icons.support_agent, 'color': Colors.indigo},
           {'label': 'Storekeeper', 'role': AppRole.storekeeper, 'icon': Icons.inventory_2, 'color': Colors.teal},
           {'label': 'Purchaser', 'role': AppRole.purchaser, 'icon': Icons.shopping_cart, 'color': Colors.blue},

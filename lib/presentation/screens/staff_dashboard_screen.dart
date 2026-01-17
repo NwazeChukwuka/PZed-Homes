@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 /// Personalized dashboard for individual staff members
@@ -73,7 +74,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         : user?.role;
     
     // Determine department based on role
-    String? department = _getDepartmentFromRole(userRole);
+    String? department = _getDepartmentFromRole(
+      userRole,
+      profileDepartment: user?.department,
+    );
     
     try {
       // Load personal data
@@ -205,11 +209,18 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
   }
 
-  String? _getDepartmentFromRole(AppRole? role) {
+  String? _getDepartmentFromRole(AppRole? role, {String? profileDepartment}) {
     switch (role) {
+      case AppRole.vip_bartender:
+        return 'vip_bar';
+      case AppRole.outside_bartender:
+        return 'outside_bar';
       case AppRole.bartender:
-        // Need to determine which bar - this should come from user profile
-        return 'vip_bar'; // or 'outside_bar'
+        // Fallback to profile department if available
+        if (profileDepartment == 'vip_bar' || profileDepartment == 'outside_bar') {
+          return profileDepartment;
+        }
+        return null;
       case AppRole.receptionist:
         return 'mini_mart';
       case AppRole.kitchen_staff:
@@ -485,6 +496,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }).toList();
   }
 
+  String _formatKobo(num value) {
+    return NumberFormat('#,##0.00').format(
+      PaymentService.koboToNaira(value.toInt()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
@@ -492,7 +509,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final userRole = authService.isRoleAssumed 
         ? (authService.assumedRole ?? user?.role) 
         : user?.role;
-    final department = _getDepartmentFromRole(userRole);
+    final department = _getDepartmentFromRole(
+      userRole,
+      profileDepartment: user?.department,
+    );
     
     return Scaffold(
       appBar: AppBar(
@@ -658,7 +678,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ],
         
         // Show sales stats for sales roles
-        if (userRole == AppRole.bartender || userRole == AppRole.receptionist || userRole == AppRole.kitchen_staff) ...[
+        if (userRole == AppRole.vip_bartender ||
+            userRole == AppRole.outside_bartender ||
+            userRole == AppRole.bartender ||
+            userRole == AppRole.receptionist ||
+            userRole == AppRole.kitchen_staff) ...[
           _buildStatsGrid(_personalStats, isPersonal: true),
           const SizedBox(height: 24),
           _buildPaymentMethodBreakdown(_personalStats),
@@ -785,7 +809,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       children: [
         _buildStatCard(
           'Total Sales',
-          '₦${NumberFormat('#,##0.00').format(stats['total_sales'] ?? 0)}',
+          '₦${_formatKobo(stats['total_sales'] ?? 0)}',
           Icons.attach_money,
           Colors.green,
         ),
@@ -803,7 +827,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
         _buildStatCard(
           'Debt Amount',
-          '₦${NumberFormat('#,##0.00').format(stats['total_debt_amount'] ?? 0)}',
+          '₦${_formatKobo(stats['total_debt_amount'] ?? 0)}',
           Icons.account_balance_wallet,
           Colors.red,
         ),
@@ -878,7 +902,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(width: 8),
           Expanded(child: Text(method)),
           Text(
-            '₦${NumberFormat('#,##0.00').format(amount)}',
+            '₦${_formatKobo(amount)}',
             style: const TextStyle(fontWeight: FontWeight.w500),
           ),
         ],
@@ -927,7 +951,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '₦${NumberFormat('#,##0.00').format(debt['amount'] ?? 0)}',
+                      '₦${_formatKobo(debt['amount'] ?? 0)}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Chip(
@@ -995,7 +1019,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  '₦${_formatKobo((transaction['total_amount'] as num?)?.abs() ?? 0)}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );
@@ -1041,7 +1065,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   children: [
                     Expanded(child: Text('Staff ${entry.key}')),
                     Text(
-                      '₦${NumberFormat('#,##0.00').format(entry.value)}',
+                      '₦${_formatKobo(entry.value)}',
                       style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                   ],
@@ -1095,7 +1119,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '₦${NumberFormat('#,##0.00').format(debt['amount'] ?? 0)}',
+                      '₦${_formatKobo(debt['amount'] ?? 0)}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Chip(
@@ -1166,7 +1190,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  '₦${_formatKobo((transaction['total_amount'] as num?)?.abs() ?? 0)}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );
@@ -1188,7 +1212,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           children: [
             Text('Debtor: ${debt['debtor_name']}'),
             const SizedBox(height: 8),
-            Text('Amount: ₦${NumberFormat('#,##0.00').format(debt['amount'] ?? 0)}'),
+            Text('Amount: ₦${_formatKobo(debt['amount'] ?? 0)}'),
             const SizedBox(height: 16),
             const Text('Customer has paid this debt?'),
           ],

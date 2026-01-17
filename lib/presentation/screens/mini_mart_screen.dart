@@ -73,9 +73,18 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       final salesResponse = await _dataService.getMiniMartSales();
 
       if (mounted) {
+        final items = List<Map<String, dynamic>>.from(itemsResponse)
+            .map((item) {
+          final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+          return {
+            ...item,
+            // Normalize to naira for all UI calculations/display
+            'price': PaymentService.koboToNaira(priceKobo),
+          };
+        }).toList();
         setState(() {
-          _miniMartItems = List<Map<String, dynamic>>.from(itemsResponse);
-          _filteredItems = _miniMartItems;
+          _miniMartItems = items;
+          _filteredItems = items;
           _salesHistory = List<Map<String, dynamic>>.from(salesResponse);
           _isLoading = false;
         });

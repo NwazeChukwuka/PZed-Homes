@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
 import 'package:pzed_homes/presentation/screens/guest/gallery_folder_screen.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +19,7 @@ import 'package:pzed_homes/data/models/gallery_item.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 class GuestLandingPage extends StatefulWidget {
   const GuestLandingPage({super.key});
@@ -129,7 +131,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       
       if (roomType.isNotEmpty) {
         final priceInKobo = roomType['price'] as int? ?? 0;
-        return priceInKobo ~/ 100; // Convert kobo to naira
+        return priceInKobo; // Keep in kobo
       }
     } catch (e) {
       debugPrint('Error getting room price for $roomTypeName: $e');
@@ -137,11 +139,11 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     
     // Fallback to hardcoded prices if database query fails
     final fallbackPrices = {
-      'Standard Room': 20000,
-      'Classic Room': 25000,
-      'Diplomatic Room': 30000,
-      'Deluxe Room': 35000,
-      'Executive Room': 50000,
+      'Standard Room': PaymentService.nairaToKobo(20000.0),
+      'Classic Room': PaymentService.nairaToKobo(25000.0),
+      'Diplomatic Room': PaymentService.nairaToKobo(30000.0),
+      'Deluxe Room': PaymentService.nairaToKobo(35000.0),
+      'Executive Room': PaymentService.nairaToKobo(50000.0),
     };
     return fallbackPrices[roomTypeName] ?? 0;
   }
@@ -1060,7 +1062,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                             ),
                             Text(
-                              '₦${price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} / night', 
+                              '${NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(PaymentService.koboToNaira(price))} / night',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800, 
                                 color: Colors.green, 
@@ -1968,7 +1970,7 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                                 ),
                               ),
                               Text(
-                                '₦${widget.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} / night',
+                                '${NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(PaymentService.koboToNaira(widget.price))} / night',
                                 style: TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,

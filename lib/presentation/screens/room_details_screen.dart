@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RoomDetailsScreen extends StatefulWidget {
@@ -135,7 +136,24 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
   Widget build(BuildContext context) {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
     final dateFormatter = DateFormat('EEE, MMM d, yyyy');
-    final price = widget.roomType['price_ngn'] as int? ?? (widget.roomType['price'] as int? ?? 0);
+    final priceValue = widget.roomType['price_kobo'] ??
+        widget.roomType['price'] ??
+        widget.roomType['price_ngn'];
+    int priceKobo = 0;
+    if (priceValue is int) {
+      priceKobo = priceValue;
+    } else if (priceValue is num) {
+      priceKobo = priceValue.toInt();
+    } else {
+      priceKobo = int.tryParse('$priceValue') ?? 0;
+    }
+    if (widget.roomType['price_ngn'] != null && widget.roomType['price_kobo'] == null) {
+      final ngnValue = widget.roomType['price_ngn'];
+      if (ngnValue is num) {
+        priceKobo = PaymentService.nairaToKobo(ngnValue.toDouble());
+      }
+    }
+    final priceNaira = PaymentService.koboToNaira(priceKobo);
     final List<String> images = List<String>.from(widget.roomType['images'] ?? []);
     
     return Scaffold(
@@ -214,7 +232,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                   ),
                 ),
                 Text(
-                  '${currencyFormatter.format(price)}/night',
+                  '${currencyFormatter.format(priceNaira)}/night',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,

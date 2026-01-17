@@ -46,6 +46,24 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final hasVip = user?.roles.contains(AppRole.vip_bartender) ?? false;
+    final hasOutside = user?.roles.contains(AppRole.outside_bartender) ?? false;
+
+    String? fixedBar;
+    if (hasVip && !hasOutside) fixedBar = 'vip_bar';
+    if (hasOutside && !hasVip) fixedBar = 'outside_bar';
+
+    if (fixedBar != null && _selectedBar != fixedBar) {
+      setState(() => _selectedBar = fixedBar!);
+      _loadShiftData();
+    }
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
@@ -166,6 +184,12 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
 
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final hasVip = user?.roles.contains(AppRole.vip_bartender) ?? false;
+    final hasOutside = user?.roles.contains(AppRole.outside_bartender) ?? false;
+    final canSelectBar = !(hasVip ^ hasOutside);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Bartender Shift Management'),
@@ -179,25 +203,26 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             : null,
         actions: [
           // Bar selector
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: DropdownButton<String>(
-              value: _selectedBar,
-              dropdownColor: Colors.purple[700],
-              style: const TextStyle(color: Colors.white),
-              underline: Container(),
-              items: const [
-                DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
-                DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedBar = value);
-                  _loadShiftData();
-                }
-              },
+          if (canSelectBar)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: DropdownButton<String>(
+                value: _selectedBar,
+                dropdownColor: Colors.purple[700],
+                style: const TextStyle(color: Colors.white),
+                underline: Container(),
+                items: const [
+                  DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                  DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedBar = value);
+                    _loadShiftData();
+                  }
+                },
+              ),
             ),
-          ),
         ],
         bottom: TabBar(
           controller: _tabController,

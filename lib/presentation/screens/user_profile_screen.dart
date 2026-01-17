@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/password_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -551,7 +552,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _buildRoleChip('Bartender', AppRole.bartender, authService),
+                        _buildRoleChip('VIP Bar Bartender', AppRole.vip_bartender, authService),
+                        _buildRoleChip('Outside Bar Bartender', AppRole.outside_bartender, authService),
                         _buildRoleChip('Receptionist', AppRole.receptionist, authService),
                         _buildRoleChip('Storekeeper', AppRole.storekeeper, authService),
                         _buildRoleChip('Purchaser', AppRole.purchaser, authService),
@@ -915,9 +917,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ];
     } else if (_performanceData != null) {
       final data = _performanceData!;
-      final salesAmount = (data['total_sales'] as int? ?? 0) / 100; // Convert kobo to naira
-      final avgTicket = (data['avg_ticket_value'] as num? ?? 0).toDouble();
-      final overtime = (data['overtime_cost'] as int? ?? 0) / 100;
+      final salesAmount = PaymentService.koboToNaira(data['total_sales'] as int? ?? 0);
+      final avgTicket = PaymentService.koboToNaira((data['avg_ticket_value'] as num? ?? 0).toInt());
+      final overtime = PaymentService.koboToNaira(data['overtime_cost'] as int? ?? 0);
       
       standardKpis = [
         {'label': 'Attendance Rate', 'value': '${data['attendance_rate']}%'},
@@ -927,11 +929,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ];
       
       financialKpis = [
-        {'label': 'Sales Attributed (30d)', 'value': '₦${NumberFormat('#,##0').format(salesAmount)}'},
+        {'label': 'Sales Attributed (30d)', 'value': '₦${NumberFormat('#,##0.00').format(salesAmount)}'},
         {'label': 'Refunds/Discounts', 'value': 'N/A'}, // Not tracked separately yet
         {'label': 'Cash Variance', 'value': 'N/A'}, // Not tracked yet
-        {'label': 'Avg. Ticket Value', 'value': '₦${NumberFormat('#,##0').format(avgTicket)}'},
-        {'label': 'Payroll Cost (30d)', 'value': '₦${NumberFormat('#,##0').format(overtime)}'},
+        {'label': 'Avg. Ticket Value', 'value': '₦${NumberFormat('#,##0.00').format(avgTicket)}'},
+        {'label': 'Payroll Cost (30d)', 'value': '₦${NumberFormat('#,##0.00').format(overtime)}'},
         {'label': 'Payroll Status', 'value': data['payroll_status'] as String? ?? 'N/A'},
       ];
     } else {

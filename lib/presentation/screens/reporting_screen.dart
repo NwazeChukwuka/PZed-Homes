@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/reporting_service.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 class ReportingScreen extends StatefulWidget {
   const ReportingScreen({super.key});
@@ -418,7 +419,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           Text(
-            currencyFormatter.format(amount / 100),
+            currencyFormatter.format(PaymentService.koboToNaira(amount)),
             style: TextStyle(
               fontSize: isTotal ? 18 : 16,
               fontWeight: FontWeight.bold,
@@ -459,7 +460,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             (item) => ListTile(
               title: Text(item.category),
               trailing: Text(
-                currencyFormatter.format(item.amount / 100),
+                currencyFormatter.format(PaymentService.koboToNaira(item.amount)),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: color,

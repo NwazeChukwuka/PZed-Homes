@@ -468,6 +468,8 @@ class AppRouter {
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
+      case AppRole.vip_bartender:
+      case AppRole.outside_bartender:
       case AppRole.bartender:
         return location.startsWith('/kitchen') ||
                location.startsWith('/inventory') ||

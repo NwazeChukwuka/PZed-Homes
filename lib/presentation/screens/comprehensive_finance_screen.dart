@@ -76,6 +76,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     _loadFinancialData();
   }
 
+  String _formatKobo(num value) {
+    return PaymentService.koboToNaira(value.toInt()).toStringAsFixed(2);
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -247,7 +251,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     Expanded(child: Text(entry.key)),
                     Text('Items: $items'),
                     const SizedBox(width: 16),
-                    Text('₦$total', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('₦${_formatKobo(total)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ],
                 ),
               );
@@ -277,7 +281,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Total Income',
-                    '₦${_financialSummary['total_income']?.toStringAsFixed(0) ?? '0'}',
+                    '₦${_formatKobo(_financialSummary['total_income'] ?? 0)}',
                     Colors.green,
                     Icons.trending_up,
                   ),
@@ -285,7 +289,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Total Expenses',
-                    '₦${_financialSummary['total_expenses']?.toStringAsFixed(0) ?? '0'}',
+                    '₦${_formatKobo(_financialSummary['total_expenses'] ?? 0)}',
                     Colors.red,
                     Icons.trending_down,
                   ),
@@ -298,7 +302,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Available Cash',
-                    '₦${_financialSummary['available_cash']?.toStringAsFixed(0) ?? '0'}',
+                    '₦${_formatKobo(_financialSummary['available_cash'] ?? 0)}',
                     Colors.blue,
                     Icons.account_balance_wallet,
                   ),
@@ -306,7 +310,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Net Profit',
-                    '₦${_financialSummary['net_profit']?.toStringAsFixed(0) ?? '0'}',
+                    '₦${_formatKobo(_financialSummary['net_profit'] ?? 0)}',
                     Colors.orange,
                     Icons.attach_money,
                   ),
@@ -408,14 +412,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           Expanded(
             child: Text(
-              '₦${dept['revenue']?.toStringAsFixed(0)}',
+              '₦${_formatKobo(dept['revenue'] ?? 0)}',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
           ),
           Expanded(
             child: Text(
-              '₦${dept['profit']?.toStringAsFixed(0)}',
+              '₦${_formatKobo(dept['profit'] ?? 0)}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: performanceColor,
                 fontWeight: FontWeight.bold,
@@ -480,7 +484,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '₦${(value / 1000).toStringAsFixed(0)}k',
+          '₦${(PaymentService.koboToNaira(value.toInt()) / 1000).toStringAsFixed(0)}k',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 4),
@@ -583,7 +587,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             trailing: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('₦${p['total_cost']}'),
+                Text('₦${_formatKobo(p['total_cost'] ?? 0)}'),
                 const SizedBox(height: 4),
                 Text(p['date'] ?? ''),
               ],
@@ -615,7 +619,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text(income['description'] ?? 'Unknown'),
-                  subtitle: Text('₦${income['amount'] ?? 0} - ${income['department'] ?? ''}'),
+                  subtitle: Text('₦${_formatKobo(income['amount'] ?? 0)} - ${income['department'] ?? ''}'),
                   trailing: Text(income['date'] ?? ''),
                   leading: const Icon(Icons.trending_up, color: Colors.green),
                 ),
@@ -648,7 +652,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text(expense['description'] ?? 'Unknown'),
-                  subtitle: Text('₦${expense['amount'] ?? 0} - ${expense['payment_method'] ?? ''}'),
+                  subtitle: Text('₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}'),
                   trailing: Text(expense['date'] ?? ''),
                   leading: const Icon(Icons.trending_down, color: Colors.red),
                 ),
@@ -681,7 +685,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text(payroll['staff_name'] ?? 'Unknown'),
-                  subtitle: Text('₦${payroll['amount'] ?? 0} - ${payroll['month'] ?? ''}'),
+                  subtitle: Text('₦${_formatKobo(payroll['amount'] ?? 0)} - ${payroll['month'] ?? ''}'),
                   trailing: Chip(
                     label: Text(payroll['status'] ?? ''),
                     backgroundColor: payroll['status'] == 'paid' ? Colors.green : Colors.orange,
@@ -717,7 +721,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text('${deposit['bank_name']} - ${deposit['account_type']}'),
-                  subtitle: Text('₦${deposit['amount']} (Net: ₦${deposit['net_amount']})'),
+                  subtitle: Text('₦${_formatKobo(deposit['amount'] ?? 0)} (Net: ₦${_formatKobo(deposit['net_amount'] ?? 0)})'),
                   trailing: Text(deposit['date'] ?? ''),
                   leading: const Icon(Icons.account_balance, color: Colors.purple),
                 ),

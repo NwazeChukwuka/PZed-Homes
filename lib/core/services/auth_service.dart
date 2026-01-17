@@ -605,7 +605,7 @@ class AuthService with ChangeNotifier {
   }
 
   static AppRole? getSuggestedRoleForRoute(String route) {
-    if (route.contains('/inventory')) return AppRole.bartender;
+    if (route.contains('/inventory')) return null;
     if (route.contains('/housekeeping') || route.contains('/mini_mart')) return AppRole.receptionist;
     if (route.contains('/kitchen')) return AppRole.kitchen_staff;
     if (route.contains('/storekeeping')) return AppRole.storekeeper;
@@ -617,6 +617,10 @@ class AuthService with ChangeNotifier {
 
   static String getRoleDisplayName(AppRole role) {
     switch (role) {
+      case AppRole.vip_bartender:
+        return 'VIP Bar Bartender';
+      case AppRole.outside_bartender:
+        return 'Outside Bar Bartender';
       case AppRole.bartender:
         return 'Bartender';
       case AppRole.receptionist:

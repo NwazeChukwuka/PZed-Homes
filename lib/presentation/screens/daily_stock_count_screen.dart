@@ -85,7 +85,13 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     }
 
     final allowed = <String>{};
-    if (roles.contains(AppRole.bartender)) {
+    if (roles.contains(AppRole.vip_bartender)) {
+      allowed.add('VIP Bar');
+    }
+    if (roles.contains(AppRole.outside_bartender)) {
+      allowed.add('Outside Bar');
+    }
+    if (roles.contains(AppRole.bartender) && allowed.isEmpty) {
       allowed.addAll(['VIP Bar', 'Outside Bar']);
     }
     if (roles.contains(AppRole.kitchen_staff)) {
@@ -191,15 +197,18 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         
         if (qtyString.isNotEmpty) {
           final quantity = int.tryParse(qtyString) ?? 0;
-          transactions.add({
-            'stock_item_id': itemId,
-            'location_id': _selectedLocationId,
-            'staff_profile_id': staffId,
-            'transaction_type': _countType,
-            'quantity': quantity,
-            'previous_quantity': _previousCounts[itemId],
-            'notes': 'Daily stock count',
-          });
+          final previous = _previousCounts[itemId] ?? 0;
+          final delta = quantity - previous;
+          if (delta != 0) {
+            transactions.add({
+              'stock_item_id': itemId,
+              'location_id': _selectedLocationId,
+              'staff_profile_id': staffId,
+              'transaction_type': 'Adjustment',
+              'quantity': delta,
+              'notes': 'Daily stock count (${_countType.toLowerCase()})',
+            });
+          }
         }
       }
 

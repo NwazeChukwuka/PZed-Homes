@@ -193,6 +193,8 @@ class PermissionManager {
           AppRole.owner,
           AppRole.manager,
           AppRole.supervisor,
+          AppRole.vip_bartender,
+          AppRole.outside_bartender,
           AppRole.bartender,
           AppRole.kitchen_staff,
           AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
@@ -219,6 +221,8 @@ class PermissionManager {
           AppRole.manager,
           AppRole.supervisor,
           AppRole.kitchen_staff,
+          AppRole.vip_bartender,
+          AppRole.outside_bartender,
           AppRole.bartender,
           AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
         ].contains(userRole);
@@ -240,6 +244,8 @@ class PermissionManager {
           AppRole.manager,
           AppRole.supervisor,
           AppRole.storekeeper,
+          AppRole.vip_bartender,
+          AppRole.outside_bartender,
           AppRole.bartender,
           AppRole.kitchen_staff,
           AppRole.receptionist,

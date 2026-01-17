@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
+import '../../core/services/payment_service.dart';
 import '../../data/models/user.dart';
 
 /// Read-only store view for Owner/Manager to see what's available in the store
@@ -454,7 +455,10 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
                   child: _buildPurchaseDetail('Quantity', '${purchase['quantity']} ${purchase['unit'] ?? 'units'}'),
                 ),
                 Expanded(
-                  child: _buildPurchaseDetail('Amount', '₦${purchase['amount'] ?? 0}'),
+                  child: _buildPurchaseDetail(
+                    'Amount',
+                    '₦${PaymentService.koboToNaira(purchase['amount'] as int? ?? 0).toStringAsFixed(2)}',
+                  ),
                 ),
               ],
             ),

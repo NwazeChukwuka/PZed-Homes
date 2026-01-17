@@ -171,9 +171,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       }
 
       // Get or create stock item
-      // For now, we'll need to find existing stock item or create one
-      // This is simplified - you might want to add a stock item selection UI
-      final stockItems = await _dataService.getInventoryItems();
+      final stockItems = await _dataService.getStockItems();
       final existingItem = stockItems.firstWhere(
         (item) => item['name']?.toString().toLowerCase() == _itemNameController.text.trim().toLowerCase(),
         orElse: () => <String, dynamic>{},
@@ -183,23 +181,12 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       if (existingItem.isNotEmpty) {
         stockItemId = existingItem['id']?.toString();
       } else {
-        // Create new inventory item if it doesn't exist
-        await _dataService.addInventoryItem({
-          'name': _itemNameController.text.trim(),
-          'description': _notesController.text.trim(),
-          'current_stock': 0,
-          'unit': _unitController.text.trim(),
-          'vip_bar_price': 0,
-          'outside_bar_price': 0,
-          'category': 'General',
-          'department': 'all',
-        });
-        // Reload to get the new item ID
-        final updatedItems = await _dataService.getInventoryItems();
-        final newItem = updatedItems.firstWhere(
-          (item) => item['name']?.toString().toLowerCase() == _itemNameController.text.trim().toLowerCase(),
+        // Create new stock item if it doesn't exist
+        stockItemId = await _dataService.addStockItem(
+          name: _itemNameController.text.trim(),
+          description: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+          unit: _unitController.text.trim(),
         );
-        stockItemId = newItem['id']?.toString();
       }
 
       if (stockItemId == null) {

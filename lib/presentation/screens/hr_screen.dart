@@ -9,6 +9,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/config/app_config.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1309,9 +1310,9 @@ class _HrScreenState extends State<HrScreen>
           );
         }
 
-        final totalAmount = staffTransactions.fold<double>(
+        final totalAmountKobo = staffTransactions.fold<int>(
           0,
-          (sum, t) => sum + ((t['total_amount'] as num?)?.toDouble() ?? 0),
+          (sum, t) => sum + ((t['total_amount'] as num?)?.toInt() ?? 0),
         );
 
         return Column(
@@ -1331,7 +1332,7 @@ class _HrScreenState extends State<HrScreen>
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   Text(
-                    'Total: ₦${NumberFormat('#,##0.00').format(totalAmount)}',
+                    'Total: ₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalAmountKobo))}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.green[700],
@@ -1362,7 +1363,7 @@ class _HrScreenState extends State<HrScreen>
                   style: const TextStyle(fontSize: 11),
                 ),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira((transaction['total_amount'] as num?)?.abs().toInt() ?? 0))}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -1408,7 +1409,7 @@ class _HrScreenState extends State<HrScreen>
                   ),
                 ),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira((transaction['total_amount'] as num?)?.abs().toInt() ?? 0))}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );
@@ -1867,8 +1868,12 @@ class _HrScreenState extends State<HrScreen>
                         child: Text('Receptionist'),
                       ),
                       DropdownMenuItem(
-                        value: 'bartender',
-                        child: Text('Bartender'),
+                        value: 'vip_bartender',
+                        child: Text('VIP Bar Bartender'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'outside_bartender',
+                        child: Text('Outside Bar Bartender'),
                       ),
                       DropdownMenuItem(
                         value: 'kitchen_staff',

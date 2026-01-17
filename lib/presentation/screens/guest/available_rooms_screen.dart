@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_booking_screen.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 
 class AvailableRoomsScreen extends StatefulWidget {
   const AvailableRoomsScreen({super.key});
@@ -181,8 +182,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
         final available = totalRooms - booked;
 
         if (available > 0) {
-          // Convert price from kobo to naira (divide by 100)
-          // Supabase INT8 returns as num, so handle both int and num types
           final priceValue = type['price'];
           int priceInKobo = 0;
           if (priceValue is int) {
@@ -192,16 +191,12 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
           } else {
             priceInKobo = int.tryParse('$priceValue') ?? 0;
           }
-          
-          // Convert kobo to naira (divide by 100)
-          final priceInNaira = priceInKobo ~/ 100;
-          
-          debugPrint('Room type: $typeName, Price in kobo: $priceInKobo, Price in naira: $priceInNaira');
-          
+
           result.add({
             'id': typeId,
             'type': typeName,
-            'price': priceInNaira, // Store in naira for frontend display
+            'price': priceInKobo, // Store in kobo for consistent calculations
+            'price_kobo': priceInKobo,
             'description': type['description'] ?? '',
             'image_url': type['image_url'],
             'available_count': available,
@@ -556,19 +551,14 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
               itemCount: availableRooms.length,
               itemBuilder: (context, index) {
                 final roomType = availableRooms[index];
-                // Price should already be in naira (converted in _fetchAvailableRooms)
-                // But add safety check: if price > 100000, it's likely still in kobo, so divide by 100
-                var price = (roomType['price'] is int) 
-                    ? roomType['price'] as int 
-                    : (roomType['price'] is num)
-                        ? (roomType['price'] as num).toInt()
-                        : int.tryParse('${roomType['price']}') ?? 0;
-                
-                // Safety check: if price seems too high (likely still in kobo), convert it
-                if (price > 100000) {
-                  price = price ~/ 100;
-                  debugPrint('Price was too high, converted from kobo: ${price * 100} -> $price');
-                }
+                final priceKobo = (roomType['price_kobo'] is int)
+                    ? roomType['price_kobo'] as int
+                    : (roomType['price'] is int)
+                        ? roomType['price'] as int
+                        : (roomType['price'] is num)
+                            ? (roomType['price'] as num).toInt()
+                            : int.tryParse('${roomType['price']}') ?? 0;
+                final priceNaira = PaymentService.koboToNaira(priceKobo);
                 final imageUrl = (roomType['image_url'] as String?) ?? '';
                 final availableCount = roomType['available_count'] as int? ?? 0;
 
@@ -746,7 +736,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                             children: [
                                               Flexible(
                                                 child: Text(
-                                                  currencyFormatter.format(price),
+                                                  currencyFormatter.format(priceNaira),
                                                   style: const TextStyle(
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.bold,
@@ -791,7 +781,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Text(
-                                                currencyFormatter.format(price),
+                                                currencyFormatter.format(priceNaira),
                                                 style: TextStyle(
                                                   fontSize: ResponsiveHelper.getResponsiveFontSize(
                                                     context,
