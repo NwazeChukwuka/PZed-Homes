@@ -27,6 +27,7 @@ DROP FUNCTION IF EXISTS public.assign_room_to_booking(UUID, UUID);
 DROP FUNCTION IF EXISTS public.get_available_room_types(text, text);
 DROP FUNCTION IF EXISTS public.confirm_purchase_order(uuid, uuid);
 DROP FUNCTION IF EXISTS public.perform_stock_transfer(uuid, uuid, uuid, int, uuid);
+DROP FUNCTION IF EXISTS public.create_stock_transfer(uuid, uuid, uuid, int, uuid, uuid, text);
 DROP FUNCTION IF EXISTS public.has_delegated_permission(TEXT);
 DROP FUNCTION IF EXISTS public.update_updated_at_column() CASCADE;
 DROP FUNCTION IF EXISTS public.create_public_profile_for_new_user() CASCADE;
@@ -104,6 +105,7 @@ DROP TABLE IF EXISTS public.expenses CASCADE;
 DROP TABLE IF EXISTS public.purchase_order_items CASCADE;
 DROP TABLE IF EXISTS public.purchase_orders CASCADE;
 DROP TABLE IF EXISTS public.department_transfers CASCADE;
+DROP TABLE IF EXISTS public.stock_transfers CASCADE;
 DROP TABLE IF EXISTS public.stock_transactions CASCADE;
 DROP TABLE IF EXISTS public.inventory_items CASCADE;
 DROP TABLE IF EXISTS public.stock_items CASCADE;
@@ -127,7 +129,7 @@ CREATE TABLE public.profiles (
     full_name TEXT,
     phone TEXT,
     email TEXT, -- Optional, often helpful to mirror here
-    roles TEXT[] DEFAULT '{guest}', -- Array of roles: 'owner', 'manager', 'receptionist', etc.
+    roles TEXT[] DEFAULT '{guest}', -- Array of roles: 'owner', 'manager', 'receptionist', 'vip_bartender', 'outside_bartender', etc.
     status TEXT DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive', 'Resigned', 'Terminated', 'Suspended')),
     department TEXT, -- e.g., 'reception', 'vip_bar', 'outside_bar', 'restaurant', 'laundry', 'mini_mart', 'storekeeping', 'purchasing', 'general'
     avatar_url TEXT,
@@ -161,12 +163,36 @@ ON public.profiles FOR UPDATE USING (
 CREATE POLICY "Users can insert their own profile" 
 ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Owner/Manager can create staff profiles (for HR screen)
+-- Owner/HR/Manager can create staff profiles (for HR screen)
 -- Updated to use helper functions to prevent infinite recursion
-CREATE POLICY "Owner can create staff profiles" 
+CREATE POLICY "Owner HR and Manager can create staff profiles" 
 ON public.profiles FOR INSERT WITH CHECK (
   is_user_active(auth.uid())
-  AND user_has_role(auth.uid(), 'owner')
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'hr')
+    OR user_has_role(auth.uid(), 'manager')
+  )
+);
+
+-- Owner/HR/Manager can update staff profiles
+CREATE POLICY "Owner HR and Manager can update staff profiles" 
+ON public.profiles FOR UPDATE 
+USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'hr')
+    OR user_has_role(auth.uid(), 'manager')
+  )
+)
+WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'hr')
+    OR user_has_role(auth.uid(), 'manager')
+  )
 );
 
 -- Auth Trigger (Automatically create profile on Sign Up)
@@ -357,9 +383,58 @@ CREATE TABLE public.inventory_items (
 ALTER TABLE public.stock_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory_items ENABLE ROW LEVEL SECURITY;
 
--- Basic Read Policies
-CREATE POLICY "Allow read access" ON public.stock_items FOR SELECT USING (true);
-CREATE POLICY "Allow read access" ON public.inventory_items FOR SELECT USING (true);
+-- Policies
+-- Stock items are visible to management/store staff and to departments that hold stock at their location
+CREATE POLICY "Active staff view stock items" ON public.stock_items FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'supervisor')
+    OR user_has_role(auth.uid(), 'storekeeper')
+    OR user_has_role(auth.uid(), 'purchaser')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR EXISTS (
+      SELECT 1
+      FROM public.stock_transactions st
+      JOIN public.locations l ON l.id = st.location_id
+      WHERE st.stock_item_id = stock_items.id
+      AND (
+        (l.name = 'VIP Bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        OR (l.name = 'Outside Bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+        OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+        OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+        OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+      )
+    )
+  )
+);
+
+-- Management can manage stock items; purchasers can create new ones
+CREATE POLICY "Management can manage stock items" ON public.stock_items FOR ALL USING (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager'))
+);
+CREATE POLICY "Purchaser can create stock items" ON public.stock_items FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND user_has_role(auth.uid(), 'purchaser')
+);
+
+-- Inventory items (bar items) are visible only to bar staff and management
+CREATE POLICY "Bar staff view inventory items" ON public.inventory_items FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'manager')
+    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+  )
+);
+CREATE POLICY "Management can manage inventory items" ON public.inventory_items FOR ALL USING (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager'))
+);
 
 -- ==============================================
 -- 5. MENU ITEMS (Food, Drinks, AND Room Prices)
@@ -392,7 +467,7 @@ CREATE POLICY "Allow read access" ON public.menu_items FOR SELECT USING (true);
 CREATE TABLE public.bookings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    guest_profile_id UUID REFERENCES public.profiles(id) NOT NULL,
+    guest_profile_id UUID REFERENCES public.profiles(id),
     room_id UUID REFERENCES public.rooms(id), -- NULL until receptionist assigns room
     requested_room_type TEXT, -- Room type requested by guest (e.g., 'Standard', 'Deluxe')
     check_in_date TIMESTAMPTZ NOT NULL,
@@ -400,6 +475,15 @@ CREATE TABLE public.bookings (
     status TEXT DEFAULT 'Pending Check-in' CHECK (status IN ('Pending Check-in', 'Checked-in', 'Checked-out', 'Cancelled')),
     total_amount INT8 DEFAULT 0, -- Stored in Kobo/Cents
     paid_amount INT8 DEFAULT 0, -- Stored in Kobo/Cents
+    payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'transfer', 'credit'
+    guest_name TEXT,
+    guest_email TEXT,
+    guest_phone TEXT,
+    discount_applied BOOLEAN DEFAULT false,
+    discount_amount INT8 DEFAULT 0,
+    discount_percentage NUMERIC(5,2) DEFAULT 0,
+    discount_reason TEXT,
+    discount_applied_by UUID REFERENCES public.profiles(id),
     extra_charges JSONB DEFAULT '[]'::jsonb, -- Stores POS orders: [{item: "Coke", price: 500, qty: 2}]
     notes TEXT,
     created_by UUID REFERENCES public.profiles(id),
@@ -460,7 +544,7 @@ CREATE TABLE public.stock_transactions (
     stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
     location_id UUID REFERENCES public.locations(id) NOT NULL,
     staff_profile_id UUID REFERENCES public.profiles(id) NOT NULL,
-    transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
+    transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage', 'Adjustment'
     quantity INT NOT NULL, -- Positive or Negative
     notes TEXT
 );
@@ -468,12 +552,28 @@ CREATE TABLE public.stock_transactions (
 ALTER TABLE public.stock_transactions ENABLE ROW LEVEL SECURITY;
 
 -- Policies
--- Only active staff can view stock (resigned/terminated staff are blocked)
+-- Only active staff can view stock for their locations (management can view all)
 CREATE POLICY "Active staff view stock" ON public.stock_transactions FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'supervisor')
+    OR user_has_role(auth.uid(), 'storekeeper')
+    OR user_has_role(auth.uid(), 'purchaser')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR location_id IN (
+      SELECT l.id
+      FROM public.locations l
+      WHERE (
+        (l.name = 'VIP Bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        OR (l.name = 'Outside Bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+        OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+        OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+        OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+      )
+    )
   )
 );
 CREATE POLICY "Active staff can insert stock transactions" ON public.stock_transactions FOR INSERT WITH CHECK (
@@ -481,12 +581,105 @@ CREATE POLICY "Active staff can insert stock transactions" ON public.stock_trans
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
-    AND ('storekeeper' = ANY(p.roles) OR 'purchaser' = ANY(p.roles))
+    AND (
+      'storekeeper' = ANY(p.roles) OR
+      'purchaser' = ANY(p.roles) OR
+      'vip_bartender' = ANY(p.roles) OR
+      'outside_bartender' = ANY(p.roles) OR
+      'bartender' = ANY(p.roles) OR
+      'kitchen_staff' = ANY(p.roles) OR
+      'receptionist' = ANY(p.roles) OR
+      'manager' = ANY(p.roles) OR
+      'owner' = ANY(p.roles)
+    )
   )
 );
 
 -- ==============================================
--- 8. DEPARTMENT TRANSFERS (Kitchen to Bar Workflow)
+-- 8. STOCK TRANSFERS (Main Store -> Departments)
+-- ==============================================
+CREATE TABLE public.stock_transfers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
+    source_location_id UUID REFERENCES public.locations(id) NOT NULL,
+    destination_location_id UUID REFERENCES public.locations(id) NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    issued_by_id UUID REFERENCES public.profiles(id) NOT NULL,
+    received_by_id UUID REFERENCES public.profiles(id) NOT NULL,
+    notes TEXT,
+    status TEXT DEFAULT 'Confirmed' CHECK (status IN ('Pending', 'Confirmed', 'Cancelled'))
+);
+
+ALTER TABLE public.stock_transfers ENABLE ROW LEVEL SECURITY;
+
+-- Allow active staff to view transfers
+CREATE POLICY "Active staff view stock transfers" ON public.stock_transfers FOR SELECT USING (
+  is_user_active(auth.uid())
+);
+
+-- Allow storekeeper/manager/owner to create transfers
+CREATE POLICY "Storekeeper can create stock transfers" ON public.stock_transfers FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'storekeeper') OR user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner'))
+);
+
+-- Function to create transfer + write ledger entries
+CREATE OR REPLACE FUNCTION public.create_stock_transfer(
+    p_stock_item_id uuid,
+    p_source_location_id uuid,
+    p_destination_location_id uuid,
+    p_quantity int,
+    p_issued_by_id uuid,
+    p_received_by_id uuid,
+    p_notes text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_transfer_id uuid;
+BEGIN
+    INSERT INTO public.stock_transfers (
+        stock_item_id,
+        source_location_id,
+        destination_location_id,
+        quantity,
+        issued_by_id,
+        received_by_id,
+        notes,
+        status
+    ) VALUES (
+        p_stock_item_id,
+        p_source_location_id,
+        p_destination_location_id,
+        p_quantity,
+        p_issued_by_id,
+        p_received_by_id,
+        p_notes,
+        'Confirmed'
+    ) RETURNING id INTO v_transfer_id;
+
+    -- Ledger entries (out/in)
+    PERFORM public.perform_stock_transfer(
+        p_stock_item_id,
+        p_source_location_id,
+        p_destination_location_id,
+        p_quantity,
+        p_issued_by_id
+    );
+
+    RETURN v_transfer_id;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_source ON public.stock_transfers(source_location_id);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_destination ON public.stock_transfers(destination_location_id);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_item ON public.stock_transfers(stock_item_id);
+
+-- ==============================================
+-- 9. DEPARTMENT TRANSFERS (Kitchen to Bar Workflow)
 -- ==============================================
 CREATE TABLE public.department_transfers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -556,11 +749,87 @@ CREATE TABLE public.purchase_order_items (
 ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.purchase_order_items ENABLE ROW LEVEL SECURITY;
 
+-- Policies (Purchaser -> Storekeeper workflow)
+CREATE POLICY "Purchaser can create purchase orders" ON public.purchase_orders FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    (user_has_role(auth.uid(), 'purchaser') AND purchaser_id = auth.uid())
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+);
+
+CREATE POLICY "Purchaser/storekeeper can view purchase orders" ON public.purchase_orders FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'storekeeper')
+    OR (user_has_role(auth.uid(), 'purchaser') AND purchaser_id = auth.uid())
+  )
+);
+
+CREATE POLICY "Storekeeper can update purchase orders" ON public.purchase_orders FOR UPDATE USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'storekeeper')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+);
+
+CREATE POLICY "Purchaser can add purchase order items" ON public.purchase_order_items FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR (
+      user_has_role(auth.uid(), 'purchaser')
+      AND EXISTS (
+        SELECT 1 FROM public.purchase_orders po
+        WHERE po.id = purchase_order_items.purchase_order_id
+        AND po.purchaser_id = auth.uid()
+      )
+    )
+  )
+);
+
+CREATE POLICY "Purchaser/storekeeper can view purchase order items" ON public.purchase_order_items FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'storekeeper')
+    OR EXISTS (
+      SELECT 1 FROM public.purchase_orders po
+      WHERE po.id = purchase_order_items.purchase_order_id
+      AND po.purchaser_id = auth.uid()
+    )
+  )
+);
+
 -- Function to Confirm Purchase Order (Updates Status & Adds Stock)
 CREATE OR REPLACE FUNCTION public.confirm_purchase_order(order_id uuid, storekeeper_id uuid)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
 BEGIN
-  UPDATE public.purchase_orders SET status = 'Confirmed', storekeeper_id = storekeeper_id WHERE id = order_id;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      user_has_role(auth.uid(), 'storekeeper')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+    )
+  ) THEN
+    RAISE EXCEPTION 'Only storekeeper or management can confirm purchase orders';
+  END IF;
+
+  UPDATE public.purchase_orders
+  SET status = 'Confirmed', storekeeper_id = confirm_purchase_order.storekeeper_id
+  WHERE id = order_id;
   
   INSERT INTO public.stock_transactions (stock_item_id, location_id, staff_profile_id, transaction_type, quantity, notes)
   SELECT poi.stock_item_id, (SELECT id FROM public.locations WHERE name = 'Main Storeroom' LIMIT 1), storekeeper_id, 'Purchase', poi.quantity, 'PO Confirmed'
@@ -903,8 +1172,8 @@ USING (
       'owner' = ANY(p.roles) OR 
       'accountant' = ANY(p.roles) OR
       (department = 'restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
-      (department = 'vip_bar' AND 'bartender' = ANY(p.roles)) OR
-      (department = 'outside_bar' AND 'bartender' = ANY(p.roles)) OR
+      (department = 'vip_bar' AND ('vip_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
+      (department = 'outside_bar' AND ('outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
       (department = 'mini_mart' AND 'receptionist' = ANY(p.roles)) OR
       (department = 'reception' AND 'receptionist' = ANY(p.roles)) OR
       (department = 'laundry' AND 'laundry_attendant' = ANY(p.roles)) OR
@@ -930,6 +1199,49 @@ CREATE POLICY "Management can update sales" ON public.department_sales FOR UPDAT
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+-- Department staff can insert/update their own department sales
+CREATE POLICY "Department staff can insert sales" ON public.department_sales FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
+    OR (department = 'reception' AND user_has_role(auth.uid(), 'receptionist'))
+    OR (department = 'laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+    OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
+    OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
+    OR (
+      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+      AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
+    )
+  )
+);
+
+CREATE POLICY "Department staff can update sales" ON public.department_sales FOR UPDATE USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
+    OR (department = 'reception' AND user_has_role(auth.uid(), 'receptionist'))
+    OR (department = 'laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+    OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
+    OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
+    OR (
+      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+      AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
+    )
   )
 );
 
@@ -963,6 +1275,8 @@ USING (
     AND p.status = 'Active'
     AND (
       bartender_id = auth.uid() OR
+      'vip_bartender' = ANY(p.roles) OR
+      'outside_bartender' = ANY(p.roles) OR
       'bartender' = ANY(p.roles) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
@@ -976,7 +1290,7 @@ CREATE POLICY "Bartenders can insert shifts" ON public.bartender_shifts FOR INSE
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      (bartender_id = auth.uid() AND 'bartender' = ANY(p.roles)) OR
+      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
     )
@@ -989,7 +1303,7 @@ CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDA
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      (bartender_id = auth.uid() AND 'bartender' = ANY(p.roles)) OR
+      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
     )
@@ -1615,13 +1929,15 @@ BEGIN
     FROM public.stock_transactions 
     WHERE stock_transactions.stock_item_id = calculate_stock_level.item_id 
     AND stock_transactions.location_id = calculate_stock_level.location_id
-    AND transaction_type IN ('Purchase', 'Transfer_In');
+    AND transaction_type IN ('Purchase', 'Transfer_In', 'Adjustment')
+    AND quantity > 0;
     
     SELECT COALESCE(SUM(ABS(quantity)), 0) INTO total_out
     FROM public.stock_transactions 
     WHERE stock_transactions.stock_item_id = calculate_stock_level.item_id 
     AND stock_transactions.location_id = calculate_stock_level.location_id
-    AND transaction_type IN ('Sale', 'Transfer_Out', 'Wastage');
+    AND transaction_type IN ('Sale', 'Transfer_Out', 'Wastage', 'Adjustment')
+    AND quantity < 0;
     
     RETURN total_in - total_out;
 END;
@@ -1659,7 +1975,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to create staff profile (for HR screen - Owner only)
+-- Function to create staff profile (for HR screen - Owner/HR/Manager)
 -- Note: This requires the auth user to be created first via Supabase Admin API
 -- Then this function updates the profile with staff role
 CREATE OR REPLACE FUNCTION public.create_staff_profile(
@@ -1676,14 +1992,14 @@ AS $$
 DECLARE
     v_user_id UUID;
 BEGIN
-    -- Verify caller is owner
+    -- Verify caller is owner, hr, or manager
     IF NOT EXISTS (
         SELECT 1 FROM public.profiles 
         WHERE id = auth.uid() 
         AND status = 'Active'
-        AND 'owner' = ANY(roles)
+        AND ('owner' = ANY(roles) OR 'hr' = ANY(roles) OR 'manager' = ANY(roles))
     ) THEN
-        RAISE EXCEPTION 'Only owner can create staff profiles';
+        RAISE EXCEPTION 'Only owner, HR manager, or manager can create staff profiles';
     END IF;
 
     -- Get the user ID (user must be created via Admin API first)
