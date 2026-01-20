@@ -18,14 +18,23 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
   final _dataService = DataService();
-  final _supabase = Supabase.instance.client;
+  SupabaseClient _requireSupabase() {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   final List<Map<String, dynamic>> _posts = [];
+  final List<Map<String, dynamic>> _staffProfiles = [];
+  String? _selectedRecipientId;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadPosts();
+    _loadStaffProfiles();
   }
 
   Future<void> _loadPosts() async {
@@ -76,6 +85,25 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
     }
   }
 
+  Future<void> _loadStaffProfiles() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final isManagement = authService.currentUser?.roles.any(
+            (role) => role == AppRole.owner || role == AppRole.manager,
+          ) ??
+          false;
+      if (!isManagement) return;
+      final profiles = await _dataService.getStaffProfiles();
+      setState(() {
+        _staffProfiles
+          ..clear()
+          ..addAll(profiles);
+      });
+    } catch (_) {
+      // Ignore errors loading staff list
+    }
+  }
+
   Future<void> _showCreatePostDialog() async {
     return showDialog<void>(
       context: context,
@@ -87,6 +115,29 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (_staffProfiles.isNotEmpty)
+                  DropdownButtonFormField<String>(
+                    value: _selectedRecipientId,
+                    decoration: const InputDecoration(
+                      labelText: 'Send To (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('All Staff'),
+                      ),
+                      ..._staffProfiles.map((p) {
+                        final name = p['full_name'] ?? p['email'] ?? 'Staff';
+                        return DropdownMenuItem<String>(
+                          value: p['id'] as String,
+                          child: Text(name),
+                        );
+                      }).toList(),
+                    ],
+                    onChanged: (value) => setState(() => _selectedRecipientId = value),
+                  ),
+                if (_staffProfiles.isNotEmpty) const SizedBox(height: 16),
                 TextField(
                   controller: _titleController,
                   decoration: const InputDecoration(
@@ -140,7 +191,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                   }
 
                   // Get user profile ID
-                  final profileResponse = await _supabase
+                  final profileResponse = await _requireSupabase()
                       .from('profiles')
                       .select('id')
                       .eq('email', currentUser.email)
@@ -158,10 +209,13 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     'content': _contentController.text.trim(),
                     'department': currentUser.role.name,
                     'is_announcement': true,
+                    if (_selectedRecipientId != null)
+                      'target_user_ids': [_selectedRecipientId],
                   });
 
                   _titleController.clear();
                   _contentController.clear();
+                  _selectedRecipientId = null;
                   
                   if (mounted) {
                     Navigator.of(context).pop();

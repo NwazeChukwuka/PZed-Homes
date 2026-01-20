@@ -29,12 +29,14 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   
   // Transfers
   List<Map<String, dynamic>> _shiftTransfers = [];
+  List<Map<String, dynamic>> _pendingDirectSupplies = [];
   
   // Closing stock
   List<Map<String, dynamic>> _closingStockItems = [];
   
   // Available items for the bar
   List<Map<String, dynamic>> _availableItems = [];
+  List<Map<String, dynamic>> _locations = [];
   
   bool _isLoading = true;
 
@@ -72,9 +74,25 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   Future<void> _loadShiftData() async {
     setState(() => _isLoading = true);
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final staffId = authService.currentUser?.id ?? 'unknown';
+      final isManagement = authService.currentUser?.roles.any(
+            (role) => role == AppRole.owner || role == AppRole.manager,
+          ) ??
+          false;
       // Check for active shift
-      final activeShift = await _dataService.getActiveShift(_selectedBar);
+      final activeShift = await _dataService.getActiveShift(
+        bartenderId: staffId,
+        bar: _selectedBar,
+      );
       final items = await _dataService.getInventoryItems();
+      final locations = await _dataService.getLocations();
+      final pendingSupplies = isManagement
+          ? await _dataService.getDirectSupplyRequests(
+              status: 'pending',
+              bar: _selectedBar,
+            )
+          : <Map<String, dynamic>>[];
       
       setState(() {
         _hasActiveShift = activeShift != null;
@@ -82,6 +100,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
         _availableItems = items.where((item) => 
           item['category'] == 'Beverages' || item['category'] == 'Food Items'
         ).toList();
+        _locations = locations;
+        _pendingDirectSupplies = pendingSupplies;
         
         if (_hasActiveShift) {
           _openingStockItems = List<Map<String, dynamic>>.from(_currentShift!['opening_stock'] ?? []);
@@ -120,8 +140,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
       final staffId = authService.currentUser?.id ?? 'unknown';
       
       await _dataService.startShift(
+        bartenderId: staffId,
         bar: _selectedBar,
-        staffId: staffId,
         openingStock: _openingStockItems,
       );
       
@@ -154,9 +174,13 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
     }
 
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final staffId = authService.currentUser?.id ?? 'unknown';
       await _dataService.endShift(
         shiftId: _currentShift!['id'],
         closingStock: _closingStockItems,
+        transfers: _shiftTransfers,
+        closedBy: staffId,
       );
       
       setState(() {
@@ -428,6 +452,11 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   }
 
   Widget _buildTransfersTab() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles.any(
+          (role) => role == AppRole.owner || role == AppRole.manager,
+        ) ??
+        false;
     return Column(
       children: [
         if (_hasActiveShift)
@@ -445,6 +474,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             ),
           ),
         
+        if (isManagement) _buildPendingDirectSupplies(),
         Expanded(
           child: _shiftTransfers.isEmpty
               ? Center(
@@ -569,6 +599,14 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   }
 
   Widget _buildTransferCard(Map<String, dynamic> transfer, int index) {
+    final status = transfer['status'] as String?;
+    final statusLabel = status == null
+        ? ''
+        : status == 'approved'
+            ? ' (Approved)'
+            : status == 'denied'
+                ? ' (Denied)'
+                : ' (Pending)';
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
@@ -578,7 +616,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
         ),
         title: Text(transfer['item_name'] ?? 'Unknown Item'),
         subtitle: Text(
-          '${transfer['quantity']} ${transfer['unit'] ?? 'units'} from ${transfer['source'] ?? 'Unknown'}',
+          '${transfer['quantity']} ${transfer['unit'] ?? 'units'} from ${_displayTransferSource(transfer['source'] as String?)}$statusLabel',
         ),
         trailing: Text(
           _formatTime(transfer['time']),
@@ -686,6 +724,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                   DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
                   DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
                   DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
+                  DropdownMenuItem(value: 'direct_supply', child: Text('Direct Supply (Management)')),
                 ],
                 onChanged: (value) => setDialogState(() => source = value!),
               ),
@@ -698,20 +737,110 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (selectedItem != null && quantityController.text.isNotEmpty) {
-                final item = _availableItems.firstWhere((i) => i['id'].toString() == selectedItem);
-                setState(() {
-                  _shiftTransfers.add({
-                    'item_id': item['id'],
-                    'item_name': item['name'],
-                    'quantity': double.parse(quantityController.text),
-                    'unit': item['unit'],
-                    'source': source,
-                    'time': DateTime.now().toIso8601String(),
+                try {
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  final staffId = authService.currentUser?.id ?? 'unknown';
+                  final item = _availableItems.firstWhere((i) => i['id'].toString() == selectedItem);
+                  final qty = int.tryParse(quantityController.text.trim()) ?? 0;
+                  if (qty <= 0) {
+                    throw Exception('Enter a valid quantity');
+                  }
+
+                  final stockItem = await _dataService.supabase
+                      .from('stock_items')
+                      .select('id')
+                      .eq('name', item['name'] as String)
+                      .maybeSingle();
+                  if (stockItem == null) {
+                    throw Exception('Stock item not found for ${item['name']}. Create it first.');
+                  }
+
+                  final destinationLocationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+                  final destinationLocationId = _getLocationIdByName(destinationLocationName);
+                  if (destinationLocationId == null) {
+                    throw Exception('Destination location not found. Please check locations setup.');
+                  }
+
+                  if (source == 'direct_supply') {
+                    await _dataService.createDirectSupplyRequest(
+                      stockItemId: stockItem['id'] as String,
+                      bar: _selectedBar ?? 'vip_bar',
+                      quantity: qty,
+                      requestedBy: staffId,
+                      notes: 'Direct supply request',
+                    );
+                  } else {
+                    final sourceLocationName = _mapTransferSourceToLocation(source);
+                    if (sourceLocationName == destinationLocationName) {
+                      throw Exception('Source and destination cannot be the same.');
+                    }
+
+                  // If source is another bar, ensure it has enough stock to transfer (ledger-based)
+                  if (source == 'vip_bar' || source == 'outside_bar') {
+                    final sourceLevels = await _dataService.getStockLevels(
+                      locationName: sourceLocationName,
+                    );
+                    final sourceItem = sourceLevels.firstWhere(
+                      (row) => (row['name'] as String?) == item['name'],
+                      orElse: () => <String, dynamic>{},
+                    );
+                    final sourceCurrentStock = (sourceItem['current_stock'] as num?)?.toInt() ?? 0;
+                    if (sourceCurrentStock < qty) {
+                      throw Exception(
+                        'Insufficient stock in ${sourceLocationName}. Available: $sourceCurrentStock',
+                      );
+                    }
+                  }
+
+                    final sourceLocationId = _getLocationIdByName(sourceLocationName);
+                    if (sourceLocationId == null) {
+                      throw Exception('Source location not found for transfer. Please check locations setup.');
+                    }
+
+                    await _dataService.createStockTransfer(
+                      stockItemId: stockItem['id'] as String,
+                      sourceLocationId: sourceLocationId,
+                      destinationLocationId: destinationLocationId,
+                      quantity: qty,
+                      issuedById: staffId,
+                      receivedById: staffId,
+                      notes: 'Bar transfer from $sourceLocationName',
+                    );
+
+                  }
+
+                  // Stock ledger is the source of truth; no direct inventory_items update
+
+                  setState(() {
+                    _shiftTransfers.add({
+                      'item_id': item['id'],
+                      'item_name': item['name'],
+                      'quantity': qty,
+                      'unit': item['unit'],
+                      'source': source,
+                      if (source == 'direct_supply') 'status': 'pending',
+                      'time': DateTime.now().toIso8601String(),
+                    });
                   });
-                });
-                Navigator.pop(context);
+                  if (_hasActiveShift && _currentShift != null) {
+                    await _dataService.updateShiftTransfers(
+                      shiftId: _currentShift!['id'],
+                      transfers: _shiftTransfers,
+                    );
+                  }
+                  await _loadShiftData();
+                  Navigator.pop(context);
+                } catch (e) {
+                  if (mounted) {
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: 'Failed to record transfer. Please try again.',
+                    );
+                  }
+                }
               }
             },
             child: const Text('Record'),
@@ -719,6 +848,122 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
         ],
       ),
     );
+  }
+
+  String _mapTransferSourceToLocation(String source) {
+    switch (source) {
+      case 'general_store':
+        return 'Main Storeroom';
+      case 'vip_bar':
+        return 'VIP Bar';
+      case 'outside_bar':
+        return 'Outside Bar';
+      case 'kitchen':
+        return 'Kitchen';
+      case 'direct_supply':
+        return 'Management';
+      default:
+        return 'Main Storeroom';
+    }
+  }
+
+  String _displayTransferSource(String? source) {
+    switch (source) {
+      case 'vip_bar':
+        return 'VIP Bar';
+      case 'outside_bar':
+        return 'Outside Bar';
+      case 'general_store':
+        return 'General Store';
+      case 'kitchen':
+        return 'Kitchen';
+      case 'direct_supply':
+        return 'Direct Supply (Management)';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Widget _buildPendingDirectSupplies() {
+    if (_pendingDirectSupplies.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Pending Direct Supply Approvals',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ..._pendingDirectSupplies.map((req) {
+                final itemName = (req['stock_items']?['name'] as String?) ?? 'Unknown Item';
+                final qty = req['quantity']?.toString() ?? '0';
+                final requester = (req['requested_by_profile']?['full_name'] as String?) ?? 'Unknown';
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text('$itemName x$qty'),
+                    subtitle: Text('Requested by $requester'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.check_circle, color: Colors.green),
+                          onPressed: () => _handleApproveDirectSupply(req['id'] as String, true),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.cancel, color: Colors.red),
+                          onPressed: () => _handleApproveDirectSupply(req['id'] as String, false),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleApproveDirectSupply(String requestId, bool approve) async {
+    try {
+      await _dataService.approveDirectSupplyRequest(
+        requestId: requestId,
+        approve: approve,
+        notes: approve ? 'Approved' : 'Denied',
+      );
+      await _loadShiftData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          approve ? 'Direct supply approved' : 'Direct supply denied',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update direct supply request.',
+        );
+      }
+    }
+  }
+
+  String? _getLocationIdByName(String name) {
+    final match = _locations.firstWhere(
+      (l) => (l['name'] as String?)?.toLowerCase() == name.toLowerCase(),
+      orElse: () => <String, dynamic>{},
+    );
+    return match.isNotEmpty ? match['id'] as String? : null;
   }
 
   void _showAddClosingStockDialog() {

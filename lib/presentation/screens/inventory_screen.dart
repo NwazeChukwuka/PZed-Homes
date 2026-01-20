@@ -51,6 +51,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   final _customerPhoneController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit sales
   String _paymentMethod = 'cash';
+  List<String> _missingStockItems = [];
+  final Map<String, Map<String, int>> _stockByLocation = {};
 
   // Search controller
   final _searchController = TextEditingController();
@@ -61,6 +63,17 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _updateTabController();
     _loadInventory();
     _loadTransactions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final userDepartment = _bartenderDepartment(authService, user);
+      if (userDepartment != null && _selectedBar == null) {
+        setState(() {
+          _selectedBar = userDepartment;
+          _selectedBarForSales = userDepartment;
+        });
+      }
+    });
   }
 
   @override
@@ -91,8 +104,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   bool _isBartenderRole(AppRole role) {
     return role == AppRole.vip_bartender ||
-        role == AppRole.outside_bartender ||
-        role == AppRole.bartender;
+        role == AppRole.outside_bartender;
   }
 
   bool _hasBartenderRole(AuthService authService, AppUser? user) {
@@ -107,18 +119,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final assumed = authService.assumedRole!;
       if (assumed == AppRole.vip_bartender) return 'vip_bar';
       if (assumed == AppRole.outside_bartender) return 'outside_bar';
-      if (assumed == AppRole.bartender) return _selectedBarForSales;
     }
 
     if (user != null) {
       if (user.roles.contains(AppRole.vip_bartender)) return 'vip_bar';
       if (user.roles.contains(AppRole.outside_bartender)) return 'outside_bar';
-      if (user.roles.contains(AppRole.bartender)) {
-        final department = user.department;
-        if (department == 'vip_bar' || department == 'outside_bar') {
-          return department;
-        }
-      }
     }
 
     return null;
@@ -131,8 +136,33 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
     try {
       final inventory = await _dataService.getInventoryItems();
+      final stockLevels = await _dataService.getStockLevels();
+      final stockItems = await _dataService.supabase
+          .from('stock_items')
+          .select('name')
+          .limit(2000);
+      _stockByLocation.clear();
+      for (final row in stockLevels) {
+        final location = (row['location_name'] as String?)?.toLowerCase();
+        final name = (row['name'] as String?)?.toLowerCase();
+        final qty = (row['current_stock'] as num?)?.toInt() ?? 0;
+        if (location == null || name == null) continue;
+        _stockByLocation.putIfAbsent(location, () => {})[name] = qty;
+      }
+      final stockNames = (stockItems as List)
+          .map((e) => (e['name'] as String?)?.toLowerCase())
+          .whereType<String>()
+          .toSet();
+      final missing = inventory
+          .map((e) => (e['name'] as String?)?.toLowerCase())
+          .whereType<String>()
+          .where((name) => !stockNames.contains(name))
+          .toSet()
+          .toList()
+        ..sort();
       setState(() {
         _inventoryFuture = Future.value(inventory);
+        _missingStockItems = missing;
         _isLoading = false;
       });
     } catch (e) {
@@ -199,7 +229,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ],
             ),
             actions: [
-              const ContextAwareRoleButton(suggestedRole: AppRole.bartender),
+              ContextAwareRoleButton(
+                suggestedRole: _selectedBar == 'outside_bar'
+                    ? AppRole.outside_bartender
+                    : AppRole.vip_bartender,
+              ),
               if (showAddItemButton)
                 IconButton(
                   icon: const Icon(Icons.add),
@@ -370,7 +404,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Category: ${item['category'] ?? 'Unknown'}'),
-            Text('Stock: ${item['current_stock'] ?? 0} ${item['unit'] ?? 'units'}'),
+            Text('Stock: ${_getCurrentStock(item)} ${item['unit'] ?? 'units'}'),
             if (item['vip_bar_price'] != null)
               Text(
                 'VIP Price: ₦${PaymentService.koboToNaira((item['vip_bar_price'] as num?)?.toInt() ?? 0).toStringAsFixed(2)}',
@@ -542,6 +576,36 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
               // Bar selection for management
               _buildBarSelectionForSales(),
+              if (_missingStockItems.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Card(
+                    color: Colors.orange[50],
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Missing stock linkage',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Some items are not linked to stock items, sales will be blocked for them.',
+                            style: TextStyle(color: Colors.orange[800], fontSize: 12),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _missingStockItems.take(5).join(', ') +
+                                (_missingStockItems.length > 5 ? '...' : ''),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               // Items grid
               Expanded(
                 child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -608,11 +672,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isBartenderAssumed = authService.isRoleAssumed &&
         authService.assumedRole != null &&
         _isBartenderRole(authService.assumedRole!);
-    final hasLegacyBartenderRole = user?.roles.contains(AppRole.bartender) ?? false;
     final hasFixedBarRole = (user?.roles.contains(AppRole.vip_bartender) ?? false) ||
         (user?.roles.contains(AppRole.outside_bartender) ?? false);
 
-    if (!isManagement && !(hasLegacyBartenderRole && !hasFixedBarRole)) {
+    if (!isManagement && !hasFixedBarRole) {
       return const SizedBox.shrink();
     }
     if (isManagement && !isBartenderAssumed) return const SizedBox.shrink();
@@ -634,7 +697,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
                 DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
               ],
-              onChanged: (value) => setState(() => _selectedBarForSales = value),
+              onChanged: (value) => setState(() {
+                _selectedBarForSales = value;
+                _selectedBar = value;
+              }),
             ),
           ),
         ],
@@ -679,7 +745,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Widget _buildSaleItemCard(Map<String, dynamic> item) {
     final price = _getItemPrice(item);
-    final stock = item['current_stock'] as int? ?? 0;
+    final stock = _getCurrentStock(item);
     final isOutOfStock = stock <= 0;
     
     return Card(
@@ -775,6 +841,31 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     return PaymentService.koboToNaira(
       (item['vip_bar_price'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  int _getStockForLocation(String locationName, String itemName) {
+    final map = _stockByLocation[locationName.toLowerCase()];
+    return map?[itemName.toLowerCase()] ?? 0;
+  }
+
+  int _getCurrentStock(Map<String, dynamic> item) {
+    final name = (item['name'] as String?) ?? '';
+    if (name.isEmpty) return 0;
+    if (_selectedBar == null) {
+      final dept = item['department'] as String?;
+      if (dept == 'vip_bar') return _getStockForLocation('VIP Bar', name);
+      if (dept == 'outside_bar') return _getStockForLocation('Outside Bar', name);
+      return _getStockForLocation('VIP Bar', name) + _getStockForLocation('Outside Bar', name);
+    }
+    final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+    return _getStockForLocation(locationName, name);
+  }
+
+  int _getCurrentStockForBar(Map<String, dynamic> item, String barKey) {
+    final name = (item['name'] as String?) ?? '';
+    if (name.isEmpty) return 0;
+    final locationName = barKey == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+    return _getStockForLocation(locationName, name);
   }
 
   Widget _buildCurrentSaleSection() {
@@ -1093,6 +1184,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     try {
       final userId = authService.currentUser?.id ?? 'system';
       final supabase = _dataService.supabase;
+      final user = authService.currentUser;
+      final isBartender = _hasBartenderRole(authService, user);
+      final barKey = _selectedBar ?? _selectedBarForSales ?? _bartenderDepartment(authService, user);
+      if (isBartender && barKey == null) {
+        throw Exception('Select a bar before making sales.');
+      }
       
       if (supabase == null) {
         throw Exception('Database connection not available');
@@ -1101,7 +1198,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Get location ID for the selected bar
       // CRITICAL: Fail fast if location not found - don't silently continue
       String? locationId;
-      final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+      final locationName = (barKey ?? 'vip_bar') == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
       final locationResponse = await supabase
           .from('locations')
           .select('id')
@@ -1130,6 +1227,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             .select('id')
             .eq('bartender_id', userId)
             .eq('status', 'active')
+            .eq('bar', barKey ?? 'vip_bar')
             .eq('date', today)
             .maybeSingle();
         activeShiftId = shiftResponse?['id'] as String?;
@@ -1138,6 +1236,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         if (kDebugMode) {
           debugPrint('Warning: Could not find active shift: $e');
         }
+      }
+
+      if (isBartender && activeShiftId == null) {
+        throw Exception('No active shift found. Start your shift before making sales.');
       }
 
       // Process each item sale
@@ -1151,7 +1253,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
 
         // CRITICAL: Validate stock availability before processing sale
-        final currentStock = item['current_stock'] as int? ?? 0;
+        final currentStock = _getCurrentStockForBar(item, barKey ?? 'vip_bar');
         if (currentStock < quantity) {
           throw Exception(
             'Insufficient stock for ${item['name']}. Available: $currentStock ${item['unit'] ?? 'units'}, Requested: $quantity'
@@ -1199,17 +1301,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   'transaction_type': 'Sale',
                   'quantity': -quantity, // Negative for sale
                   'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
+                  'shift_id': activeShiftId,
                 });
             
-            // Only update inventory_items.current_stock AFTER successful stock_transactions insert
-            // This ensures data consistency - stock_transactions is the source of truth
-            final currentStock = item['current_stock'] as int? ?? 0;
-            await supabase
-                .from('inventory_items')
-                .update({
-                  'current_stock': currentStock - quantity,
-                })
-                .eq('id', item['id']);
+            // Stock ledger is the source of truth; no direct inventory_items update
           } catch (e) {
             // CRITICAL: If stock_transactions fails, throw error immediately
             // DO NOT fall back to updating inventory_items directly - this would mask the error
@@ -1228,41 +1323,55 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Calculate total sale amount in kobo
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
-      // Create or update department_sales record
+      // Create or update department_sales record (paid sales only)
       final today = DateTime.now().toIso8601String().split('T')[0];
-      final department = _selectedBar ?? 'vip_bar';
-      
-      try {
-        final existingSales = await supabase
-            .from('department_sales')
-            .select()
-            .eq('department', department)
-            .eq('date', today)
-            .maybeSingle();
+      final department = barKey ?? 'vip_bar';
+      if (_paymentMethod != 'credit') {
+        try {
+          final existingSales = await supabase
+              .from('department_sales')
+              .select()
+              .eq('department', department)
+              .eq('date', today)
+              .maybeSingle();
 
-        final paymentBreakdown = <String, int>{_paymentMethod: saleTotalInKobo};
+          final paymentBreakdown = <String, int>{_paymentMethod: saleTotalInKobo};
 
-        if (existingSales != null) {
-          // Update existing record (only if same staff_id or NULL)
-          final existingStaffId = existingSales['staff_id'] as String?;
-          // Only update if it's the same staff member or aggregate (NULL)
-          if (existingStaffId == null || existingStaffId == userId) {
-            final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-            final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-            final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
-            updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
+          if (existingSales != null) {
+            // Update existing record (only if same staff_id or NULL)
+            final existingStaffId = existingSales['staff_id'] as String?;
+            // Only update if it's the same staff member or aggregate (NULL)
+            if (existingStaffId == null || existingStaffId == userId) {
+              final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+              final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+              final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
+              updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
 
-            await supabase
-                .from('department_sales')
-                .update({
-                  'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                  'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                  'payment_method_breakdown': updatedBreakdown,
-                  'staff_id': userId, // Set staff_id if it was NULL, or keep existing
-                })
-                .eq('id', existingSales['id']);
+              await supabase
+                  .from('department_sales')
+                  .update({
+                    'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                    'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                    'payment_method_breakdown': updatedBreakdown,
+                    'staff_id': userId, // Set staff_id if it was NULL, or keep existing
+                  })
+                  .eq('id', existingSales['id']);
+            } else {
+              // Different staff member - create separate record for this staff
+              await supabase
+                  .from('department_sales')
+                  .insert({
+                    'department': department,
+                    'date': today,
+                    'total_sales': saleTotalInKobo,
+                    'transaction_count': 1,
+                    'payment_method_breakdown': paymentBreakdown,
+                    'recorded_by': userId,
+                    'staff_id': userId,
+                  });
+            }
           } else {
-            // Different staff member - create separate record for this staff
+            // Create new record
             await supabase
                 .from('department_sales')
                 .insert({
@@ -1272,52 +1381,39 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   'transaction_count': 1,
                   'payment_method_breakdown': paymentBreakdown,
                   'recorded_by': userId,
-                  'staff_id': userId,
+                  'staff_id': userId, // Track which staff member made the sales
                 });
           }
-        } else {
-          // Create new record
-          await supabase
-              .from('department_sales')
-              .insert({
-                'department': department,
-                'date': today,
-                'total_sales': saleTotalInKobo,
-                'transaction_count': 1,
-                'payment_method_breakdown': paymentBreakdown,
-                'recorded_by': userId,
-                'staff_id': userId, // Track which staff member made the sales
-              });
-        }
 
-        // Update active bartender shift total_sales if shift exists
-        // This allows real-time tracking of sales per shift
-        if (activeShiftId != null) {
-          try {
-            final currentShift = await supabase
-                .from('bartender_shifts')
-                .select('total_sales')
-                .eq('id', activeShiftId)
-                .single();
-            
-            final currentTotalSales = (currentShift['total_sales'] as int? ?? 0);
-            await supabase
-                .from('bartender_shifts')
-                .update({
-                  'total_sales': currentTotalSales + saleTotalInKobo,
-                })
-                .eq('id', activeShiftId);
-          } catch (e) {
-            // Log error but don't fail the sale
-            if (kDebugMode) {
-              debugPrint('Warning: Could not update shift total_sales: $e');
+          // Update active bartender shift total_sales if shift exists (paid only)
+          // This allows real-time tracking of paid sales per shift
+          if (activeShiftId != null) {
+            try {
+              final currentShift = await supabase
+                  .from('bartender_shifts')
+                  .select('total_sales')
+                  .eq('id', activeShiftId)
+                  .single();
+              
+              final currentTotalSales = (currentShift['total_sales'] as int? ?? 0);
+              await supabase
+                  .from('bartender_shifts')
+                  .update({
+                    'total_sales': currentTotalSales + saleTotalInKobo,
+                  })
+                  .eq('id', activeShiftId);
+            } catch (e) {
+              // Log error but don't fail the sale
+              if (kDebugMode) {
+                debugPrint('Warning: Could not update shift total_sales: $e');
+              }
             }
           }
-        }
-      } catch (e) {
-        // Log error but don't fail the sale
-        if (kDebugMode) {
-          debugPrint('Error creating department_sales record: $e');
+        } catch (e) {
+          // Log error but don't fail the sale
+          if (kDebugMode) {
+            debugPrint('Error creating department_sales record: $e');
+          }
         }
       }
 
@@ -1329,6 +1425,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'debtor_type': 'customer',
           'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': department,
+          'source_department': department,
+          'source_type': 'bar_sale',
+          'reference_id': null,
           'reason': 'Bar sale on credit - ${_currentSale.length} items (Department: $department)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
@@ -1336,6 +1436,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'approved_by': _approvedByController.text.trim().isEmpty 
               ? null 
               : _approvedByController.text.trim(), // Optional approved by
+          'sale_id': null,
         };
         
         await _dataService.recordDebt(debt);
@@ -1438,10 +1539,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       }
       final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
       final outsidePriceNaira = double.tryParse(_outsidePriceController.text) ?? 0.0;
+      final initialQty = int.tryParse(_quantityController.text) ?? 0;
       final item = {
         'name': _nameController.text,
         'description': _descriptionController.text,
-        'current_stock': int.parse(_quantityController.text),
         'unit': _unitController.text,
         'vip_bar_price': PaymentService.nairaToKobo(vipPriceNaira),
         'outside_bar_price': PaymentService.nairaToKobo(outsidePriceNaira),
@@ -1450,6 +1551,36 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       };
 
       await _dataService.addInventoryItem(item);
+
+      if (initialQty > 0) {
+        final stockItem = await _dataService.supabase
+            .from('stock_items')
+            .select('id')
+            .eq('name', _nameController.text)
+            .maybeSingle();
+        if (stockItem == null) {
+          throw Exception('Stock item not found for ${_nameController.text}. Create it first.');
+        }
+        final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+        final location = await _dataService.supabase
+            .from('locations')
+            .select('id')
+            .eq('name', locationName)
+            .maybeSingle();
+        if (location == null) {
+          throw Exception('Location "$locationName" not found.');
+        }
+        final authService = Provider.of<AuthService>(context, listen: false);
+        final staffId = authService.currentUser?.id ?? 'system';
+        await _dataService.recordStockTransaction({
+          'stock_item_id': stockItem['id'],
+          'location_id': location['id'],
+          'staff_profile_id': staffId,
+          'transaction_type': 'Adjustment',
+          'quantity': initialQty,
+          'notes': 'Initial stock for ${_nameController.text}',
+        });
+      }
 
       // Clear form
       _nameController.clear();

@@ -13,6 +13,7 @@ import 'package:pzed_homes/presentation/screens/staff_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/housekeeping_screen.dart';
 import 'package:pzed_homes/presentation/screens/inventory_screen.dart';
 import 'package:pzed_homes/presentation/screens/communications_screen.dart';
+import 'package:pzed_homes/presentation/screens/notifications_screen.dart';
 import 'package:pzed_homes/presentation/screens/hr_screen.dart';
 import 'package:pzed_homes/presentation/screens/finance_screen.dart';
 import 'package:pzed_homes/presentation/screens/kitchen_dispatch_screen.dart';
@@ -229,6 +230,11 @@ class AppRouter {
             path: '/communications',
             name: 'communications',
             builder: (context, state) => const CommunicationsScreen(),
+          ),
+          GoRoute(
+            path: '/notifications',
+            name: 'notifications',
+            builder: (context, state) => const NotificationsScreen(),
           ),
           GoRoute(
             path: '/hr',
@@ -471,8 +477,7 @@ class AppRouter {
       case AppRole.vip_bartender:
       case AppRole.outside_bartender:
       case AppRole.bartender:
-        return location.startsWith('/kitchen') ||
-               location.startsWith('/inventory') ||
+        return location.startsWith('/inventory') ||
                location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
@@ -537,7 +542,13 @@ class AppRouter {
 /// Helper function to load user profile from database
 Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
   try {
-    final supabase = Supabase.instance.client;
+    SupabaseClient? supabase;
+    try {
+      supabase = Supabase.instance.client;
+    } catch (_) {
+      supabase = null;
+    }
+    if (supabase == null) return {};
     final response = await supabase
         .from('profiles')
         .select()
@@ -562,12 +573,12 @@ class RootDecider extends StatelessWidget {
     // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
     bool isSupabaseInitialized = false;
     String? initError;
+    SupabaseClient? supabase;
     try {
-      final supabase = Supabase.instance.client;
-      // If we get here without exception, Supabase is initialized
-      isSupabaseInitialized = supabase != null;
+      supabase = Supabase.instance.client;
+      isSupabaseInitialized = true;
     } catch (e) {
-      // Supabase not initialized
+      supabase = null;
       isSupabaseInitialized = false;
       initError = e.toString();
     }
@@ -606,21 +617,21 @@ class RootDecider extends StatelessWidget {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Future.delayed(const Duration(milliseconds: 100), () {
             if (context.mounted && authService.isLoggedIn && authService.currentUser != null) {
-              try {
+            try {
                 // Use go() to navigate to dashboard, which is inside ShellRoute
                 // This ensures MainScreen wrapper is applied
-                context.go('/dashboard');
-              } catch (e) {
-                // If navigation fails, show a fallback
-                if (kDebugMode) {
-                  print('Navigation error in RootDecider: $e');
-                }
+              context.go('/dashboard');
+            } catch (e) {
+              // If navigation fails, show a fallback
+              if (kDebugMode) {
+                print('Navigation error in RootDecider: $e');
+              }
                 // Fallback: try navigating to guest page
                 if (context.mounted) {
                   context.go('/guest');
                 }
-              }
             }
+          }
           });
         });
         

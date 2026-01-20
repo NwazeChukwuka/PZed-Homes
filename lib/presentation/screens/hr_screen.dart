@@ -2137,9 +2137,9 @@ class _HrScreenState extends State<HrScreen>
                         ),
                         content: SingleChildScrollView(
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                               Text(
                                 '$staffName has been hired as ${staffRole.replaceAll('_', ' ').toUpperCase()}',
                                 style: const TextStyle(
@@ -2162,29 +2162,29 @@ class _HrScreenState extends State<HrScreen>
                                       children: [
                                         Icon(Icons.lock, size: 16, color: Colors.grey[700]),
                                         const SizedBox(width: 4),
-                                        const Text(
-                                          'Temporary Password:',
+                            const Text(
+                              'Temporary Password:',
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 14,
                                           ),
                                         ),
                                       ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    SelectableText(
-                                      securePassword,
-                                      style: const TextStyle(
-                                        fontFamily: 'monospace',
+                            ),
+                            const SizedBox(height: 8),
+                            SelectableText(
+                              securePassword,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
                                         fontSize: 18,
-                                        fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.bold,
                                         letterSpacing: 1.2,
                                       ),
                                     ),
                                   ],
-                                ),
                               ),
-                              const SizedBox(height: 16),
+                            ),
+                            const SizedBox(height: 16),
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
@@ -2203,8 +2203,8 @@ class _HrScreenState extends State<HrScreen>
                                           color: Colors.blue[900],
                                         ),
                                       ),
-                                    ),
-                                  ],
+                            ),
+                          ],
                                 ),
                               ),
                             ],

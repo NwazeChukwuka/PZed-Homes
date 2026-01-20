@@ -13,7 +13,13 @@ class DailyStockCountScreen extends StatefulWidget {
 }
 
 class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
-  final _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, int> _previousCounts = {};
 
@@ -33,6 +39,9 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
   Future<void> _loadData() async {
     try {
+      if (_supabase == null) {
+        throw Exception('Supabase not initialized');
+      }
       final locations = await _supabase.from('locations').select();
       final filteredLocations = _filterLocationsByRole(
         List<Map<String, dynamic>>.from(locations),
@@ -90,9 +99,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     }
     if (roles.contains(AppRole.outside_bartender)) {
       allowed.add('Outside Bar');
-    }
-    if (roles.contains(AppRole.bartender) && allowed.isEmpty) {
-      allowed.addAll(['VIP Bar', 'Outside Bar']);
     }
     if (roles.contains(AppRole.kitchen_staff)) {
       allowed.add('Kitchen');

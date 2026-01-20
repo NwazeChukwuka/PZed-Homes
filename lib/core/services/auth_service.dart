@@ -61,9 +61,11 @@ class AuthService with ChangeNotifier {
 
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        _supabase = Supabase.instance.client;
-        if (_supabase != null) {
+        try {
+          _supabase = Supabase.instance.client;
           return true;
+        } catch (_) {
+          _supabase = null;
         }
       } catch (e) {
         // Supabase not ready yet, wait and retry
@@ -621,8 +623,6 @@ class AuthService with ChangeNotifier {
         return 'VIP Bar Bartender';
       case AppRole.outside_bartender:
         return 'Outside Bar Bartender';
-      case AppRole.bartender:
-        return 'Bartender';
       case AppRole.receptionist:
         return 'Receptionist';
       case AppRole.kitchen_staff:

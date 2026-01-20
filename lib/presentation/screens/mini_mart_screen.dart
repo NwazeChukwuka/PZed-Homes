@@ -28,7 +28,13 @@ class MiniMartScreen extends StatefulWidget {
 class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProviderStateMixin {
   TabController? _tabController;
   final _dataService = DataService();
-  final _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   
   // Sales data
   List<Map<String, dynamic>> _miniMartItems = [];
@@ -206,6 +212,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       
       // Create one mini_mart_sales record per item (schema supports single item per record)
       // _currentSale structure: {'id': itemId, 'name': itemName, 'price': price, 'quantity': quantity, ...}
+      String? firstSaleId;
       for (final saleItem in _currentSale) {
         final itemId = saleItem['id'] as String;
         final quantity = saleItem['quantity'] as int;
@@ -255,7 +262,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         }
 
         // Create sale record for this item (after stock update succeeded)
-        await _supabase
+        final saleResponse = await _supabase
             .from('mini_mart_sales')
             .insert({
               'item_id': itemId,
@@ -266,45 +273,64 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               'payment_method': _paymentMethod.toLowerCase(),
               'customer_name': customerName,
               'sold_by': userId,
-            });
+            })
+            .select('id')
+            .maybeSingle();
+        if (firstSaleId == null && saleResponse != null) {
+          firstSaleId = saleResponse['id'] as String?;
+        }
       }
 
       // Calculate total sale amount in kobo for debt/income records
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
-      // Create or update department_sales record
-      final today = DateTime.now().toIso8601String().split('T')[0];
-      try {
-        final existingSales = await _supabase
-            .from('department_sales')
-            .select()
-            .eq('department', 'mini_mart')
-            .eq('date', today)
-            .maybeSingle();
+      // Create or update department_sales record (paid sales only)
+      if (_paymentMethod.toLowerCase() != 'credit') {
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        try {
+          final existingSales = await _supabase
+              .from('department_sales')
+              .select()
+              .eq('department', 'mini_mart')
+              .eq('date', today)
+              .maybeSingle();
 
-        final paymentBreakdown = <String, int>{_paymentMethod.toLowerCase(): saleTotalInKobo};
+          final paymentBreakdown = <String, int>{_paymentMethod.toLowerCase(): saleTotalInKobo};
 
-        if (existingSales != null) {
-          // Update existing record (only if same staff_id or NULL)
-          final existingStaffId = existingSales['staff_id'] as String?;
-          // Only update if it's the same staff member or aggregate (NULL)
-          if (existingStaffId == null || existingStaffId == userId) {
-            final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-            final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-            final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
-            updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
+          if (existingSales != null) {
+            // Update existing record (only if same staff_id or NULL)
+            final existingStaffId = existingSales['staff_id'] as String?;
+            // Only update if it's the same staff member or aggregate (NULL)
+            if (existingStaffId == null || existingStaffId == userId) {
+              final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+              final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
+              final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
+              updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
 
-            await _supabase
-                .from('department_sales')
-                .update({
-                  'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                  'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                  'payment_method_breakdown': updatedBreakdown,
-                  'staff_id': userId, // Set staff_id if it was NULL, or keep existing
-                })
-                .eq('id', existingSales['id']);
+              await _supabase
+                  .from('department_sales')
+                  .update({
+                    'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
+                    'transaction_count': (existingSales['transaction_count'] as int) + 1,
+                    'payment_method_breakdown': updatedBreakdown,
+                    'staff_id': userId, // Set staff_id if it was NULL, or keep existing
+                  })
+                  .eq('id', existingSales['id']);
+            } else {
+              // Different staff member - create separate record for this staff
+              await _supabase
+                  .from('department_sales')
+                  .insert({
+                    'department': 'mini_mart',
+                    'date': today,
+                    'total_sales': saleTotalInKobo,
+                    'transaction_count': 1,
+                    'payment_method_breakdown': paymentBreakdown,
+                    'recorded_by': userId,
+                    'staff_id': userId,
+                  });
+            }
           } else {
-            // Different staff member - create separate record for this staff
             await _supabase
                 .from('department_sales')
                 .insert({
@@ -314,25 +340,13 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                   'transaction_count': 1,
                   'payment_method_breakdown': paymentBreakdown,
                   'recorded_by': userId,
-                  'staff_id': userId,
+                  'staff_id': userId, // Track which staff member made the sales
                 });
           }
-        } else {
-          await _supabase
-              .from('department_sales')
-              .insert({
-                'department': 'mini_mart',
-                'date': today,
-                'total_sales': saleTotalInKobo,
-                'transaction_count': 1,
-                'payment_method_breakdown': paymentBreakdown,
-                'recorded_by': userId,
-                'staff_id': userId, // Track which staff member made the sales
-              });
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('Warning: Could not create department_sales record: $e');
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Warning: Could not create department_sales record: $e');
+          }
         }
       }
 
@@ -349,6 +363,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           'amount': saleTotalInKobo, // Convert to kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'department': 'mini_mart',
+          'source_department': 'mini_mart',
+          'source_type': 'mini_mart_sale',
+          'reference_id': firstSaleId,
           'reason': 'Mini Mart sale on credit - ${_currentSale.length} items (Department: mini_mart)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
@@ -356,6 +373,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           'approved_by': _approvedByController.text.trim().isEmpty 
               ? null 
               : _approvedByController.text.trim(), // Optional approved by
+          'sale_id': firstSaleId,
         };
         
         await _dataService.recordDebt(debt);

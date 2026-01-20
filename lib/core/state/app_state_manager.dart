@@ -7,8 +7,15 @@ import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 
 class AppStateManager extends ChangeNotifier {
-  static const bool _useMock = bool.fromEnvironment('USE_MOCK', defaultValue: true);
-  final SupabaseClient? _supabase = _useMock ? null : Supabase.instance.client;
+  static const bool _useMock = bool.fromEnvironment('USE_MOCK', defaultValue: false);
+  SupabaseClient? get _supabase {
+    if (_useMock) return null;
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
   AppConnectivity? _connectivity;
   
   // App state
@@ -71,6 +78,7 @@ class AppStateManager extends ChangeNotifier {
       
       // Load notifications
       await _loadNotifications();
+      startRealtimeSubscriptions();
       
       // Initialize cache
       await _initializeCache();

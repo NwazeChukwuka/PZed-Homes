@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 import 'package:pzed_homes/core/layout/responsive_layout.dart';
+import 'package:pzed_homes/core/state/app_state_manager.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
@@ -459,10 +460,37 @@ class MainScreen extends StatelessWidget {
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // Handle notifications
+          Consumer<AppStateManager>(
+            builder: (context, state, _) {
+              final count = state.unreadNotifications;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => context.push('/notifications'),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          count > 99 ? '99+' : '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
             },
           ),
           const SizedBox(width: 8),
@@ -1133,10 +1161,37 @@ class MainScreen extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // Handle notifications
+          Consumer<AppStateManager>(
+            builder: (context, state, _) {
+              final count = state.unreadNotifications;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => context.push('/notifications'),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          count > 99 ? '99+' : '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
             },
           ),
           const SizedBox(width: 8),

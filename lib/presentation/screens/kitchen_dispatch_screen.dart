@@ -1,7 +1,15 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
@@ -20,6 +28,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   final _formKey = GlobalKey<FormState>();
   final _saleFormKey = GlobalKey<FormState>();
   final _dataService = DataService();
+  SupabaseClient _requireSupabase() {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   final _quantityController = TextEditingController();
   final _dispatchUnitPriceController = TextEditingController();
   final _saleQuantityController = TextEditingController();
@@ -28,14 +43,29 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _locations = [];
+  List<Map<String, dynamic>> _departments = [];
+  List<String> _missingStockLinks = [];
+  List<Map<String, dynamic>> _dispatchHistory = [];
+  List<Map<String, dynamic>> _salesHistory = [];
+  List<Map<String, dynamic>> _bookings = [];
   String? _selectedStockItemId;
-  String? _selectedDestinationLocationId;
+  String? _selectedDestinationDepartment;
+  String? _selectedDispatchBookingId;
   String? _sourceLocationId; // Kitchen location id
   bool _isLoading = false;
   bool _isCustomSale = false;
   String? _selectedSaleItemId;
+  String? _selectedBookingId;
+  bool _chargeToRoom = false;
   String _dispatchPaymentMethod = 'cash';
+  String _dispatchPaymentStatus = 'paid';
   String _salePaymentMethod = 'cash';
+  String _salesFilterPaymentMethod = 'all';
+  DateTimeRange? _salesFilterRange;
+  String _dispatchFilterPaymentStatus = 'all';
+  DateTimeRange? _dispatchFilterRange;
+  String _dispatchFilterDepartment = 'all';
+  String _dispatchFilterStaffId = 'all';
   late TabController _tabController;
 
   @override
@@ -90,6 +120,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'kitchen')
           .toList();
       final locResponse = await _dataService.getLocations();
+      final deptResponse = await _dataService.getDepartments();
+      final dispatchHistory = await _dataService.getDepartmentTransfers();
+      final salesHistory = await _dataService.getKitchenSalesHistory();
+      final allBookings = await _dataService.getBookings();
       final fallbackLocations = [
         {'id': 'loc001', 'name': 'Kitchen', 'type': 'Kitchen'},
         {'id': 'loc002', 'name': 'VIP Bar', 'type': 'Bar'},
@@ -99,11 +133,33 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
       if (!mounted) return;
 
+      final activeDepartments = deptResponse
+          .where((d) => (d['name'] as String?)?.toLowerCase() != 'restaurant')
+          .toList();
+      final filteredDispatchHistory = dispatchHistory.where((t) {
+        final source = t['source_department']?.toString().toLowerCase();
+        return source == 'restaurant' || source == 'kitchen';
+      }).toList();
+      final checkedInBookings = allBookings.where((b) {
+        final status = _normalizeStatus(b['status']?.toString());
+        return status == 'checked-in';
+      }).toList();
+
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
         _locations = locResponse.isNotEmpty
             ? List<Map<String, dynamic>>.from(locResponse)
             : List<Map<String, dynamic>>.from(fallbackLocations);
+        _departments = List<Map<String, dynamic>>.from(activeDepartments);
+        _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
+        _salesHistory = List<Map<String, dynamic>>.from(salesHistory);
+        _bookings = List<Map<String, dynamic>>.from(checkedInBookings);
+        _missingStockLinks = stockResponse
+            .where((item) => item['stock_item_id'] == null)
+            .map((item) => (item['name'] as String?) ?? 'Item')
+            .toSet()
+            .toList()
+          ..sort();
       });
 
       // Find Kitchen location id
@@ -158,24 +214,18 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _saleUnitPriceController.text = priceInNaira.toStringAsFixed(2);
   }
 
-  String? _departmentFromLocationName(String? locationName) {
-    if (locationName == null) return null;
-    switch (locationName.toLowerCase()) {
-      case 'vip bar':
-        return 'vip_bar';
-      case 'outside bar':
-        return 'outside_bar';
-      case 'mini mart':
-        return 'mini_mart';
-      case 'kitchen':
-        return 'restaurant';
-      case 'reception':
-        return 'reception';
-      case 'store':
-        return 'storekeeping';
-      default:
-        return null;
-    }
+  String _formatDepartmentName(String name) {
+    if (name.isEmpty) return name;
+    final words = name.split('_').map((w) {
+      if (w.isEmpty) return w;
+      return w[0].toUpperCase() + w.substring(1);
+    }).toList();
+    return words.join(' ');
+  }
+
+  String _normalizeStatus(String? raw) {
+    if (raw == null) return '';
+    return raw.trim().toLowerCase().replaceAll('_', '-');
   }
 
   Future<void> _recordDepartmentSale({
@@ -184,7 +234,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     required String staffId,
     required String paymentMethod,
   }) async {
-    final supabase = Supabase.instance.client;
+    final supabase = _requireSupabase();
     final today = DateTime.now().toIso8601String().split('T')[0];
     final paymentBreakdown = <String, int>{paymentMethod: amountInKobo};
 
@@ -241,7 +291,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
   Future<void> _dispatchItem() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedStockItemId == null || _selectedDestinationLocationId == null) return;
+    if (_selectedStockItemId == null || _selectedDestinationDepartment == null) return;
 
     setState(() => _isLoading = true);
     try {
@@ -260,37 +310,104 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         orElse: () => <String, dynamic>{},
       );
       if (selected.isEmpty) throw Exception('Selected stock item not found');
+      if (selected['stock_item_id'] == null) {
+        throw Exception('This menu item is not linked to a stock item. Link it before dispatching.');
+      }
       // Note: menu_items do not track per-location stock directly here.
       // Stock checks should be handled via stock_transactions/stock_levels if needed.
 
-      // Get destination location name
-      final destination = _locations.firstWhere(
-        (l) => l['id'] == _selectedDestinationLocationId,
-        orElse: () => <String, dynamic>{},
-      );
-      final destinationName = destination['name'] as String? ?? 'Unknown';
+      final destinationDepartment = _selectedDestinationDepartment!;
+      final isValidDepartment = _departments.any((d) => d['name'] == destinationDepartment);
+      if (!isValidDepartment) {
+        throw Exception('Destination department not found');
+      }
+
+      if (_dispatchPaymentStatus == 'unpaid' && _selectedDispatchBookingId == null) {
+        throw Exception('Select a booking to charge to room');
+      }
+
+      final totalInKobo = PaymentService.nairaToKobo(unitPriceNaira) * quantity;
+      final paymentStatus = _dispatchPaymentStatus;
+      final bookingId = _selectedDispatchBookingId;
+      final effectivePaymentMethod =
+          paymentStatus == 'unpaid' ? 'credit' : _dispatchPaymentMethod;
 
       // Create department transfer
-      await _dataService.createDepartmentTransfer({
-        'source_department': 'Kitchen',
-        'destination_department': destinationName,
+      final transferId = await _dataService.createDepartmentTransfer({
+        'source_department': 'restaurant',
+        'destination_department': destinationDepartment,
         'menu_item_id': _selectedStockItemId,
         'quantity': quantity,
         'dispatched_by_id': staffId,
         'status': 'Pending',
+        'unit_price': PaymentService.nairaToKobo(unitPriceNaira),
+        'total_amount': totalInKobo,
+        'payment_method': effectivePaymentMethod,
+        'payment_status': paymentStatus,
+        'booking_id': bookingId,
       });
 
-      final destinationDepartment = _departmentFromLocationName(destinationName);
-      if (destinationDepartment != null) {
-        final totalInKobo = PaymentService.nairaToKobo(unitPriceNaira) * quantity;
-        if (totalInKobo > 0) {
-          await _recordDepartmentSale(
-            department: destinationDepartment,
-            amountInKobo: totalInKobo,
-            staffId: staffId,
-            paymentMethod: _dispatchPaymentMethod,
-          );
-        }
+      if (totalInKobo > 0 && paymentStatus == 'paid') {
+        await _recordDepartmentSale(
+          department: destinationDepartment,
+          amountInKobo: totalInKobo,
+          staffId: staffId,
+          paymentMethod: effectivePaymentMethod,
+        );
+      }
+
+      if (paymentStatus == 'unpaid' && bookingId != null) {
+        final booking = _bookings.firstWhere(
+          (b) => b['id'] == bookingId,
+          orElse: () => <String, dynamic>{},
+        );
+        final guestProfile = booking['profiles'] as Map<String, dynamic>?;
+        final guestName = booking['guest_name'] as String? ??
+            guestProfile?['full_name'] as String? ??
+            'Guest';
+        final guestPhone = booking['guest_phone'] as String? ??
+            guestProfile?['phone'] as String? ??
+            '';
+
+        await _dataService.recordDebt({
+          'debtor_name': guestName,
+          'debtor_phone': guestPhone,
+          'debtor_type': 'customer',
+          'amount': totalInKobo,
+          'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': 'reception',
+          'source_department': 'restaurant',
+          'source_type': 'kitchen_dispatch',
+          'reference_id': transferId,
+          'reason': 'Kitchen dispatch charged to room',
+          'date': DateTime.now().toIso8601String().split('T')[0],
+          'status': 'outstanding',
+          'sold_by': staffId,
+          'booking_id': bookingId,
+          'sale_id': transferId,
+        });
+
+        await _dataService.addBookingCharge(
+          bookingId: bookingId,
+          itemName: selected['name'] as String? ?? 'Kitchen dispatch',
+          priceKobo: PaymentService.nairaToKobo(unitPriceNaira),
+          quantity: quantity,
+          department: 'restaurant',
+          addedBy: staffId,
+        );
+      }
+
+      // Optional stock deduction when menu item is linked to stock item
+      final stockItemId = selected['stock_item_id']?.toString();
+      if (stockItemId != null && _sourceLocationId != null) {
+        await _dataService.recordStockTransaction({
+          'stock_item_id': stockItemId,
+          'location_id': _sourceLocationId,
+          'staff_profile_id': staffId,
+          'transaction_type': 'Transfer_Out',
+          'quantity': -quantity,
+          'notes': 'Kitchen dispatch to $destinationDepartment',
+        });
       }
 
       // Clear form and refresh
@@ -299,14 +416,37 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       _dispatchUnitPriceController.clear();
       setState(() {
         _selectedStockItemId = null;
-        _selectedDestinationLocationId = null;
+        _selectedDestinationDepartment = null;
+        _selectedDispatchBookingId = null;
+        _dispatchPaymentStatus = 'paid';
+        _dispatchPaymentMethod = 'cash';
       });
       
       if (mounted) {
-        ErrorHandler.showSuccessMessage(
-          context,
-          'Item dispatched successfully!',
+        final selectedItemName = selected['name'] as String? ?? 'Item';
+        String? guestName;
+        if (bookingId != null) {
+          final booking = _bookings.firstWhere(
+            (b) => b['id'] == bookingId,
+            orElse: () => <String, dynamic>{},
+          );
+          final guestProfile = booking['profiles'] as Map<String, dynamic>?;
+          guestName = booking['guest_name'] as String? ??
+              guestProfile?['full_name'] as String?;
+        }
+
+        await _showDispatchSlipDialog(
+          itemName: selectedItemName,
+          quantity: quantity,
+          unitPriceNaira: unitPriceNaira,
+          totalNaira: PaymentService.koboToNaira(totalInKobo),
+          destinationDepartment: destinationDepartment,
+          paymentMethod: effectivePaymentMethod,
+          paymentStatus: paymentStatus,
+          bookingId: bookingId,
+          guestName: guestName,
         );
+        ErrorHandler.showSuccessMessage(context, 'Item dispatched successfully!');
         await _loadStockAndLocations();
       }
     } catch (e) {
@@ -336,12 +476,98 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         throw Exception('Sale amount must be greater than 0');
       }
 
-      await _recordDepartmentSale(
-        department: 'restaurant',
-        amountInKobo: totalInKobo,
-        staffId: staffId,
-        paymentMethod: _salePaymentMethod,
+      if (_chargeToRoom && _selectedBookingId == null) {
+        throw Exception('Select a booking to charge to room');
+      }
+
+      final selectedItem = _stockItems.firstWhere(
+        (s) => s['id'] == _selectedSaleItemId,
+        orElse: () => <String, dynamic>{},
       );
+      if (!_isCustomSale && selectedItem['stock_item_id'] == null) {
+        throw Exception('This menu item is not linked to a stock item. Link it before selling.');
+      }
+      final itemName = _isCustomSale
+          ? (_saleCustomNameController.text.trim().isEmpty
+              ? 'Custom Item'
+              : _saleCustomNameController.text.trim())
+          : (selectedItem['name'] as String? ?? 'Menu Item');
+
+      final effectivePaymentMethod = _chargeToRoom ? 'credit' : _salePaymentMethod;
+
+      final saleId = await _dataService.createKitchenSale({
+        'menu_item_id': _isCustomSale ? null : _selectedSaleItemId,
+        'item_name': itemName,
+        'quantity': quantity,
+        'unit_price': PaymentService.nairaToKobo(unitPriceNaira),
+        'total_amount': totalInKobo,
+        'payment_method': effectivePaymentMethod,
+        'booking_id': _selectedBookingId,
+        'sold_by': staffId,
+      });
+
+      if (!_chargeToRoom) {
+        await _recordDepartmentSale(
+          department: 'restaurant',
+          amountInKobo: totalInKobo,
+          staffId: staffId,
+          paymentMethod: effectivePaymentMethod,
+        );
+      }
+
+      if (_chargeToRoom && _selectedBookingId != null) {
+        final booking = _bookings.firstWhere(
+          (b) => b['id'] == _selectedBookingId,
+          orElse: () => <String, dynamic>{},
+        );
+        final guestProfile = booking['profiles'] as Map<String, dynamic>?;
+        final guestName = booking['guest_name'] as String? ??
+            guestProfile?['full_name'] as String? ??
+            'Guest';
+        final guestPhone = booking['guest_phone'] as String? ??
+            guestProfile?['phone'] as String? ??
+            '';
+
+        await _dataService.recordDebt({
+          'debtor_name': guestName,
+          'debtor_phone': guestPhone,
+          'debtor_type': 'customer',
+          'amount': totalInKobo,
+          'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': 'reception',
+          'source_department': 'restaurant',
+          'source_type': 'kitchen_sale',
+          'reference_id': saleId,
+          'reason': 'Kitchen sale charged to room',
+          'date': DateTime.now().toIso8601String().split('T')[0],
+          'status': 'outstanding',
+          'sold_by': staffId,
+          'booking_id': _selectedBookingId,
+          'sale_id': saleId,
+        });
+
+        await _dataService.addBookingCharge(
+          bookingId: _selectedBookingId!,
+          itemName: itemName,
+          priceKobo: PaymentService.nairaToKobo(unitPriceNaira),
+          quantity: quantity,
+          department: 'restaurant',
+          addedBy: staffId,
+        );
+      }
+
+      // Optional stock deduction when menu item is linked to stock item
+      final stockItemId = selectedItem['stock_item_id']?.toString();
+      if (stockItemId != null && _sourceLocationId != null) {
+        await _dataService.recordStockTransaction({
+          'stock_item_id': stockItemId,
+          'location_id': _sourceLocationId,
+          'staff_profile_id': staffId,
+          'transaction_type': 'Sale',
+          'quantity': -quantity,
+          'notes': 'Kitchen sale',
+        });
+      }
 
       _saleFormKey.currentState?.reset();
       _saleQuantityController.clear();
@@ -350,13 +576,21 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       setState(() {
         _selectedSaleItemId = null;
         _isCustomSale = false;
+        _selectedBookingId = null;
+        _chargeToRoom = false;
       });
 
       if (mounted) {
-        ErrorHandler.showSuccessMessage(
-          context,
-          'Kitchen sale recorded successfully!',
+        await _showKitchenReceiptDialog(
+          itemName: itemName,
+          quantity: quantity,
+          unitPriceNaira: unitPriceNaira,
+          totalNaira: PaymentService.koboToNaira(totalInKobo),
+          paymentMethod: effectivePaymentMethod,
+          bookingId: _selectedBookingId,
         );
+        ErrorHandler.showSuccessMessage(context, 'Kitchen sale recorded successfully!');
+        await _loadStockAndLocations();
       }
     } catch (e) {
       if (mounted) {
@@ -369,6 +603,649 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _showKitchenReceiptDialog({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+  }) async {
+    String? guestName;
+    if (bookingId != null) {
+      final booking = _bookings.firstWhere(
+        (b) => b['id'] == bookingId,
+        orElse: () => <String, dynamic>{},
+      );
+      final guestProfile = booking['profiles'] as Map<String, dynamic>?;
+      guestName = booking['guest_name'] as String? ??
+          guestProfile?['full_name'] as String?;
+    }
+    final receiptText = StringBuffer()
+      ..writeln('P-ZED Homes Kitchen Receipt')
+      ..writeln('Item: $itemName')
+      ..writeln('Quantity: $quantity')
+      ..writeln('Unit Price: ₦${NumberFormat('#,##0.00').format(unitPriceNaira)}')
+      ..writeln('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}')
+      ..writeln('Payment Method: $paymentMethod')
+      ..writeln('Booking ID: ${bookingId ?? 'N/A'}')
+      ..writeln('Guest: ${guestName ?? 'N/A'}')
+      ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Kitchen Receipt'),
+          content: SingleChildScrollView(
+            child: SelectableText(receiptText.toString()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await _saveKitchenReceiptPdf(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Save PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _printKitchenReceipt(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Print/PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _shareKitchenReceiptPdf(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Share PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _emailKitchenReceiptPdf(
+                  receiptText: receiptText.toString(),
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  paymentMethod: paymentMethod,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Email PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: receiptText.toString()));
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(context, 'Receipt copied to clipboard');
+                }
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Uint8List> _buildKitchenReceiptPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    final doc = pw.Document();
+    final dateText = DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now());
+
+    doc.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('P-ZED Homes Kitchen Receipt', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Text('Item: $itemName'),
+              pw.Text('Quantity: $quantity'),
+              pw.Text('Unit Price: ₦${NumberFormat('#,##0.00').format(unitPriceNaira)}'),
+              pw.Text('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}'),
+              pw.Text('Payment Method: $paymentMethod'),
+              pw.Text('Booking ID: ${bookingId ?? 'N/A'}'),
+              pw.Text('Guest: ${guestName ?? 'N/A'}'),
+              pw.SizedBox(height: 12),
+              pw.Text('Generated: $dateText', style: const pw.TextStyle(fontSize: 10)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _saveKitchenReceiptPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildKitchenReceiptPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      final location = await getSaveLocation(
+        suggestedName: 'kitchen_receipt_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        acceptedTypeGroups: [const XTypeGroup(label: 'PDF', extensions: ['pdf'])],
+      );
+      if (location == null) return;
+      final file = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: 'kitchen_receipt.pdf',
+      );
+      await file.saveTo(location.path);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save receipt. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _printKitchenReceipt({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildKitchenReceiptPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print receipt. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _shareKitchenReceiptPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildKitchenReceiptPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'kitchen_receipt.pdf')],
+        subject: 'P-ZED Homes Kitchen Receipt',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share receipt. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _emailKitchenReceiptPdf({
+    required String receiptText,
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String paymentMethod,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    final email = await _promptForEmailAddress();
+    if (email == null || email.isEmpty) return;
+    try {
+      final bytes = await _buildKitchenReceiptPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        paymentMethod: paymentMethod,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'kitchen_receipt.pdf')],
+        subject: 'P-ZED Homes Kitchen Receipt',
+        text: receiptText,
+      );
+    } catch (e) {
+      if (mounted) {
+        final fallbackUri = Uri(
+          scheme: 'mailto',
+          path: email,
+          queryParameters: {
+            'subject': 'P-ZED Homes Kitchen Receipt',
+            'body': receiptText,
+          },
+        );
+        final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        if (!fallbackOpened) {
+          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.');
+        }
+      }
+    }
+  }
+
+  Future<void> _showDispatchSlipDialog({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    final slipText = StringBuffer()
+      ..writeln('P-ZED Homes Kitchen Dispatch Slip')
+      ..writeln('Item: $itemName')
+      ..writeln('Quantity: $quantity')
+      ..writeln('Unit Price: ₦${NumberFormat('#,##0.00').format(unitPriceNaira)}')
+      ..writeln('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}')
+      ..writeln('Destination: ${_formatDepartmentName(destinationDepartment)}')
+      ..writeln('Payment Status: $paymentStatus')
+      ..writeln('Payment Method: $paymentMethod')
+      ..writeln('Booking ID: ${bookingId ?? 'N/A'}')
+      ..writeln('Guest: ${guestName ?? 'N/A'}')
+      ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Dispatch Slip'),
+          content: SingleChildScrollView(
+            child: SelectableText(slipText.toString()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await _saveDispatchSlipPdf(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  destinationDepartment: destinationDepartment,
+                  paymentMethod: paymentMethod,
+                  paymentStatus: paymentStatus,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Save PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _printDispatchSlip(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  destinationDepartment: destinationDepartment,
+                  paymentMethod: paymentMethod,
+                  paymentStatus: paymentStatus,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Print/PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _shareDispatchSlipPdf(
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  destinationDepartment: destinationDepartment,
+                  paymentMethod: paymentMethod,
+                  paymentStatus: paymentStatus,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Share PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _emailDispatchSlipPdf(
+                  slipText: slipText.toString(),
+                  itemName: itemName,
+                  quantity: quantity,
+                  unitPriceNaira: unitPriceNaira,
+                  totalNaira: totalNaira,
+                  destinationDepartment: destinationDepartment,
+                  paymentMethod: paymentMethod,
+                  paymentStatus: paymentStatus,
+                  bookingId: bookingId,
+                  guestName: guestName,
+                );
+              },
+              child: const Text('Email PDF'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: slipText.toString()));
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(context, 'Slip copied to clipboard');
+                }
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Uint8List> _buildDispatchSlipPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    final doc = pw.Document();
+    final dateText = DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now());
+
+    doc.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('P-ZED Homes Kitchen Dispatch Slip', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Text('Item: $itemName'),
+              pw.Text('Quantity: $quantity'),
+              pw.Text('Unit Price: ₦${NumberFormat('#,##0.00').format(unitPriceNaira)}'),
+              pw.Text('Total: ₦${NumberFormat('#,##0.00').format(totalNaira)}'),
+              pw.Text('Destination: ${_formatDepartmentName(destinationDepartment)}'),
+              pw.Text('Payment Status: $paymentStatus'),
+              pw.Text('Payment Method: $paymentMethod'),
+              pw.Text('Booking ID: ${bookingId ?? 'N/A'}'),
+              pw.Text('Guest: ${guestName ?? 'N/A'}'),
+              pw.SizedBox(height: 12),
+              pw.Text('Generated: $dateText', style: const pw.TextStyle(fontSize: 10)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _saveDispatchSlipPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildDispatchSlipPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        destinationDepartment: destinationDepartment,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      final location = await getSaveLocation(
+        suggestedName: 'dispatch_slip_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        acceptedTypeGroups: [const XTypeGroup(label: 'PDF', extensions: ['pdf'])],
+      );
+      if (location == null) return;
+      final file = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: 'dispatch_slip.pdf',
+      );
+      await file.saveTo(location.path);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Dispatch slip saved to file');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save dispatch slip. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _printDispatchSlip({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildDispatchSlipPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        destinationDepartment: destinationDepartment,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print dispatch slip. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _shareDispatchSlipPdf({
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    try {
+      final bytes = await _buildDispatchSlipPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        destinationDepartment: destinationDepartment,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'dispatch_slip.pdf')],
+        subject: 'P-ZED Homes Kitchen Dispatch Slip',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share dispatch slip. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _emailDispatchSlipPdf({
+    required String slipText,
+    required String itemName,
+    required int quantity,
+    required double unitPriceNaira,
+    required double totalNaira,
+    required String destinationDepartment,
+    required String paymentMethod,
+    required String paymentStatus,
+    String? bookingId,
+    String? guestName,
+  }) async {
+    final email = await _promptForEmailAddress();
+    if (email == null || email.isEmpty) return;
+    try {
+      final bytes = await _buildDispatchSlipPdf(
+        itemName: itemName,
+        quantity: quantity,
+        unitPriceNaira: unitPriceNaira,
+        totalNaira: totalNaira,
+        destinationDepartment: destinationDepartment,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        bookingId: bookingId,
+        guestName: guestName,
+      );
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'dispatch_slip.pdf')],
+        subject: 'P-ZED Homes Kitchen Dispatch Slip',
+        text: slipText,
+      );
+    } catch (e) {
+      if (mounted) {
+        final fallbackUri = Uri(
+          scheme: 'mailto',
+          path: email,
+          queryParameters: {
+            'subject': 'P-ZED Homes Kitchen Dispatch Slip',
+            'body': slipText,
+          },
+        );
+        final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        if (!fallbackOpened) {
+          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.');
+        }
+      }
+    }
+  }
+
+  Future<String?> _promptForEmailAddress() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Email Receipt'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Recipient Email',
+              hintText: 'name@example.com',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -391,6 +1268,85 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     }
   }
 
+  List<Map<String, dynamic>> get _filteredSalesHistory {
+    final range = _salesFilterRange;
+    return _salesHistory.where((sale) {
+      final createdAtRaw = sale['created_at']?.toString();
+      final method = sale['payment_method']?.toString() ?? '';
+      DateTime? createdAt;
+      if (createdAtRaw != null) {
+        try {
+          createdAt = DateTime.parse(createdAtRaw);
+        } catch (_) {}
+      }
+
+      final inRange = range == null
+          ? true
+          : createdAt != null &&
+              !createdAt.isBefore(range.start) &&
+              !createdAt.isAfter(
+                DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59),
+              );
+      final methodOk = _salesFilterPaymentMethod == 'all'
+          ? true
+          : method == _salesFilterPaymentMethod;
+      return inRange && methodOk;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredDispatchHistory {
+    final range = _dispatchFilterRange;
+    return _dispatchHistory.where((transfer) {
+      final createdAtRaw = transfer['created_at']?.toString();
+      final status = transfer['payment_status']?.toString() ?? '';
+      final department = transfer['destination_department']?.toString() ?? '';
+      final staffId = transfer['dispatched_by_id']?.toString() ?? '';
+      DateTime? createdAt;
+      if (createdAtRaw != null) {
+        try {
+          createdAt = DateTime.parse(createdAtRaw);
+        } catch (_) {}
+      }
+
+      final inRange = range == null
+          ? true
+          : createdAt != null &&
+              !createdAt.isBefore(range.start) &&
+              !createdAt.isAfter(
+                DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59),
+              );
+      final statusOk = _dispatchFilterPaymentStatus == 'all'
+          ? true
+          : status == _dispatchFilterPaymentStatus;
+      final departmentOk = _dispatchFilterDepartment == 'all'
+          ? true
+          : department == _dispatchFilterDepartment;
+      final staffOk = _dispatchFilterStaffId == 'all'
+          ? true
+          : staffId == _dispatchFilterStaffId;
+      return inRange && statusOk && departmentOk && staffOk;
+    }).toList();
+  }
+
+  List<DropdownMenuItem<String>> _uniqueDispatchStaffItems() {
+    final items = <DropdownMenuItem<String>>[];
+    final seen = <String>{};
+    for (final transfer in _dispatchHistory) {
+      final profile = transfer['profiles'] as Map<String, dynamic>?;
+      if (profile == null) continue;
+      final id = profile['id']?.toString();
+      if (id == null || seen.contains(id)) continue;
+      seen.add(id);
+      items.add(
+        DropdownMenuItem(
+          value: id,
+          child: Text(profile['full_name'] as String? ?? 'Staff'),
+        ),
+      );
+    }
+    return items;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
@@ -403,14 +1359,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         
         // Show full functionality if kitchen staff, assumed kitchen staff, or receptionist
         final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist;
-        final destinations = _locations.where((l) {
-          final isSource = l['id'] == _sourceLocationId;
-          final type = l['type']?.toString().toLowerCase();
-          final name = (l['name'] as String?)?.toLowerCase();
-          final isKitchen = type == 'kitchen' || name == 'kitchen';
-          final isStorage = type == 'storage' || name == 'main storeroom';
-          return !isSource && !isKitchen && !isStorage;
-        }).toList();
+        final destinations = _departments;
 
         return Scaffold(
           appBar: AppBar(
@@ -430,6 +1379,36 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ),
           body: Column(
             children: [
+              if (_missingStockLinks.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Card(
+                    color: Colors.orange[50],
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Missing stock linkage',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Some kitchen items are not linked to stock items. Sales/dispatch will be blocked for them.',
+                            style: TextStyle(color: Colors.orange[800], fontSize: 12),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _missingStockLinks.take(5).join(', ') +
+                                (_missingStockLinks.length > 5 ? '...' : ''),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               if (showFullFunctionality)
                 TabBar(
                   controller: _tabController,
@@ -447,76 +1426,78 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           // Dispatch tab
                           Column(
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Form(
-                                  key: _formKey,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      DropdownButtonFormField<String>(
-                                        value: _selectedStockItemId,
-                                        decoration: const InputDecoration(
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                  DropdownButtonFormField<String>(
+                    value: _selectedStockItemId,
+                    decoration: const InputDecoration(
                                           labelText: 'Food Item',
-                                          border: OutlineInputBorder(),
+                      border: OutlineInputBorder(),
                                           prefixIcon: Icon(Icons.restaurant_menu),
-                                        ),
-                                        items: _stockItems
-                                            .map((item) => DropdownMenuItem(
-                                                  value: item['id'] as String,
+                    ),
+                    items: _stockItems
+                        .map((item) => DropdownMenuItem(
+                              value: item['id'] as String,
                                                   child: Text(item['name'] as String? ?? 'Item'),
-                                                ))
-                                            .toList(),
+                            ))
+                        .toList(),
                                         onChanged: (val) {
                                           setState(() => _selectedStockItemId = val);
                                           _setDispatchPriceFromItem(val);
                                         },
                                         validator: (val) =>
                                             val == null ? 'Please select an item' : null,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: TextFormField(
-                                              controller: _quantityController,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Quantity',
-                                                border: OutlineInputBorder(),
-                                                prefixIcon: Icon(Icons.numbers),
-                                              ),
-                                              keyboardType: TextInputType.number,
-                                              validator: (val) {
-                                                if (val == null || val.isEmpty) return 'Enter quantity';
-                                                final qty = int.tryParse(val);
-                                                if (qty == null || qty <= 0) return 'Enter valid quantity';
-                                                return null;
-                                              },
-                                            ),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          Expanded(
-                                            child: DropdownButtonFormField<String>(
-                                              value: _selectedDestinationLocationId,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Destination',
-                                                border: OutlineInputBorder(),
-                                                prefixIcon: Icon(Icons.location_on),
-                                              ),
-                                              items: destinations
-                                                  .map((destination) => DropdownMenuItem(
-                                                        value: destination['id'] as String,
-                                                        child: Text(destination['name'] as String),
-                                                      ))
-                                                  .toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _quantityController,
+                          decoration: const InputDecoration(
+                            labelText: 'Quantity',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.numbers),
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: (val) {
+                            if (val == null || val.isEmpty) return 'Enter quantity';
+                            final qty = int.tryParse(val);
+                            if (qty == null || qty <= 0) return 'Enter valid quantity';
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                                              value: _selectedDestinationDepartment,
+                          decoration: const InputDecoration(
+                                                labelText: 'Destination Department',
+                            border: OutlineInputBorder(),
+                                                prefixIcon: Icon(Icons.apartment),
+                          ),
+                          items: destinations
+                              .map((destination) => DropdownMenuItem(
+                                                        value: destination['name'] as String,
+                                                        child: Text(
+                                                          _formatDepartmentName(destination['name'] as String),
+                                                        ),
+                                  ))
+                              .toList(),
                                               onChanged: (val) =>
-                                                  setState(() => _selectedDestinationLocationId = val),
+                                                  setState(() => _selectedDestinationDepartment = val),
                                               validator: (val) =>
-                                                  val == null ? 'Select destination' : null,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                                  val == null ? 'Select department' : null,
+                        ),
+                      ),
+                    ],
+                  ),
                                       const SizedBox(height: 16),
                                       Row(
                                         children: [
@@ -554,105 +1535,251 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                 DropdownMenuItem(value: 'cash', child: Text('Cash')),
                                                 DropdownMenuItem(value: 'card', child: Text('Card')),
                                                 DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                                                DropdownMenuItem(value: 'credit', child: Text('Credit (Room)')),
                                               ],
-                                              onChanged: (val) =>
-                                                  setState(() => _dispatchPaymentMethod = val ?? 'cash'),
+                                              onChanged: _dispatchPaymentStatus == 'unpaid'
+                                                  ? null
+                                                  : (val) => setState(
+                                                        () => _dispatchPaymentMethod = val ?? 'cash',
+                                                      ),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 24),
-                                      _isLoading
-                                          ? const Center(child: CircularProgressIndicator())
-                                          : ElevatedButton.icon(
-                                              onPressed: _dispatchItem,
-                                              icon: const Icon(Icons.send),
-                                              label: const Text('Dispatch Item'),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: Colors.orange.shade800,
-                                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                              ),
+                                      const SizedBox(height: 16),
+                                      DropdownButtonFormField<String>(
+                                        value: _dispatchPaymentStatus,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Payment Status',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.payments_outlined),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(value: 'paid', child: Text('Paid now')),
+                                          DropdownMenuItem(value: 'unpaid', child: Text('Charge to room (debt)')),
+                                        ],
+                                        onChanged: (val) {
+                                          setState(() {
+                                            _dispatchPaymentStatus = val ?? 'paid';
+                                            if (_dispatchPaymentStatus == 'unpaid') {
+                                              _dispatchPaymentMethod = 'credit';
+                                            } else if (_dispatchPaymentMethod == 'credit') {
+                                              _dispatchPaymentMethod = 'cash';
+                                            }
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 12),
+                                      DropdownButtonFormField<String>(
+                                        value: _selectedDispatchBookingId,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Link to Booking (optional)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.meeting_room),
+                                        ),
+                                        items: _bookings
+                                            .map((booking) {
+                                              final guestProfile =
+                                                  booking['profiles'] as Map<String, dynamic>?;
+                                              final guestName =
+                                                  booking['guest_name'] as String? ??
+                                                      guestProfile?['full_name'] as String? ??
+                                                      'Guest';
+                                              final roomNumber = (booking['rooms']
+                                                              as Map<String, dynamic>?)
+                                                          ?['room_number']
+                                                          ?.toString() ??
+                                                  booking['requested_room_type']?.toString() ??
+                                                  'Room';
+                                              return DropdownMenuItem(
+                                                value: booking['id'] as String,
+                                                child: Text('$guestName • $roomNumber'),
+                                              );
+                                            })
+                                            .toList(),
+                                        onChanged: (val) =>
+                                            setState(() => _selectedDispatchBookingId = val),
+                                        validator: (val) => _dispatchPaymentStatus == 'unpaid' && val == null
+                                            ? 'Select a booking'
+                                            : null,
+                                      ),
+                  const SizedBox(height: 24),
+                  _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : ElevatedButton.icon(
+                          onPressed: _dispatchItem,
+                          icon: const Icon(Icons.send),
+                          label: const Text('Dispatch Item'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade800,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              const Divider(thickness: 2),
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'Recent Dispatches',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+          Expanded(
+                                          child: DropdownButtonFormField<String>(
+                                            value: _dispatchFilterPaymentStatus,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Payment Status',
+                                              border: OutlineInputBorder(),
                                             ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const Divider(thickness: 2),
-                              const Padding(
-                                padding: EdgeInsets.all(16.0),
-                                child: Text(
-                                  'Recent Dispatches',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                            items: const [
+                                              DropdownMenuItem(value: 'all', child: Text('All')),
+                                              DropdownMenuItem(value: 'paid', child: Text('Paid')),
+                                              DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
+                                            ],
+                                            onChanged: (val) => setState(
+                                              () => _dispatchFilterPaymentStatus = val ?? 'all',
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () async {
+                                              final now = DateTime.now();
+                                              final picked = await showDateRangePicker(
+                                                context: context,
+                                                firstDate: DateTime(now.year - 2),
+                                                lastDate: DateTime(now.year + 1),
+                                                initialDateRange: _dispatchFilterRange,
+                                              );
+                                              if (picked != null) {
+                                                setState(() => _dispatchFilterRange = picked);
+                                              }
+                                            },
+                                            icon: const Icon(Icons.date_range),
+                                            label: Text(
+                                              _dispatchFilterRange == null
+                                                  ? 'Date range'
+                                                  : '${DateFormat('MMM dd').format(_dispatchFilterRange!.start)} - ${DateFormat('MMM dd').format(_dispatchFilterRange!.end)}',
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: DropdownButtonFormField<String>(
+                                            value: _dispatchFilterDepartment,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Destination Department',
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            items: [
+                                              const DropdownMenuItem(value: 'all', child: Text('All')),
+                                              ..._departments.map((dept) => DropdownMenuItem(
+                                                    value: dept['name'] as String,
+                                                    child: Text(_formatDepartmentName(dept['name'] as String)),
+                                                  )),
+                                            ],
+                                            onChanged: (val) => setState(
+                                              () => _dispatchFilterDepartment = val ?? 'all',
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: DropdownButtonFormField<String>(
+                                            value: _dispatchFilterStaffId,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Dispatched By',
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            items: [
+                                              const DropdownMenuItem(value: 'all', child: Text('All')),
+                                              ..._uniqueDispatchStaffItems(),
+                                            ],
+                                            onChanged: (val) => setState(
+                                              () => _dispatchFilterStaffId = val ?? 'all',
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (_dispatchFilterRange != null)
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TextButton(
+                                          onPressed: () => setState(() => _dispatchFilterRange = null),
+                                          child: const Text('Clear date filter'),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                               Expanded(
-                                child: FutureBuilder<List<Map<String, dynamic>>>(
-                                  future: _dataService.getDepartmentTransfers(),
-                                  builder: (context, snapshot) {
-                                    if (snapshot.connectionState == ConnectionState.waiting) {
-                                      return const Center(child: CircularProgressIndicator());
-                                    }
-
-                                    if (snapshot.hasError) {
-                                      return ErrorHandler.buildErrorWidget(
-                                        context,
-                                        snapshot.error,
-                                        message: 'Error loading recent dispatches',
-                                        onRetry: () => setState(() {}),
-                                      );
-                                    }
-
-                                    final transfers = snapshot.data ?? [];
-
-                                    if (transfers.isEmpty) {
-                                      return ErrorHandler.buildEmptyWidget(
-                                        context,
+                                child: _filteredDispatchHistory.isEmpty
+                                    ? ErrorHandler.buildEmptyWidget(
+                    context,
                                         message: 'No recent dispatches',
-                                      );
-                                    }
-
-                                    return ListView.builder(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                      itemCount: transfers.length,
-                                      itemBuilder: (context, index) {
-                                        final transfer = transfers[index];
-                                        final menuItem =
-                                            transfer['menu_items'] as Map<String, dynamic>?;
-                                        final itemName = menuItem?['name'] ?? 'Unknown Item';
-                                        return Card(
-                                          margin: const EdgeInsets.symmetric(vertical: 4),
-                                          child: ListTile(
-                                            leading:
-                                                const Icon(Icons.send, color: Colors.orange),
-                                            title: Text(
-                                              'To: ${transfer['destination_department'] ?? 'Unknown'}',
+                                      )
+                                    : ListView.builder(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                        itemCount: _filteredDispatchHistory.length,
+                                        itemBuilder: (context, index) {
+                                          final transfer = _filteredDispatchHistory[index];
+                                          final menuItem =
+                                              transfer['menu_items'] as Map<String, dynamic>?;
+                                          final itemName = menuItem?['name'] ?? 'Unknown Item';
+                                          final destination = transfer['destination_department']?.toString() ?? 'Unknown';
+                                          final booking = transfer['bookings'] as Map<String, dynamic>?;
+                                          final bookingGuest = booking?['guest_name'] as String?;
+                                          return Card(
+                                            margin: const EdgeInsets.symmetric(vertical: 4),
+                                            child: ListTile(
+                                              leading:
+                                                  const Icon(Icons.send, color: Colors.orange),
+                                              title: Text(
+                                                'To: ${_formatDepartmentName(destination)}',
+                                              ),
+                                              subtitle: Text(
+                                                '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'
+                                                ' • Pay: ${transfer['payment_status'] ?? 'paid'}'
+                                                '${bookingGuest != null ? ' • $bookingGuest' : ''}',
+                                              ),
+                                              trailing: Text(
+                                                transfer['created_at'] != null
+                                                    ? _formatDate(transfer['created_at'] as String)
+                                                    : '',
+                                                style: const TextStyle(fontSize: 12),
+                                              ),
                                             ),
-                                            subtitle: Text(
-                                              '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}',
-                                            ),
-                                            trailing: Text(
-                                              transfer['created_at'] != null
-                                                  ? _formatDate(transfer['created_at'] as String)
-                                                  : '',
-                                              style: const TextStyle(fontSize: 12),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
+                                          );
+                                        },
+                                      ),
                               ),
                             ],
                           ),
                           // Sales tab
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Form(
-                              key: _saleFormKey,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
+                          Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Form(
+                                  key: _saleFormKey,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
                                   SwitchListTile(
                                     title: const Text('Custom Order (not on menu)'),
                                     value: _isCustomSale,
@@ -762,6 +1889,53 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                     onChanged: (val) =>
                                         setState(() => _salePaymentMethod = val ?? 'cash'),
                                   ),
+                                  const SizedBox(height: 12),
+                                  SwitchListTile(
+                                    title: const Text('Charge to Guest Room'),
+                                    subtitle: const Text('Creates a debt for reception to collect at checkout'),
+                                    value: _chargeToRoom,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _chargeToRoom = val;
+                                        if (!val) _selectedBookingId = null;
+                                      });
+                                    },
+                                  ),
+                                  if (_chargeToRoom) ...[
+                                    const SizedBox(height: 8),
+                                    DropdownButtonFormField<String>(
+                                      value: _selectedBookingId,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Select Checked‑in Booking',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.meeting_room),
+                                      ),
+                                      items: _bookings
+                                          .map((booking) {
+                                            final guestProfile = booking['profiles'] as Map<String, dynamic>?;
+                                            final guestName = booking['guest_name'] as String? ??
+                                                guestProfile?['full_name'] as String? ??
+                                                'Guest';
+                                            final roomNumber = (booking['rooms'] as Map<String, dynamic>?)
+                                                    ?['room_number']
+                                                    ?.toString() ??
+                                                booking['requested_room_type']?.toString() ??
+                                                'Room';
+                                            return DropdownMenuItem(
+                                              value: booking['id'] as String,
+                                              child: Text('$guestName • $roomNumber'),
+                                            );
+                                          })
+                                          .toList(),
+                                      onChanged: (val) => setState(() => _selectedBookingId = val),
+                                      validator: (val) {
+                                        if (_chargeToRoom && val == null) {
+                                          return 'Select a booking';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
                                   const SizedBox(height: 24),
                                   _isLoading
                                       ? const Center(child: CircularProgressIndicator())
@@ -774,9 +1948,118 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                             padding: const EdgeInsets.symmetric(vertical: 16),
                                           ),
                                         ),
-                                ],
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
+                              const Divider(thickness: 2),
+                              const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Text(
+                                  'Recent Kitchen Sales',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: DropdownButtonFormField<String>(
+                                            value: _salesFilterPaymentMethod,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Payment Method',
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            items: const [
+                                              DropdownMenuItem(value: 'all', child: Text('All')),
+                                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                                              DropdownMenuItem(value: 'card', child: Text('Card')),
+                                              DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                                              DropdownMenuItem(value: 'credit', child: Text('Credit')),
+                                            ],
+                                            onChanged: (val) => setState(
+                                              () => _salesFilterPaymentMethod = val ?? 'all',
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () async {
+                                              final now = DateTime.now();
+                                              final picked = await showDateRangePicker(
+                                                context: context,
+                                                firstDate: DateTime(now.year - 2),
+                                                lastDate: DateTime(now.year + 1),
+                                                initialDateRange: _salesFilterRange,
+                                              );
+                                              if (picked != null) {
+                                                setState(() => _salesFilterRange = picked);
+                                              }
+                                            },
+                                            icon: const Icon(Icons.date_range),
+                                            label: Text(
+                                              _salesFilterRange == null
+                                                  ? 'Date range'
+                                                  : '${DateFormat('MMM dd').format(_salesFilterRange!.start)} - ${DateFormat('MMM dd').format(_salesFilterRange!.end)}',
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (_salesFilterRange != null)
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TextButton(
+                                          onPressed: () => setState(() => _salesFilterRange = null),
+                                          child: const Text('Clear date filter'),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: _filteredSalesHistory.isEmpty
+                                    ? ErrorHandler.buildEmptyWidget(
+                    context,
+                                        message: 'No recent kitchen sales',
+                                      )
+                                    : ListView.builder(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                        itemCount: _filteredSalesHistory.length,
+                                        itemBuilder: (context, index) {
+                                          final sale = _filteredSalesHistory[index];
+                                          final itemName = sale['item_name'] ??
+                                              (sale['menu_items'] as Map<String, dynamic>?)?['name'] ??
+                                              'Item';
+                                          final qty = sale['quantity'] ?? 0;
+                                          final total = sale['total_amount'] as int? ?? 0;
+                                          final bookingId = sale['booking_id'];
+                                          final booking = sale['bookings'] as Map<String, dynamic>?;
+                                          final bookingGuest = booking?['guest_name'] as String?;
+                                          return Card(
+                                            margin: const EdgeInsets.symmetric(vertical: 4),
+                                            child: ListTile(
+                                              leading: const Icon(Icons.receipt_long, color: Colors.orange),
+                                              title: Text('$itemName × $qty'),
+                                              subtitle: Text(
+                                                'Payment: ${sale['payment_method'] ?? 'cash'}'
+                                                '${bookingId != null ? ' • Room Charge' : ''}'
+                                                '${bookingGuest != null ? ' • $bookingGuest' : ''}',
+                                              ),
+                                              trailing: Text(
+                                                '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
+                                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
                           ),
                         ],
                       )
@@ -799,61 +2082,144 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
-        Expanded(
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _dataService.getDepartmentTransfers(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (snapshot.hasError) {
-                return ErrorHandler.buildErrorWidget(
-                  context,
-                  snapshot.error,
-                  message: 'Error loading recent dispatches',
-                  onRetry: () => setState(() {}),
-                );
-              }
-
-              final transfers = snapshot.data ?? [];
-
-              if (transfers.isEmpty) {
-                return ErrorHandler.buildEmptyWidget(
-                  context,
-                  message: 'No recent dispatches',
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                itemCount: transfers.length,
-                itemBuilder: (context, index) {
-                  final transfer = transfers[index];
-                  final menuItem = transfer['menu_items'] as Map<String, dynamic>?;
-                  final itemName = menuItem?['name'] ?? 'Unknown Item';
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: ListTile(
-                      leading: const Icon(Icons.send, color: Colors.orange),
-                      title: Text('To: ${transfer['destination_department'] ?? 'Unknown'}'),
-                      subtitle: Text(
-                        '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}',
+        Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _dispatchFilterPaymentStatus,
+                      decoration: const InputDecoration(
+                        labelText: 'Payment Status',
+                        border: OutlineInputBorder(),
                       ),
-                      trailing: Text(
-                        transfer['created_at'] != null
-                            ? _formatDate(transfer['created_at'] as String)
-                            : '',
-                        style: const TextStyle(fontSize: 12),
+                      items: const [
+                        DropdownMenuItem(value: 'all', child: Text('All')),
+                        DropdownMenuItem(value: 'paid', child: Text('Paid')),
+                        DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
+                      ],
+                      onChanged: (val) => setState(
+                        () => _dispatchFilterPaymentStatus = val ?? 'all',
                       ),
                     ),
-                  );
-                },
-              );
-            },
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final now = DateTime.now();
+                        final picked = await showDateRangePicker(
+                          context: context,
+                          firstDate: DateTime(now.year - 2),
+                          lastDate: DateTime(now.year + 1),
+                          initialDateRange: _dispatchFilterRange,
+                        );
+                        if (picked != null) {
+                          setState(() => _dispatchFilterRange = picked);
+                        }
+                      },
+                      icon: const Icon(Icons.date_range),
+                      label: Text(
+                        _dispatchFilterRange == null
+                            ? 'Date range'
+                            : '${DateFormat('MMM dd').format(_dispatchFilterRange!.start)} - ${DateFormat('MMM dd').format(_dispatchFilterRange!.end)}',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _dispatchFilterDepartment,
+                      decoration: const InputDecoration(
+                        labelText: 'Destination Department',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('All')),
+                        ..._departments.map((dept) => DropdownMenuItem(
+                              value: dept['name'] as String,
+                              child: Text(_formatDepartmentName(dept['name'] as String)),
+                            )),
+                      ],
+                      onChanged: (val) => setState(
+                        () => _dispatchFilterDepartment = val ?? 'all',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _dispatchFilterStaffId,
+                      decoration: const InputDecoration(
+                        labelText: 'Dispatched By',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('All')),
+                        ..._uniqueDispatchStaffItems(),
+                      ],
+                      onChanged: (val) => setState(
+                        () => _dispatchFilterStaffId = val ?? 'all',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_dispatchFilterRange != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => setState(() => _dispatchFilterRange = null),
+                    child: const Text('Clear date filter'),
+                  ),
+                ),
+            ],
           ),
         ),
-      ],
+        Expanded(
+          child: _filteredDispatchHistory.isEmpty
+              ? ErrorHandler.buildEmptyWidget(
+                  context,
+                  message: 'No recent dispatches',
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  itemCount: _filteredDispatchHistory.length,
+                  itemBuilder: (context, index) {
+                    final transfer = _filteredDispatchHistory[index];
+                    final menuItem = transfer['menu_items'] as Map<String, dynamic>?;
+                    final itemName = menuItem?['name'] ?? 'Unknown Item';
+                    final destination = transfer['destination_department']?.toString() ?? 'Unknown';
+                    final booking = transfer['bookings'] as Map<String, dynamic>?;
+                    final bookingGuest = booking?['guest_name'] as String?;
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        leading: const Icon(Icons.send, color: Colors.orange),
+                        title: Text('To: ${_formatDepartmentName(destination)}'),
+                        subtitle: Text(
+                          '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'
+                          ' • Pay: ${transfer['payment_status'] ?? 'paid'}'
+                          '${bookingGuest != null ? ' • $bookingGuest' : ''}',
+                        ),
+                        trailing: Text(
+                          transfer['created_at'] != null
+                              ? _formatDate(transfer['created_at'] as String)
+                              : '',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                );
+              },
+            ),
+          ),
+            ],
     );
   }
 }

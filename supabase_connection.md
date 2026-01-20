@@ -83,6 +83,7 @@ END $$;
 
 -- Drop Tables (in reverse dependency order)
 DROP TABLE IF EXISTS public.kitchen_orders CASCADE;
+DROP TABLE IF EXISTS public.kitchen_sales CASCADE;
 DROP TABLE IF EXISTS public.booking_charges CASCADE;
 DROP TABLE IF EXISTS public.bookings CASCADE;
 DROP TABLE IF EXISTS public.smartlock_logs CASCADE;
@@ -401,8 +402,8 @@ CREATE POLICY "Active staff view stock items" ON public.stock_items FOR SELECT U
       JOIN public.locations l ON l.id = st.location_id
       WHERE st.stock_item_id = stock_items.id
       AND (
-        (l.name = 'VIP Bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
-        OR (l.name = 'Outside Bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+        OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
         OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
         OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
         OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
@@ -428,8 +429,8 @@ CREATE POLICY "Bar staff view inventory items" ON public.inventory_items FOR SEL
   AND (
     user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'manager')
-    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
-    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+    OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
   )
 );
 CREATE POLICY "Management can manage inventory items" ON public.inventory_items FOR ALL USING (
@@ -535,6 +536,28 @@ CREATE TABLE public.booking_charges (
 
 ALTER TABLE public.booking_charges ENABLE ROW LEVEL SECURITY;
 
+-- Booking charges policies
+CREATE POLICY "Active staff view booking charges" ON public.booking_charges FOR SELECT
+USING (is_user_active(auth.uid()));
+
+CREATE POLICY "Staff can insert booking charges" ON public.booking_charges FOR INSERT
+WITH CHECK (
+  is_user_active(auth.uid())
+  AND added_by = auth.uid()
+  AND (
+    user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'kitchen_staff')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+);
+
+CREATE POLICY "Management can update booking charges" ON public.booking_charges FOR UPDATE
+USING (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner'))
+);
+
 -- ==============================================
 -- 7. STOCK TRANSACTIONS (Multi-Location Ledger)
 -- ==============================================
@@ -544,8 +567,9 @@ CREATE TABLE public.stock_transactions (
     stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
     location_id UUID REFERENCES public.locations(id) NOT NULL,
     staff_profile_id UUID REFERENCES public.profiles(id) NOT NULL,
-    transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage', 'Adjustment'
+    transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage', 'Adjustment', 'Direct_Supply'
     quantity INT NOT NULL, -- Positive or Negative
+    shift_id UUID REFERENCES public.bartender_shifts(id),
     notes TEXT
 );
 
@@ -566,8 +590,8 @@ CREATE POLICY "Active staff view stock" ON public.stock_transactions FOR SELECT 
       SELECT l.id
       FROM public.locations l
       WHERE (
-        (l.name = 'VIP Bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
-        OR (l.name = 'Outside Bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+        (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+        OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
         OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
         OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
         OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
@@ -584,16 +608,203 @@ CREATE POLICY "Active staff can insert stock transactions" ON public.stock_trans
     AND (
       'storekeeper' = ANY(p.roles) OR
       'purchaser' = ANY(p.roles) OR
-      'vip_bartender' = ANY(p.roles) OR
-      'outside_bartender' = ANY(p.roles) OR
-      'bartender' = ANY(p.roles) OR
-      'kitchen_staff' = ANY(p.roles) OR
-      'receptionist' = ANY(p.roles) OR
       'manager' = ANY(p.roles) OR
-      'owner' = ANY(p.roles)
+      'owner' = ANY(p.roles) OR
+      ('vip_bartender' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'VIP Bar')) OR
+      ('outside_bartender' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Outside Bar')) OR
+      ('kitchen_staff' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Kitchen')) OR
+      ('receptionist' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Mini Mart'))
+    )
+    AND (
+      transaction_type <> 'Direct_Supply'
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'storekeeper')
     )
   )
 );
+-- ==============================================
+-- 8.1. DIRECT SUPPLY REQUESTS (Bartender -> Management Approval)
+-- ==============================================
+CREATE TABLE public.direct_supply_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
+    bar TEXT NOT NULL CHECK (bar IN ('vip_bar', 'outside_bar')),
+    quantity INT NOT NULL CHECK (quantity > 0),
+    requested_by UUID REFERENCES public.profiles(id) NOT NULL,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
+    approved_by UUID REFERENCES public.profiles(id),
+    approved_at TIMESTAMPTZ,
+    notes TEXT
+);
+
+ALTER TABLE public.direct_supply_requests ENABLE ROW LEVEL SECURITY;
+
+-- Bartenders can request for their own bar, management can view all
+CREATE POLICY "Direct supply requests view" ON public.direct_supply_requests FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    requested_by = auth.uid()
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+);
+
+CREATE POLICY "Direct supply requests insert" ON public.direct_supply_requests FOR INSERT WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    (user_has_role(auth.uid(), 'vip_bartender') AND bar = 'vip_bar' AND requested_by = auth.uid())
+    OR (user_has_role(auth.uid(), 'outside_bartender') AND bar = 'outside_bar' AND requested_by = auth.uid())
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+);
+
+CREATE POLICY "Direct supply requests update" ON public.direct_supply_requests FOR UPDATE USING (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner'))
+);
+
+-- Approval function (management only)
+CREATE OR REPLACE FUNCTION public.approve_direct_supply(
+    p_request_id uuid,
+    p_action text,
+    p_notes text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_request record;
+    v_location_id uuid;
+    v_item_name text;
+    v_inventory_id uuid;
+BEGIN
+    IF NOT (user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner')) THEN
+        RAISE EXCEPTION 'Not authorized to approve direct supply';
+    END IF;
+
+    SELECT * INTO v_request
+    FROM public.direct_supply_requests
+    WHERE id = p_request_id
+    FOR UPDATE;
+
+    IF v_request IS NULL THEN
+        RAISE EXCEPTION 'Request not found';
+    END IF;
+
+    IF v_request.status <> 'pending' THEN
+        RAISE EXCEPTION 'Request already processed';
+    END IF;
+
+    IF p_action = 'deny' THEN
+        UPDATE public.direct_supply_requests
+        SET status = 'denied',
+            approved_by = auth.uid(),
+            approved_at = now(),
+            notes = COALESCE(p_notes, notes)
+        WHERE id = p_request_id;
+
+        INSERT INTO public.notifications (user_id, title, message, type, data)
+        VALUES (
+            v_request.requested_by,
+            'Direct supply denied',
+            'Your direct supply request was denied.',
+            'warning',
+            jsonb_build_object('request_id', v_request.id, 'bar', v_request.bar)
+        );
+        RETURN;
+    END IF;
+
+    IF p_action <> 'approve' THEN
+        RAISE EXCEPTION 'Invalid action';
+    END IF;
+
+    SELECT name INTO v_item_name
+    FROM public.stock_items
+    WHERE id = v_request.stock_item_id;
+
+    SELECT id INTO v_location_id
+    FROM public.locations
+    WHERE name = CASE WHEN v_request.bar = 'vip_bar' THEN 'VIP Bar' ELSE 'Outside Bar' END;
+
+    IF v_location_id IS NULL THEN
+        RAISE EXCEPTION 'Destination location not found';
+    END IF;
+
+    INSERT INTO public.stock_transactions (
+        stock_item_id,
+        location_id,
+        staff_profile_id,
+        transaction_type,
+        quantity,
+        notes
+    ) VALUES (
+        v_request.stock_item_id,
+        v_location_id,
+        auth.uid(),
+        'Direct_Supply',
+        v_request.quantity,
+        COALESCE(p_notes, 'Direct supply approved')
+    );
+
+    SELECT id INTO v_inventory_id
+    FROM public.inventory_items
+    WHERE name = v_item_name
+    AND department = v_request.bar;
+
+    IF v_inventory_id IS NULL THEN
+        RAISE EXCEPTION 'Inventory item not found for %', v_item_name;
+    END IF;
+
+    UPDATE public.inventory_items
+    SET current_stock = current_stock + v_request.quantity
+    WHERE id = v_inventory_id;
+
+    UPDATE public.direct_supply_requests
+    SET status = 'approved',
+        approved_by = auth.uid(),
+        approved_at = now(),
+        notes = COALESCE(p_notes, notes)
+    WHERE id = p_request_id;
+
+    INSERT INTO public.notifications (user_id, title, message, type, data)
+    VALUES (
+        v_request.requested_by,
+        'Direct supply approved',
+        'Your direct supply request was approved.',
+        'success',
+        jsonb_build_object('request_id', v_request.id, 'bar', v_request.bar)
+    );
+END;
+$$;
+
+-- Notify management when a direct supply request is created
+CREATE OR REPLACE FUNCTION public.notify_direct_supply_request()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.notifications (user_id, title, message, type, data)
+  SELECT p.id,
+         'Direct supply request',
+         'A new direct supply request requires approval.',
+         'info',
+         jsonb_build_object('request_id', NEW.id, 'bar', NEW.bar)
+  FROM public.profiles p
+  WHERE p.status = 'Active'
+  AND ( 'owner' = ANY(p.roles) OR 'manager' = ANY(p.roles) );
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_direct_supply_request ON public.direct_supply_requests;
+CREATE TRIGGER trg_notify_direct_supply_request
+AFTER INSERT ON public.direct_supply_requests
+FOR EACH ROW EXECUTE FUNCTION public.notify_direct_supply_request();
 
 -- ==============================================
 -- 8. STOCK TRANSFERS (Main Store -> Departments)
@@ -640,7 +851,42 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_transfer_id uuid;
+    v_is_management boolean;
+    v_is_bartender boolean;
+    v_source_allowed boolean;
+    v_destination_allowed boolean;
 BEGIN
+    IF NOT is_user_active(auth.uid()) THEN
+        RAISE EXCEPTION 'User not active';
+    END IF;
+
+    v_is_management := user_has_role(auth.uid(), 'storekeeper')
+        OR user_has_role(auth.uid(), 'manager')
+        OR user_has_role(auth.uid(), 'owner');
+    v_is_bartender := user_has_role(auth.uid(), 'vip_bartender')
+        OR user_has_role(auth.uid(), 'outside_bartender');
+
+    IF NOT (v_is_management OR v_is_bartender) THEN
+        RAISE EXCEPTION 'Not authorized to create stock transfer';
+    END IF;
+
+    IF v_is_bartender AND NOT v_is_management THEN
+        IF p_issued_by_id <> auth.uid() THEN
+            RAISE EXCEPTION 'Bartenders can only issue transfers for themselves';
+        END IF;
+        SELECT EXISTS(
+            SELECT 1 FROM public.locations l
+            WHERE l.id = p_source_location_id AND l.name IN ('VIP Bar', 'Outside Bar')
+        ) INTO v_source_allowed;
+        SELECT EXISTS(
+            SELECT 1 FROM public.locations l
+            WHERE l.id = p_destination_location_id AND l.name IN ('VIP Bar', 'Outside Bar')
+        ) INTO v_destination_allowed;
+        IF NOT (v_source_allowed AND v_destination_allowed) THEN
+            RAISE EXCEPTION 'Bartenders can only transfer between VIP Bar and Outside Bar';
+        END IF;
+    END IF;
+
     INSERT INTO public.stock_transfers (
         stock_item_id,
         source_location_id,
@@ -689,7 +935,13 @@ CREATE TABLE public.department_transfers (
     menu_item_id UUID REFERENCES public.menu_items(id),
     quantity INT,
     dispatched_by_id UUID REFERENCES public.profiles(id),
-    status TEXT DEFAULT 'Pending' -- 'Pending', 'Confirmed'
+    status TEXT DEFAULT 'Pending', -- 'Pending', 'Confirmed'
+    unit_price INT8 DEFAULT 0, -- Stored in Kobo/Cents
+    total_amount INT8 DEFAULT 0, -- quantity * unit_price
+    payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'transfer', 'credit'
+    payment_status TEXT DEFAULT 'paid', -- 'paid', 'unpaid'
+    booking_id UUID REFERENCES public.bookings(id),
+    notes TEXT
 );
 
 ALTER TABLE public.department_transfers ENABLE ROW LEVEL SECURITY;
@@ -990,6 +1242,9 @@ CREATE TABLE public.debts (
     approved_by TEXT, -- Manually entered name of supervisor/staff who approved (optional)
     booking_id UUID REFERENCES public.bookings(id), -- Link to booking if debt from room booking
     sale_id UUID, -- Generic sale ID (can link to department_sales or mini_mart_sales)
+    source_department TEXT, -- Originating department for traceability
+    source_type TEXT, -- e.g. 'kitchen_sale', 'kitchen_dispatch'
+    reference_id UUID, -- Reference to source record (sale/transfer)
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -1015,7 +1270,7 @@ WITH CHECK (
     OR user_has_role(auth.uid(), 'kitchen_staff')
     OR user_has_role(auth.uid(), 'vip_bartender')
     OR user_has_role(auth.uid(), 'outside_bartender')
-    OR user_has_role(auth.uid(), 'bartender')
+    -- legacy bartender role removed
     OR user_has_role(auth.uid(), 'manager')
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
@@ -1092,6 +1347,80 @@ WITH CHECK (
     AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
   )
 );
+
+-- Auto-update debt status, booking paid_amount, and department sales on payment
+CREATE OR REPLACE FUNCTION public.handle_debt_payment()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_debt RECORD;
+  v_department TEXT;
+  v_existing RECORD;
+  v_breakdown JSONB;
+  v_new_amount INT8;
+BEGIN
+  SELECT * INTO v_debt FROM public.debts WHERE id = NEW.debt_id;
+  IF v_debt IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_new_amount := COALESCE(v_debt.paid_amount, 0) + NEW.amount;
+
+  UPDATE public.debts
+  SET paid_amount = v_new_amount,
+      last_payment_date = NEW.payment_date,
+      status = CASE
+        WHEN v_new_amount >= v_debt.amount THEN 'paid'
+        ELSE 'partially_paid'
+      END,
+      updated_at = now()
+  WHERE id = NEW.debt_id;
+
+  IF v_debt.booking_id IS NOT NULL THEN
+    UPDATE public.bookings
+    SET paid_amount = COALESCE(paid_amount, 0) + NEW.amount,
+        updated_at = now()
+    WHERE id = v_debt.booking_id;
+  END IF;
+
+  v_department := COALESCE(v_debt.source_department, v_debt.department);
+  IF v_department IS NOT NULL THEN
+    SELECT * INTO v_existing
+    FROM public.department_sales
+    WHERE department = v_department
+      AND date = NEW.payment_date;
+
+    v_breakdown := COALESCE(v_existing.payment_method_breakdown, '{}'::jsonb);
+    v_breakdown := jsonb_set(
+      v_breakdown,
+      ARRAY[NEW.payment_method],
+      to_jsonb(COALESCE((v_breakdown->>NEW.payment_method)::int, 0) + NEW.amount),
+      true
+    );
+
+    IF v_existing IS NOT NULL THEN
+      UPDATE public.department_sales
+      SET total_sales = COALESCE(total_sales, 0) + NEW.amount,
+          transaction_count = COALESCE(transaction_count, 0) + 1,
+          payment_method_breakdown = v_breakdown,
+          updated_at = now()
+      WHERE id = v_existing.id;
+    ELSE
+      INSERT INTO public.department_sales(
+        department, date, total_sales, transaction_count, payment_method_breakdown, recorded_by, staff_id
+      ) VALUES (
+        v_department, NEW.payment_date, NEW.amount, 1, v_breakdown, NEW.created_by, NEW.collected_by
+      );
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS handle_debt_payment_trigger ON public.debt_payments;
+CREATE TRIGGER handle_debt_payment_trigger
+AFTER INSERT ON public.debt_payments
+FOR EACH ROW EXECUTE FUNCTION public.handle_debt_payment();
 
 -- ==============================================
 -- 10.5. MINI MART ITEMS (Reception Subdepartment)
@@ -1201,8 +1530,8 @@ USING (
       'owner' = ANY(p.roles) OR 
       'accountant' = ANY(p.roles) OR
       (department = 'restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
-      (department = 'vip_bar' AND ('vip_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
-      (department = 'outside_bar' AND ('outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
+      (department = 'vip_bar' AND ('vip_bartender' = ANY(p.roles))) OR
+      (department = 'outside_bar' AND ('outside_bartender' = ANY(p.roles))) OR
       (department = 'mini_mart' AND 'receptionist' = ANY(p.roles)) OR
       (department = 'reception' AND 'receptionist' = ANY(p.roles)) OR
       (department = 'laundry' AND 'laundry_attendant' = ANY(p.roles)) OR
@@ -1239,8 +1568,8 @@ CREATE POLICY "Department staff can insert sales" ON public.department_sales FOR
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
     OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
-    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
-    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+    OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
     OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
     OR (department = 'reception' AND user_has_role(auth.uid(), 'receptionist'))
     OR (department = 'laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
@@ -1260,8 +1589,8 @@ CREATE POLICY "Department staff can update sales" ON public.department_sales FOR
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
     OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
-    OR (department = 'vip_bar' AND (user_has_role(auth.uid(), 'vip_bartender') OR user_has_role(auth.uid(), 'bartender')))
-    OR (department = 'outside_bar' AND (user_has_role(auth.uid(), 'outside_bartender') OR user_has_role(auth.uid(), 'bartender')))
+    OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+    OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
     OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
     OR (department = 'reception' AND user_has_role(auth.uid(), 'receptionist'))
     OR (department = 'laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
@@ -1275,18 +1604,72 @@ CREATE POLICY "Department staff can update sales" ON public.department_sales FOR
 );
 
 -- ==============================================
+-- 10.7b. KITCHEN SALES (Itemized History)
+-- ==============================================
+CREATE TABLE public.kitchen_sales (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    menu_item_id UUID REFERENCES public.menu_items(id),
+    item_name TEXT, -- For custom items
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price INT8 NOT NULL, -- Stored in Kobo/Cents
+    total_amount INT8 NOT NULL, -- quantity * unit_price
+    payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'transfer', 'credit'
+    booking_id UUID REFERENCES public.bookings(id),
+    sold_by UUID REFERENCES public.profiles(id) NOT NULL,
+    notes TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.kitchen_sales ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Kitchen staff access kitchen sales" ON public.kitchen_sales FOR SELECT
+USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'kitchen_staff')
+    OR user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'accountant')
+  )
+);
+
+CREATE POLICY "Kitchen staff can insert kitchen sales" ON public.kitchen_sales FOR INSERT
+WITH CHECK (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'kitchen_staff')
+    OR user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+  )
+  AND sold_by = auth.uid()
+);
+
+CREATE POLICY "Management can update kitchen sales" ON public.kitchen_sales FOR UPDATE
+USING (
+  is_user_active(auth.uid())
+  AND (user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner'))
+);
+
+-- ==============================================
 -- 10.8. BARTENDER SHIFTS
 -- ==============================================
 CREATE TABLE public.bartender_shifts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
     bartender_id UUID REFERENCES public.profiles(id) NOT NULL,
+    bar TEXT NOT NULL CHECK (bar IN ('vip_bar', 'outside_bar')),
     start_time TIMESTAMPTZ NOT NULL,
     end_time TIMESTAMPTZ,
     date DATE DEFAULT CURRENT_DATE,
     opening_cash INT8 DEFAULT 0, -- Stored in Kobo/Cents
     closing_cash INT8, -- Stored in Kobo/Cents
     total_sales INT8, -- Stored in Kobo/Cents
+    opening_stock JSONB DEFAULT '[]'::jsonb,
+    transfers JSONB DEFAULT '[]'::jsonb,
+    closing_stock JSONB DEFAULT '[]'::jsonb,
     notes TEXT,
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'cancelled')),
     closed_by UUID REFERENCES public.profiles(id),
@@ -1306,7 +1689,6 @@ USING (
       bartender_id = auth.uid() OR
       'vip_bartender' = ANY(p.roles) OR
       'outside_bartender' = ANY(p.roles) OR
-      'bartender' = ANY(p.roles) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
     )
@@ -1319,7 +1701,7 @@ CREATE POLICY "Bartenders can insert shifts" ON public.bartender_shifts FOR INSE
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
+      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
     )
@@ -1332,7 +1714,7 @@ CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDA
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles) OR 'bartender' = ANY(p.roles))) OR
+      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
       'manager' = ANY(p.roles) OR
       'owner' = ANY(p.roles)
     )
@@ -1492,6 +1874,7 @@ CREATE TABLE public.posts (
     content TEXT,
     department TEXT,
     is_announcement BOOLEAN DEFAULT false,
+    target_user_ids UUID[] DEFAULT NULL,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -1503,6 +1886,12 @@ CREATE POLICY "Active staff read posts" ON public.posts FOR SELECT USING (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid() 
     AND p.status = 'Active'
+  )
+  AND (
+    author_profile_id = auth.uid()
+    OR target_user_ids IS NULL
+    OR array_length(target_user_ids, 1) = 0
+    OR auth.uid() = ANY(target_user_ids)
   )
 );
 CREATE POLICY "Active staff can insert posts" ON public.posts FOR INSERT WITH CHECK (
@@ -1555,6 +1944,44 @@ CREATE TABLE public.notifications (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Notify all staff when an announcement is posted
+CREATE OR REPLACE FUNCTION public.notify_on_announcement()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF NEW.is_announcement IS TRUE THEN
+    IF NEW.target_user_ids IS NULL OR array_length(NEW.target_user_ids, 1) = 0 THEN
+      INSERT INTO public.notifications (user_id, title, message, type, data)
+      SELECT p.id,
+             NEW.title,
+             NEW.content,
+             'info',
+             jsonb_build_object('post_id', NEW.id)
+      FROM public.profiles p
+      WHERE p.status = 'Active';
+    ELSE
+      INSERT INTO public.notifications (user_id, title, message, type, data)
+      SELECT p.id,
+             NEW.title,
+             NEW.content,
+             'info',
+             jsonb_build_object('post_id', NEW.id)
+      FROM public.profiles p
+      WHERE p.status = 'Active'
+      AND p.id = ANY(NEW.target_user_ids);
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_announcement ON public.posts;
+CREATE TRIGGER trg_notify_on_announcement
+AFTER INSERT ON public.posts
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_announcement();
+
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- Only active users can view notifications (resigned/terminated staff are blocked)
@@ -1574,6 +2001,370 @@ CREATE POLICY "Active users can update own notifications" ON public.notification
     AND p.status = 'Active'
   )
 );
+
+-- ==============================================
+-- 14.1. MANAGEMENT NOTIFICATIONS (Quiet Alerts)
+-- ==============================================
+CREATE OR REPLACE FUNCTION public.notify_management(
+  p_title text,
+  p_message text,
+  p_type text DEFAULT 'info',
+  p_data jsonb DEFAULT '{}'::jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.notifications (user_id, title, message, type, data)
+  SELECT p.id, p_title, p_message, p_type, p_data
+  FROM public.profiles p
+  WHERE p.status = 'Active'
+  AND ( 'owner' = ANY(p.roles) OR 'manager' = ANY(p.roles) );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.send_management_daily_digest()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_start timestamptz := date_trunc('day', now()) - interval '1 day';
+  v_end timestamptz := date_trunc('day', now());
+  v_booking_count int := 0;
+  v_payment_updates int := 0;
+  v_credit_sales int := 0;
+  v_debt_updates int := 0;
+  v_price_updates int := 0;
+  v_supply_requests int := 0;
+  v_supply_decisions int := 0;
+  v_message text;
+  v_digest_date text := to_char(v_start::date, 'YYYY-MM-DD');
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.notifications
+    WHERE title = 'Daily summary'
+    AND (data->>'digest_date') = v_digest_date
+  ) THEN
+    RETURN;
+  END IF;
+
+  SELECT COUNT(DISTINCT (data->>'booking_id')) INTO v_booking_count
+  FROM public.notifications
+  WHERE title = 'New booking created'
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (data->>'booking_id')) INTO v_payment_updates
+  FROM public.notifications
+  WHERE title = 'Booking payment updated'
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (data->>'debt_id')) INTO v_credit_sales
+  FROM public.notifications
+  WHERE title = 'Credit sale recorded'
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (data->>'debt_id')) INTO v_debt_updates
+  FROM public.notifications
+  WHERE title = 'Debt updated'
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (COALESCE(data->>'inventory_item_id', data->>'room_type_id'))) INTO v_price_updates
+  FROM public.notifications
+  WHERE (title = 'Price updated' OR title = 'Room price updated')
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (data->>'request_id')) INTO v_supply_requests
+  FROM public.notifications
+  WHERE title = 'Direct supply request'
+  AND created_at >= v_start AND created_at < v_end;
+
+  SELECT COUNT(DISTINCT (data->>'request_id')) INTO v_supply_decisions
+  FROM public.notifications
+  WHERE (title = 'Direct supply approved' OR title = 'Direct supply denied')
+  AND created_at >= v_start AND created_at < v_end;
+
+  v_message := 'Summary for ' || v_digest_date || ': '
+    || v_booking_count || ' new bookings, '
+    || v_payment_updates || ' payment updates, '
+    || v_credit_sales || ' credit sales, '
+    || v_debt_updates || ' debt updates, '
+    || v_price_updates || ' price changes, '
+    || v_supply_requests || ' supply requests, '
+    || v_supply_decisions || ' supply decisions.';
+
+  PERFORM public.notify_management(
+    'Daily summary',
+    v_message,
+    'info',
+    jsonb_build_object('digest_date', v_digest_date)
+  );
+END;
+$$;
+
+-- Attempt to schedule daily digest at 7am if pg_cron is available
+DO $$
+BEGIN
+  PERFORM 1 FROM pg_extension WHERE extname = 'pg_cron';
+  IF NOT FOUND THEN
+    BEGIN
+      CREATE EXTENSION IF NOT EXISTS pg_cron;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RETURN;
+    END;
+  END IF;
+  PERFORM cron.schedule(
+    'daily_management_digest',
+    '0 7 * * *',
+    $$SELECT public.send_management_daily_digest();$$
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.notify_on_booking_created()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_guest_name text;
+BEGIN
+  v_guest_name := COALESCE(NEW.guest_name, 'Guest');
+  PERFORM public.notify_management(
+    'New booking created',
+    'Booking created for ' || v_guest_name || '.',
+    'info',
+    jsonb_build_object('booking_id', NEW.id)
+  );
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_booking_created ON public.bookings;
+CREATE TRIGGER trg_notify_on_booking_created
+AFTER INSERT ON public.bookings
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_booking_created();
+
+CREATE OR REPLACE FUNCTION public.notify_on_booking_payment_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_guest_name text;
+BEGIN
+  IF NEW.paid_amount IS DISTINCT FROM OLD.paid_amount
+     OR NEW.status IS DISTINCT FROM OLD.status THEN
+    v_guest_name := COALESCE(NEW.guest_name, 'Guest');
+    PERFORM public.notify_management(
+      'Booking payment updated',
+      'Payment/status updated for booking of ' || v_guest_name || '.',
+      'info',
+      jsonb_build_object(
+        'booking_id', NEW.id,
+        'old_paid_amount', OLD.paid_amount,
+        'new_paid_amount', NEW.paid_amount,
+        'old_status', OLD.status,
+        'new_status', NEW.status
+      )
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_booking_payment_change ON public.bookings;
+CREATE TRIGGER trg_notify_on_booking_payment_change
+AFTER UPDATE ON public.bookings
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_booking_payment_change();
+
+CREATE OR REPLACE FUNCTION public.notify_roles(
+  p_roles text[],
+  p_title text,
+  p_message text,
+  p_type text DEFAULT 'info',
+  p_data jsonb DEFAULT '{}'::jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.notifications (user_id, title, message, type, data)
+  SELECT p.id, p_title, p_message, p_type, p_data
+  FROM public.profiles p
+  WHERE p.status = 'Active'
+  AND p.roles && p_roles;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.notify_on_inventory_price_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actor_name text;
+  v_roles text[];
+  v_title text;
+  v_message text;
+BEGIN
+  IF COALESCE(NEW.vip_bar_price, 0) = COALESCE(OLD.vip_bar_price, 0)
+     AND COALESCE(NEW.outside_bar_price, 0) = COALESCE(OLD.outside_bar_price, 0)
+     AND COALESCE(NEW.unit_price, 0) = COALESCE(OLD.unit_price, 0) THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE(p.full_name, 'Staff') INTO v_actor_name
+  FROM public.profiles p
+  WHERE p.id = auth.uid();
+
+  v_title := 'Price updated';
+  v_message := 'Price for "' || COALESCE(NEW.name, 'Item') || '" was updated by ' || v_actor_name || '.';
+
+  PERFORM public.notify_management(
+    v_title,
+    v_message,
+    'info',
+    jsonb_build_object('inventory_item_id', NEW.id)
+  );
+
+  IF NEW.department = 'vip_bar' THEN
+    v_roles := ARRAY['vip_bartender', 'accountant', 'supervisor'];
+  ELSIF NEW.department = 'outside_bar' THEN
+    v_roles := ARRAY['outside_bartender', 'accountant', 'supervisor'];
+  ELSE
+    v_roles := ARRAY['vip_bartender', 'outside_bartender', 'accountant', 'supervisor'];
+  END IF;
+
+  PERFORM public.notify_roles(
+    v_roles,
+    v_title,
+    v_message,
+    'info',
+    jsonb_build_object('inventory_item_id', NEW.id)
+  );
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_inventory_price_change ON public.inventory_items;
+CREATE TRIGGER trg_notify_on_inventory_price_change
+AFTER UPDATE ON public.inventory_items
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_inventory_price_change();
+
+CREATE OR REPLACE FUNCTION public.notify_on_room_type_price_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actor_name text;
+  v_title text;
+  v_message text;
+BEGIN
+  IF COALESCE(NEW.price, 0) = COALESCE(OLD.price, 0) THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE(p.full_name, 'Staff') INTO v_actor_name
+  FROM public.profiles p
+  WHERE p.id = auth.uid();
+
+  v_title := 'Room price updated';
+  v_message := 'Room "' || COALESCE(NEW.type, 'Room') || '" price was updated by ' || v_actor_name || '.';
+
+  PERFORM public.notify_management(
+    v_title,
+    v_message,
+    'info',
+    jsonb_build_object('room_type_id', NEW.id)
+  );
+
+  PERFORM public.notify_roles(
+    ARRAY['receptionist', 'accountant', 'supervisor'],
+    v_title,
+    v_message,
+    'info',
+    jsonb_build_object('room_type_id', NEW.id)
+  );
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_room_type_price_change ON public.room_types;
+CREATE TRIGGER trg_notify_on_room_type_price_change
+AFTER UPDATE ON public.room_types
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_room_type_price_change();
+
+CREATE OR REPLACE FUNCTION public.notify_on_debt_created()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF NEW.status IN ('outstanding', 'partially_paid') AND NEW.sold_by IS NOT NULL THEN
+    PERFORM public.notify_management(
+      'Credit sale recorded',
+      'Credit sale for ' || COALESCE(NEW.debtor_name, 'Customer') || ' (' || NEW.amount || ' kobo).',
+      'warning',
+      jsonb_build_object('debt_id', NEW.id, 'department', NEW.department)
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_debt_created ON public.debts;
+CREATE TRIGGER trg_notify_on_debt_created
+AFTER INSERT ON public.debts
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_debt_created();
+
+CREATE OR REPLACE FUNCTION public.notify_on_debt_updated()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actor_name text;
+BEGIN
+  SELECT COALESCE(p.full_name, 'Staff') INTO v_actor_name
+  FROM public.profiles p
+  WHERE p.id = auth.uid();
+
+  IF NEW.amount IS DISTINCT FROM OLD.amount
+     OR NEW.status IS DISTINCT FROM OLD.status
+     OR NEW.paid_amount IS DISTINCT FROM OLD.paid_amount
+     OR NEW.notes IS DISTINCT FROM OLD.notes THEN
+    PERFORM public.notify_management(
+      'Debt updated',
+      'Debt for ' || COALESCE(NEW.debtor_name, 'Customer') || ' was updated by ' || v_actor_name || '.',
+      'warning',
+      jsonb_build_object(
+        'debt_id', NEW.id,
+        'old_amount', OLD.amount,
+        'new_amount', NEW.amount,
+        'old_status', OLD.status,
+        'new_status', NEW.status,
+        'old_paid_amount', OLD.paid_amount,
+        'new_paid_amount', NEW.paid_amount
+      )
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_notify_on_debt_updated ON public.debts;
+CREATE TRIGGER trg_notify_on_debt_updated
+AFTER UPDATE ON public.debts
+FOR EACH ROW EXECUTE FUNCTION public.notify_on_debt_updated();
 
 -- ==============================================
 -- 15. SECURITY DELEGATION
@@ -1958,7 +2749,7 @@ BEGIN
     FROM public.stock_transactions 
     WHERE stock_transactions.stock_item_id = calculate_stock_level.item_id 
     AND stock_transactions.location_id = calculate_stock_level.location_id
-    AND transaction_type IN ('Purchase', 'Transfer_In', 'Adjustment')
+    AND transaction_type IN ('Purchase', 'Transfer_In', 'Adjustment', 'Direct_Supply')
     AND quantity > 0;
     
     SELECT COALESCE(SUM(ABS(quantity)), 0) INTO total_out

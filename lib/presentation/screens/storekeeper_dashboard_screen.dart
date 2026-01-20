@@ -302,9 +302,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
             : 'Direct stock entry',
       });
 
-      // Update inventory item stock to keep it in sync with stock_transactions
-      final newStock = (inventoryItem['current_stock'] as int? ?? 0) + quantity;
-      await _dataService.updateInventoryStock(_selectedItemId!, newStock);
+      // Stock ledger is the source of truth; no direct inventory_items update
       
       if (mounted) {
         ErrorHandler.showSuccessMessage(

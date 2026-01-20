@@ -63,6 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Presentation: checked-in guests and department sales
   List<Map<String, dynamic>> _checkedInGuests = [];
+  List<Map<String, dynamic>> _pendingDirectSupplies = [];
   Map<String, num> _deptSalesTotals = {
     'VIP Bar': 0,
     'Outside Bar': 0,
@@ -101,6 +102,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadData() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final effectiveRole = authService.isRoleAssumed
+          ? (authService.assumedRole ?? authService.userRole)
+          : authService.userRole;
+      final canApproveSupplies =
+          effectiveRole == AppRole.owner || effectiveRole == AppRole.manager;
+
       // Load data using DataService
       final bookings = await _dataService.getBookings();
       final stats = await _dataService.getDashboardStats();
@@ -116,6 +124,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final outsideSales = await _dataService.getDepartmentSales('outside_bar');
       final miniMartSales = await _dataService.getDepartmentSales('mini_mart');
       final kitchenSales = await _dataService.getDepartmentSales('kitchen');
+      final pendingSupplies = canApproveSupplies
+          ? await _dataService.getDirectSupplyRequests(status: 'pending')
+          : <Map<String, dynamic>>[];
 
       if (mounted) {
         setState(() {
@@ -133,6 +144,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _payrollRecords = payroll;
           _cashDeposits = deposits;
           _checkedInGuests = checkedInGuests;
+          _pendingDirectSupplies = pendingSupplies;
           num sum(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
           _deptSalesTotals = {
             'VIP Bar': sum(vipSales),
@@ -1606,8 +1618,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context);
       case AppRole.receptionist:
         return _buildReceptionistPanel(context);
-      case AppRole.bartender:
-        return _buildBartenderPanel(context);
       case AppRole.vip_bartender:
         return _buildBartenderPanel(context);
       case AppRole.outside_bartender:
@@ -1649,8 +1659,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             else if (role == AppRole.purchaser) context.go('/purchasing');
             else if (role == AppRole.kitchen_staff) context.go('/kitchen');
             else if (role == AppRole.vip_bartender ||
-                role == AppRole.outside_bartender ||
-                role == AppRole.bartender) {
+                role == AppRole.outside_bartender) {
               context.go('/inventory');
             }
             else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
@@ -1737,6 +1746,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_pendingDirectSupplies.isNotEmpty) ...[
+          _buildPendingDirectSuppliesCard(),
+          const SizedBox(height: 16),
+        ],
         _inlineCards(context, [
           ('Income', '₦${_formatKobo(income)}', Icons.trending_up),
           ('Expenses', '₦${_formatKobo(expenses)}', Icons.trending_down),
@@ -1746,6 +1759,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildStockLevelsSummary(),
       ],
     );
+  }
+
+  Widget _buildPendingDirectSuppliesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Pending Direct Supply Approvals',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ..._pendingDirectSupplies.map((req) {
+              final itemName = (req['stock_items']?['name'] as String?) ?? 'Unknown Item';
+              final qty = req['quantity']?.toString() ?? '0';
+              final bar = req['bar'] == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+              final requester = (req['requested_by_profile']?['full_name'] as String?) ?? 'Unknown';
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text('$itemName x$qty'),
+                  subtitle: Text('Bar: $bar • Requested by $requester'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.check_circle, color: Colors.green),
+                        onPressed: () => _handleApproveDirectSupply(req['id'] as String, true),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.cancel, color: Colors.red),
+                        onPressed: () => _handleApproveDirectSupply(req['id'] as String, false),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleApproveDirectSupply(String requestId, bool approve) async {
+    try {
+      await _dataService.approveDirectSupplyRequest(
+        requestId: requestId,
+        approve: approve,
+        notes: approve ? 'Approved' : 'Denied',
+      );
+      await _loadData();
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          approve ? 'Direct supply approved' : 'Direct supply denied',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update direct supply request.',
+        );
+      }
+    }
   }
 
   Widget _buildStockLevelsSummary() {

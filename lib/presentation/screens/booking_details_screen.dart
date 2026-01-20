@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/presentation/screens/assign_room_screen.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
 
 class Booking {
   final String id;
@@ -63,15 +64,26 @@ class BookingDetailsScreen extends StatefulWidget {
 
 class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
   late Booking _currentBooking;
-  final _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   int _roomBasePriceKobo = 0;
   bool _isLoading = false;
+  final _dataService = DataService();
+  List<Map<String, dynamic>> _bookingDebts = [];
+  List<Map<String, dynamic>> _bookingCharges = [];
 
   @override
   void initState() {
     super.initState();
     _currentBooking = widget.booking;
     _fetchRoomPrice();
+    _loadBookingDebts();
+    _loadBookingCharges();
   }
 
   Future<void> _fetchRoomPrice() async {
@@ -103,8 +115,14 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
   }
 
   int get _extraChargesTotal {
-    return _currentBooking.extraCharges
+    final jsonCharges = _currentBooking.extraCharges
         .fold(0, (sum, item) => sum + (item['price'] as int));
+    final tableCharges = _bookingCharges.fold<int>(0, (sum, item) {
+      final price = (item['price'] as num?)?.toInt() ?? 0;
+      final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+      return sum + (price * qty);
+    });
+    return jsonCharges + tableCharges;
   }
 
   int get _totalBillKobo {
@@ -161,6 +179,9 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       setState(() => _isLoading = true);
 
       // Use database function for check-in (handles status updates correctly)
+      if (_supabase == null) {
+        throw Exception('Supabase not initialized');
+      }
       final result = await _supabase.rpc('check_in_guest', params: {
         'booking_id': _currentBooking.id,
       });
@@ -250,8 +271,34 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           checkOutDate: DateTime.parse(bookingData['check_out_date'] as String),
         );
       });
+      await _loadBookingDebts();
+      await _loadBookingCharges();
     } catch (e) {
       print('Error reloading booking: $e');
+    }
+  }
+
+  Future<void> _loadBookingCharges() async {
+    try {
+      final charges = await _dataService.getBookingCharges(_currentBooking.id);
+      if (mounted) {
+        setState(() => _bookingCharges = charges);
+      }
+    } catch (e) {
+      // Non-blocking
+    }
+  }
+
+  Future<void> _loadBookingDebts() async {
+    try {
+      final debts = await _dataService.getDebts(
+        bookingId: _currentBooking.id,
+      );
+      if (mounted) {
+        setState(() => _bookingDebts = debts);
+      }
+    } catch (e) {
+      // Non-blocking for booking screen
     }
   }
 
@@ -304,6 +351,9 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     setState(() => _isLoading = true);
     try {
       // Use database function for check-out (handles status updates correctly)
+      if (_supabase == null) {
+        throw Exception('Supabase not initialized');
+      }
       final result = await _supabase.rpc('check_out_guest', params: {
         'booking_id': _currentBooking.id,
       });
@@ -390,29 +440,247 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   void _showCheckOutConfirmation() {
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    final outstandingDebts = _bookingDebts.where((d) {
+      final status = d['status']?.toString();
+      return status == 'outstanding' || status == 'partially_paid';
+    }).toList();
+    final outstandingTotal = outstandingDebts.fold<int>(0, (sum, d) {
+      final amount = (d['amount'] as num?)?.toInt() ?? 0;
+      final paid = (d['paid_amount'] as num?)?.toInt() ?? 0;
+      final remaining = amount - paid;
+      return sum + (remaining > 0 ? remaining : 0);
+    });
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Confirm Check-out'),
         content: Text(
-          'The total bill for ${_currentBooking.guestName} is ${currencyFormatter.format(PaymentService.koboToNaira(_totalBillKobo))}.\n\nProceed with check-out?'
+          'The total bill for ${_currentBooking.guestName} is ${currencyFormatter.format(PaymentService.koboToNaira(_totalBillKobo))}.'
+          '${outstandingTotal > 0 ? '\n\nOutstanding debts: ${currencyFormatter.format(PaymentService.koboToNaira(outstandingTotal))}.' : ''}'
+          '\n\nProceed with check-out?'
         ),
         actions: [
           TextButton(
             onPressed: () => context.pop(),
             child: const Text('Cancel'),
           ),
+          if (outstandingTotal > 0)
+            TextButton(
+              onPressed: () {
+                context.pop();
+                _showDebtSettlementDialog(outstandingDebts);
+              },
+              child: const Text('Settle Debts'),
+            ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
               context.pop();
-              _performCheckOut();
+              if (outstandingTotal > 0) {
+                _showCheckoutWithoutSettlement(outstandingTotal);
+              } else {
+                _performCheckOut();
+              }
             },
-            child: const Text('Confirm & Check-out'),
+            child: const Text('Check-out Now'),
           ),
         ],
       ),
     );
+  }
+
+  void _showCheckoutWithoutSettlement(int outstandingTotal) {
+    final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Proceed Without Payment?'),
+        content: Text(
+          'Outstanding debt is ${currencyFormatter.format(PaymentService.koboToNaira(outstandingTotal))}.\n'
+          'Checkout will proceed and debts will remain unpaid.\n\nContinue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _performCheckOut();
+            },
+            child: const Text('Proceed'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDebtSettlementDialog(List<Map<String, dynamic>> debts) {
+    User? authService;
+    try {
+      authService = Supabase.instance.client.auth.currentUser;
+    } catch (_) {
+      authService = null;
+    }
+    if (authService == null) {
+      ErrorHandler.showWarningMessage(
+        context,
+        'Supabase not initialized. Please try again.',
+      );
+      return;
+    }
+    final staffId = authService?.id;
+    if (staffId == null) {
+      ErrorHandler.showWarningMessage(
+        context,
+        'You must be logged in to record payments.',
+      );
+      return;
+    }
+
+    final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    final paymentMethod = ValueNotifier<String>('cash');
+    final controllers = <String, TextEditingController>{};
+    final remainingByDebt = <String, int>{};
+
+    for (final debt in debts) {
+      final id = debt['id'] as String;
+      final amount = (debt['amount'] as num?)?.toInt() ?? 0;
+      final paid = (debt['paid_amount'] as num?)?.toInt() ?? 0;
+      final remaining = amount - paid;
+      remainingByDebt[id] = remaining;
+      controllers[id] = TextEditingController(
+        text: PaymentService.koboToNaira(remaining).toStringAsFixed(2),
+      );
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Settle Outstanding Debts'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: ValueListenableBuilder<String>(
+                valueListenable: paymentMethod,
+                builder: (context, method, _) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: method,
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Method',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                          DropdownMenuItem(value: 'card', child: Text('Card')),
+                          DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                        ],
+                        onChanged: (val) => paymentMethod.value = val ?? 'cash',
+                      ),
+                      const SizedBox(height: 16),
+                      ...debts.map((debt) {
+                        final id = debt['id'] as String;
+                        final remaining = remainingByDebt[id] ?? 0;
+                        final reason = debt['reason']?.toString() ?? 'Debt';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$reason • Remaining ${currencyFormatter.format(PaymentService.koboToNaira(remaining))}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                controller: controllers[id],
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Amount to collect (₦)',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                for (final debt in debts) {
+                  final id = debt['id'] as String;
+                  final remaining = remainingByDebt[id] ?? 0;
+                  final raw = controllers[id]?.text.trim() ?? '0';
+                  final amountNaira = double.tryParse(raw.replaceAll(',', '')) ?? 0;
+                  final amountKobo = PaymentService.nairaToKobo(amountNaira);
+                  if (amountKobo <= 0 || amountKobo != remaining) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Amount for each debt must match the remaining balance.',
+                    );
+                    return;
+                  }
+                }
+
+                try {
+                  for (final debt in debts) {
+                    final id = debt['id'] as String;
+                    final remaining = remainingByDebt[id] ?? 0;
+                    await _dataService.recordDebtPayment(
+                      debtId: id,
+                      amount: remaining,
+                      paymentMethod: paymentMethod.value,
+                      collectedBy: staffId,
+                      createdBy: staffId,
+                    );
+                  }
+                  if (mounted) {
+                    Navigator.of(ctx).pop();
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Debt payments recorded. Proceeding to checkout.',
+                    );
+                    await _loadBookingDebts();
+                    _performCheckOut();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ErrorHandler.handleError(
+                      context,
+                      e,
+                      customMessage: 'Failed to record payments. Please try again.',
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('Settle & Check-out'),
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    });
   }
 
   @override

@@ -39,16 +39,17 @@ Future<void> main() async {
     }
   }
   
-  // Initialize Supabase in background (non-blocking)
+  // Initialize Supabase before app start
   if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-    // Don't await - let it initialize in background
-    Supabase.initialize(
-      url: supabaseUrl,
-      anonKey: supabaseAnonKey,
-    ).catchError((e) {
+    try {
+      await Supabase.initialize(
+        url: supabaseUrl,
+        anonKey: supabaseAnonKey,
+      );
+    } catch (e) {
       // Silent fail - app will work without Supabase
       if (kDebugMode) print('Supabase init error: $e');
-    });
+    }
   }
 
   // Initialize Paystack payment service
@@ -74,6 +75,9 @@ class PzedHomesApp extends StatelessWidget {
       ],
       child: Consumer2<AppState, AppStateManager>(
         builder: (context, appState, stateManager, child) {
+          if (!stateManager.isInitialized && !stateManager.isLoading) {
+            stateManager.initialize();
+          }
           return MaterialApp.router(
             debugShowCheckedModeBanner: false,
             title: 'P-ZED Luxury Hotels & Suites',

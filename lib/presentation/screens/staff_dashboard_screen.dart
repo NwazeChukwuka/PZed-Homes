@@ -1,7 +1,12 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
@@ -217,12 +222,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         return 'vip_bar';
       case AppRole.outside_bartender:
         return 'outside_bar';
-      case AppRole.bartender:
-        // Fallback to profile department if available
-        if (profileDepartment == 'vip_bar' || profileDepartment == 'outside_bar') {
-          return profileDepartment;
-        }
-        return null;
       case AppRole.receptionist:
         return 'mini_mart';
       case AppRole.kitchen_staff:
@@ -239,6 +238,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadPersonalData(String staffId, String? department) async {
+    final range = _getDateRangeForFilter();
     // Load all transactions
     final allTransactions = await _dataService.getStockTransactions();
     
@@ -283,11 +283,24 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
     
     // Load debts created by this staff member
-    final allDebts = await _dataService.getDebts();
-    _myDebts = allDebts.where((d) => 
-      d['sold_by'] == staffId || 
-      d['created_by'] == staffId
-    ).toList();
+    final soldDebts = await _dataService.getDebts(
+      soldBy: staffId,
+      startDate: range?.start,
+      endDate: range?.end,
+    );
+    final createdDebts = await _dataService.getDebts(
+      createdBy: staffId,
+      startDate: range?.start,
+      endDate: range?.end,
+    );
+    final mergedDebts = [...soldDebts, ...createdDebts];
+    final uniqueIds = <String>{};
+    _myDebts = mergedDebts.where((d) {
+      final id = d['id']?.toString();
+      if (id == null || uniqueIds.contains(id)) return false;
+      uniqueIds.add(id);
+      return true;
+    }).toList();
     
     _personalStats = {
       'total_sales': totalSales,
@@ -304,6 +317,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadDepartmentData(String department) async {
+    final range = _getDateRangeForFilter();
     // Load all transactions for the department
     final allTransactions = await _dataService.getStockTransactions();
     
@@ -332,13 +346,24 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
     
     // Load department debts
-    final allDebts = await _dataService.getDebts();
     if (department == 'mini_mart') {
-      _departmentDebts = allDebts.where((d) =>
-        d['department'] == 'mini_mart' || d['department'] == 'reception'
-      ).toList();
+      final miniMartDebts = await _dataService.getDebts(
+        department: 'mini_mart',
+        startDate: range?.start,
+        endDate: range?.end,
+      );
+      final receptionDebts = await _dataService.getDebts(
+        department: 'reception',
+        startDate: range?.start,
+        endDate: range?.end,
+      );
+      _departmentDebts = [...miniMartDebts, ...receptionDebts];
     } else {
-      _departmentDebts = allDebts.where((d) => d['department'] == department).toList();
+      _departmentDebts = await _dataService.getDebts(
+        department: department,
+        startDate: range?.start,
+        endDate: range?.end,
+      );
     }
     
     _departmentStats = {
@@ -376,8 +401,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadBookingData() async {
+    final range = _getDateRangeForFilter();
     // Load all bookings
-    final allBookings = await _dataService.getBookings();
+    final allBookings = await _dataService.getBookings(
+      startDate: range?.start,
+      endDate: range?.end,
+    );
     
     // Filter by time
     _bookings = _filterByTime(allBookings);
@@ -388,10 +417,19 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     int checkedInBookings = 0;
     int checkedOutBookings = 0;
     double totalRevenue = 0;
+    double cashTotal = 0;
+    double transferTotal = 0;
+    double cardTotal = 0;
+    double creditTotal = 0;
+    final receptionistBreakdown = <String, Map<String, double>>{};
     
     for (var booking in _bookings) {
       final rawStatus = booking['status']?.toString().toLowerCase() ?? '';
       final status = rawStatus.replaceAll('_', '-');
+      final method = booking['payment_method']?.toString().toLowerCase() ?? '';
+      final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
+      final totalAmount = (booking['total_amount'] as num?)?.toDouble() ?? 0.0;
+      final receptionistName = (booking['created_by_profile'] as Map<String, dynamic>?)?['full_name']?.toString() ?? 'Unknown';
       switch (status) {
         case 'pending':
         case 'pending check-in':
@@ -417,6 +455,57 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         default:
           break;
       }
+
+      if (method == 'credit') {
+        creditTotal += totalAmount;
+        receptionistBreakdown.putIfAbsent(receptionistName, () => {
+          'cash': 0,
+          'transfer': 0,
+          'card': 0,
+          'credit': 0,
+        });
+        receptionistBreakdown[receptionistName]!['credit'] =
+            (receptionistBreakdown[receptionistName]!['credit'] ?? 0) + totalAmount;
+      } else {
+        switch (method) {
+          case 'cash':
+            cashTotal += paidAmount;
+            receptionistBreakdown.putIfAbsent(receptionistName, () => {
+              'cash': 0,
+              'transfer': 0,
+              'card': 0,
+              'credit': 0,
+            });
+            receptionistBreakdown[receptionistName]!['cash'] =
+                (receptionistBreakdown[receptionistName]!['cash'] ?? 0) + paidAmount;
+            break;
+          case 'transfer':
+            transferTotal += paidAmount;
+            receptionistBreakdown.putIfAbsent(receptionistName, () => {
+              'cash': 0,
+              'transfer': 0,
+              'card': 0,
+              'credit': 0,
+            });
+            receptionistBreakdown[receptionistName]!['transfer'] =
+                (receptionistBreakdown[receptionistName]!['transfer'] ?? 0) + paidAmount;
+            break;
+          case 'card':
+          case 'pos':
+            cardTotal += paidAmount;
+            receptionistBreakdown.putIfAbsent(receptionistName, () => {
+              'cash': 0,
+              'transfer': 0,
+              'card': 0,
+              'credit': 0,
+            });
+            receptionistBreakdown[receptionistName]!['card'] =
+                (receptionistBreakdown[receptionistName]!['card'] ?? 0) + paidAmount;
+            break;
+          default:
+            break;
+        }
+      }
     }
     
     _bookingStats = {
@@ -426,6 +515,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'checked_in': checkedInBookings,
       'checked_out': checkedOutBookings,
       'total_revenue': totalRevenue,
+      'cash_total': cashTotal,
+      'transfer_total': transferTotal,
+      'card_total': cardTotal,
+      'credit_total': creditTotal,
+      'receptionist_breakdown': receptionistBreakdown,
     };
   }
 
@@ -521,6 +615,25 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         return false;
       }
     }).toList();
+  }
+
+  DateTimeRange? _getDateRangeForFilter() {
+    final now = DateTime.now();
+    switch (_timeFilter) {
+      case 'today':
+        final start = DateTime(now.year, now.month, now.day);
+        final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        return DateTimeRange(start: start, end: end);
+      case 'week':
+        final start = DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(days: 6));
+        return DateTimeRange(start: start, end: now);
+      case 'month':
+        final start = DateTime(now.year, now.month, 1);
+        return DateTimeRange(start: start, end: now);
+      default:
+        return null;
+    }
   }
 
   String _formatKobo(num value) {
@@ -693,6 +806,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           _buildReceptionistQuickActions(),
           const SizedBox(height: 16),
           _buildBookingStats(),
+          const SizedBox(height: 12),
+          _buildReceptionPaymentSummary(),
+          const SizedBox(height: 12),
+          _buildReceptionistBreakdownCard(),
           const SizedBox(height: 24),
           _buildRecentBookings(),
           const SizedBox(height: 24),
@@ -709,7 +826,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         // Show sales stats for sales roles
         if (userRole == AppRole.vip_bartender ||
             userRole == AppRole.outside_bartender ||
-            userRole == AppRole.bartender ||
             userRole == AppRole.receptionist ||
             userRole == AppRole.kitchen_staff) ...[
           _buildStatsGrid(_personalStats, isPersonal: true),
@@ -747,6 +863,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
         const SizedBox(height: 12),
         _buildStatsGrid(_departmentStats, isPersonal: false),
+        if (department == 'reception') ...[
+          const SizedBox(height: 12),
+          _buildReceptionPaymentSummary(),
+          const SizedBox(height: 12),
+          _buildReceptionistBreakdownCard(),
+        ],
         if (department == 'mini_mart') ...[
           const SizedBox(height: 16),
           _buildDebtSummaryCard(
@@ -1469,6 +1591,227 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildReceptionPaymentSummary() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Booking Payments Summary',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _showReceptionSummaryExportDialog,
+                icon: const Icon(Icons.download),
+                label: const Text('Export'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSummaryRow('Cash', _formatKobo(_bookingStats['cash_total'] ?? 0)),
+            _buildSummaryRow('Transfer', _formatKobo(_bookingStats['transfer_total'] ?? 0)),
+            _buildSummaryRow('Card/POS', _formatKobo(_bookingStats['card_total'] ?? 0)),
+            _buildSummaryRow('Credit (Outstanding)', _formatKobo(_bookingStats['credit_total'] ?? 0)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceptionistBreakdownCard() {
+    final breakdown = (_bookingStats['receptionist_breakdown'] as Map<String, dynamic>?) ?? {};
+    if (breakdown.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Payments by Receptionist',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _showReceptionSummaryExportDialog,
+                icon: const Icon(Icons.download),
+                label: const Text('Export'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...breakdown.entries.map((entry) {
+              final name = entry.key;
+              final values = entry.value as Map<String, dynamic>;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    _buildSummaryRow('Cash', _formatKobo(values['cash'] ?? 0)),
+                    _buildSummaryRow('Transfer', _formatKobo(values['transfer'] ?? 0)),
+                    _buildSummaryRow('Card/POS', _formatKobo(values['card'] ?? 0)),
+                    _buildSummaryRow('Credit', _formatKobo(values['credit'] ?? 0)),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey[700])),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  void _showReceptionSummaryExportDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Export Reception Summary'),
+        content: const Text('Choose how you want to export the summary.'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _saveReceptionSummaryPdf();
+            },
+            child: const Text('Save PDF'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _printReceptionSummaryPdf();
+            },
+            child: const Text('Print/PDF'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _shareReceptionSummaryPdf();
+            },
+            child: const Text('Share PDF'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<Uint8List> _buildReceptionSummaryPdf() async {
+    final formatter = NumberFormat('#,##0.00');
+    final breakdown = (_bookingStats['receptionist_breakdown'] as Map<String, dynamic>?) ?? {};
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('Reception Payments Summary', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Text('Cash: ₦${formatter.format(PaymentService.koboToNaira((_bookingStats['cash_total'] ?? 0).toInt()))}'),
+              pw.Text('Transfer: ₦${formatter.format(PaymentService.koboToNaira((_bookingStats['transfer_total'] ?? 0).toInt()))}'),
+              pw.Text('Card/POS: ₦${formatter.format(PaymentService.koboToNaira((_bookingStats['card_total'] ?? 0).toInt()))}'),
+              pw.Text('Credit: ₦${formatter.format(PaymentService.koboToNaira((_bookingStats['credit_total'] ?? 0).toInt()))}'),
+              pw.SizedBox(height: 16),
+              pw.Text('Breakdown by Receptionist', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 8),
+              ...breakdown.entries.map((entry) {
+                final name = entry.key;
+                final values = entry.value as Map<String, dynamic>;
+                return pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 8),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(name),
+                      pw.Text('  Cash: ₦${formatter.format(PaymentService.koboToNaira((values['cash'] ?? 0).toInt()))}'),
+                      pw.Text('  Transfer: ₦${formatter.format(PaymentService.koboToNaira((values['transfer'] ?? 0).toInt()))}'),
+                      pw.Text('  Card/POS: ₦${formatter.format(PaymentService.koboToNaira((values['card'] ?? 0).toInt()))}'),
+                      pw.Text('  Credit: ₦${formatter.format(PaymentService.koboToNaira((values['credit'] ?? 0).toInt()))}'),
+                    ],
+                  ),
+                );
+              }),
+              pw.SizedBox(height: 12),
+              pw.Text('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 10)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _saveReceptionSummaryPdf() async {
+    try {
+      final bytes = await _buildReceptionSummaryPdf();
+      final location = await getSaveLocation(
+        suggestedName: 'reception_summary_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        acceptedTypeGroups: [const XTypeGroup(label: 'PDF', extensions: ['pdf'])],
+      );
+      if (location == null) return;
+      final file = XFile.fromData(bytes, mimeType: 'application/pdf', name: 'reception_summary.pdf');
+      await file.saveTo(location.path);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Summary saved to file');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save summary. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _printReceptionSummaryPdf() async {
+    try {
+      final bytes = await _buildReceptionSummaryPdf();
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print summary. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _shareReceptionSummaryPdf() async {
+    try {
+      final bytes = await _buildReceptionSummaryPdf();
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'reception_summary.pdf')],
+        subject: 'Reception Payments Summary',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share summary. Please try again.');
+      }
+    }
   }
 
   Widget _buildRecentBookings() {

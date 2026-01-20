@@ -6,7 +6,16 @@ class DataService {
   factory DataService() => _instance;
   DataService._internal();
 
-  final _supabase = Supabase.instance.client;
+  SupabaseClient? _supabaseClient;
+  SupabaseClient get _supabase {
+    if (_supabaseClient != null) return _supabaseClient!;
+    try {
+      _supabaseClient = Supabase.instance.client;
+      return _supabaseClient!;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
   static const Duration _queryTimeout = Duration(seconds: 30);
@@ -45,10 +54,14 @@ class DataService {
   }
 
   // Bookings
-  Future<List<Map<String, dynamic>>> getBookings() async {
+  Future<List<Map<String, dynamic>>> getBookings({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
       // Explicitly select columns to avoid any issues with non-existent columns
-      final response = await _supabase
+      var query = _supabase
           .from('bookings')
           .select('''
             id,
@@ -75,10 +88,49 @@ class DataService {
             discount_reason,
             discount_applied_by,
             rooms(*),
-            profiles!guest_profile_id(*)
-          ''')
+            profiles!guest_profile_id(*),
+            created_by_profile:profiles!created_by(full_name)
+          ''');
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      final response = await query
           .order('created_at', ascending: false)
-          .limit(100); // Limit for performance
+          .limit(limit);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<void> addBookingCharge({
+    required String bookingId,
+    required String itemName,
+    required int priceKobo,
+    int quantity = 1,
+    String? department,
+    String? addedBy,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('booking_charges').insert({
+        'booking_id': bookingId,
+        'item_name': itemName,
+        'price': priceKobo,
+        'quantity': quantity,
+        'department': department,
+        'added_by': addedBy,
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getBookingCharges(String bookingId) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('booking_charges')
+          .select()
+          .eq('booking_id', bookingId)
+          .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -205,6 +257,18 @@ class DataService {
     });
   }
 
+  // Departments
+  Future<List<Map<String, dynamic>>> getDepartments() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('departments')
+          .select()
+          .order('name')
+          .limit(100);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
   // Stock Levels (per location)
   Future<List<Map<String, dynamic>>> getStockLevels({String? locationName}) async {
     return await _retryOperation(() async {
@@ -252,7 +316,6 @@ class DataService {
       await _supabase.from('inventory_items').insert({
         'name': item['name'],
         'description': item['description'],
-        'current_stock': item['current_stock'] ?? 0,
         'unit': item['unit'],
         'vip_bar_price': item['vip_bar_price'],
         'outside_bar_price': item['outside_bar_price'],
@@ -270,16 +333,6 @@ class DataService {
           .order('created_at', ascending: false)
           .limit(100);
       return List<Map<String, dynamic>>.from(response);
-    });
-  }
-
-  // Update inventory item stock after stock transaction
-  Future<void> updateInventoryStock(String inventoryItemId, int newStock) async {
-    await _retryOperation(() async {
-      await _supabase
-          .from('inventory_items')
-          .update({'current_stock': newStock})
-          .eq('id', inventoryItemId);
     });
   }
 
@@ -341,6 +394,7 @@ class DataService {
         'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
         'quantity': transaction['quantity'], // Required: positive or negative
         'notes': transaction['notes'], // Optional
+        'shift_id': transaction['shift_id'], // Optional bartender shift link
       });
     });
   }
@@ -471,13 +525,44 @@ class DataService {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getDebts() async {
+  Future<List<Map<String, dynamic>>> getDebts({
+    String? soldBy,
+    String? createdBy,
+    String? department,
+    String? bookingId,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('debts')
-          .select('*, sold_by_profile:profiles!sold_by(full_name), created_by_profile:profiles!created_by(full_name)')
+          .select('*, sold_by_profile:profiles!sold_by(full_name), created_by_profile:profiles!created_by(full_name)');
+      if (soldBy != null && soldBy.isNotEmpty) {
+        query = query.eq('sold_by', soldBy);
+      }
+      if (createdBy != null && createdBy.isNotEmpty) {
+        query = query.eq('created_by', createdBy);
+      }
+      if (department != null && department.isNotEmpty) {
+        query = query.eq('department', department);
+      }
+      if (bookingId != null && bookingId.isNotEmpty) {
+        query = query.eq('booking_id', bookingId);
+      }
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+      }
+      final response = await query
           .order('date', ascending: false)
-          .limit(100);
+          .limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -491,6 +576,9 @@ class DataService {
         'amount': debt['amount'],
         'owed_to': debt['owed_to'],
         'department': debt['department'],
+        'source_department': debt['source_department'],
+        'source_type': debt['source_type'],
+        'reference_id': debt['reference_id'],
         'reason': debt['reason'],
         'date': debt['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'status': debt['status'] ?? 'outstanding',
@@ -858,23 +946,59 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('department_transfers')
-          .select('*, menu_items(name), profiles!dispatched_by_id(full_name)')
+          .select('*, menu_items(name), profiles!dispatched_by_id(full_name), bookings(id, guest_name, rooms(room_number))')
           .order('created_at', ascending: false)
           .limit(50);
       return List<Map<String, dynamic>>.from(response);
     });
   }
 
-  Future<void> createDepartmentTransfer(Map<String, dynamic> transfer) async {
-    await _retryOperation(() async {
-      await _supabase.from('department_transfers').insert({
+  Future<String> createDepartmentTransfer(Map<String, dynamic> transfer) async {
+    return await _retryOperation(() async {
+      final response = await _supabase.from('department_transfers').insert({
         'source_department': transfer['source_department'],
         'destination_department': transfer['destination_department'],
         'menu_item_id': transfer['menu_item_id'],
         'quantity': transfer['quantity'],
         'dispatched_by_id': transfer['dispatched_by_id'],
         'status': transfer['status'] ?? 'Pending',
-      });
+        'unit_price': transfer['unit_price'],
+        'total_amount': transfer['total_amount'],
+        'payment_method': transfer['payment_method'],
+        'payment_status': transfer['payment_status'],
+        'booking_id': transfer['booking_id'],
+        'notes': transfer['notes'],
+      }).select('id').single();
+      return response['id'] as String;
+    });
+  }
+
+  // Kitchen Sales (dedicated history)
+  Future<List<Map<String, dynamic>>> getKitchenSalesHistory() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('kitchen_sales')
+          .select('*, menu_items(name), profiles!sold_by(full_name), bookings(id, guest_name)')
+          .order('created_at', ascending: false)
+          .limit(100);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<String> createKitchenSale(Map<String, dynamic> sale) async {
+    return await _retryOperation(() async {
+      final response = await _supabase.from('kitchen_sales').insert({
+        'menu_item_id': sale['menu_item_id'],
+        'item_name': sale['item_name'],
+        'quantity': sale['quantity'],
+        'unit_price': sale['unit_price'],
+        'total_amount': sale['total_amount'],
+        'payment_method': sale['payment_method'],
+        'booking_id': sale['booking_id'],
+        'sold_by': sale['sold_by'],
+        'notes': sale['notes'],
+      }).select('id').single();
+      return response['id'] as String;
     });
   }
 
@@ -1020,30 +1144,46 @@ class DataService {
   }
 
   // Bartender Shift Management
-  Future<Map<String, dynamic>?> getActiveShift(String bartenderId) async {
+  Future<Map<String, dynamic>?> getActiveShift({
+    required String bartenderId,
+    required String bar,
+  }) async {
     return await _retryOperation(() async {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
       
       final response = await _supabase
           .from('bartender_shifts')
-          .select()
+          .select('*, profiles!bartender_id(full_name)')
           .eq('bartender_id', bartenderId)
+          .eq('bar', bar)
           .eq('status', 'active')
           .gte('start_time', startOfDay.toIso8601String())
           .maybeSingle();
-      return response != null ? Map<String, dynamic>.from(response) : null;
+      if (response == null) return null;
+      final mapped = Map<String, dynamic>.from(response);
+      final profile = response['profiles'] as Map<String, dynamic>?;
+      if (profile != null) {
+        mapped['staff_name'] = profile['full_name'];
+      }
+      return mapped;
     });
   }
 
   Future<void> startShift({
     required String bartenderId,
+    required String bar,
+    List<Map<String, dynamic>>? openingStock,
     int? openingCash,
   }) async {
     await _retryOperation(() async {
       await _supabase.from('bartender_shifts').insert({
         'bartender_id': bartenderId,
+        'bar': bar,
         'opening_cash': openingCash ?? 0,
+        'opening_stock': openingStock ?? [],
+        'transfers': [],
+        'closing_stock': [],
         'status': 'active',
         'start_time': DateTime.now().toIso8601String(),
         'date': DateTime.now().toIso8601String().split('T')[0],
@@ -1053,8 +1193,11 @@ class DataService {
 
   Future<void> endShift({
     required String shiftId,
+    List<Map<String, dynamic>>? closingStock,
+    List<Map<String, dynamic>>? transfers,
     int? closingCash,
     int? totalSales,
+    String? closedBy,
   }) async {
     await _retryOperation(() async {
       await _supabase
@@ -1062,9 +1205,80 @@ class DataService {
           .update({
             'closing_cash': closingCash,
             'total_sales': totalSales,
+            'closing_stock': closingStock ?? [],
+            'transfers': transfers ?? [],
             'status': 'closed',
             'end_time': DateTime.now().toIso8601String(),
+            'closed_by': closedBy,
           })
+          .eq('id', shiftId);
+    });
+  }
+
+  Future<void> createDirectSupplyRequest({
+    required String stockItemId,
+    required String bar,
+    required int quantity,
+    required String requestedBy,
+    String? notes,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('direct_supply_requests').insert({
+        'stock_item_id': stockItemId,
+        'bar': bar,
+        'quantity': quantity,
+        'requested_by': requestedBy,
+        'notes': notes,
+        'status': 'pending',
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getDirectSupplyRequests({
+    String? status,
+    String? bar,
+  }) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('direct_supply_requests')
+          .select(
+            '*, stock_items(name), requested_by_profile:profiles!requested_by(full_name), approved_by_profile:profiles!approved_by(full_name)',
+          );
+
+      if (status != null) {
+        query = query.eq('status', status);
+      }
+      if (bar != null) {
+        query = query.eq('bar', bar);
+      }
+
+      final response = await query.order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<void> approveDirectSupplyRequest({
+    required String requestId,
+    required bool approve,
+    String? notes,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.rpc('approve_direct_supply', params: {
+        'p_request_id': requestId,
+        'p_action': approve ? 'approve' : 'deny',
+        'p_notes': notes,
+      });
+    });
+  }
+
+  Future<void> updateShiftTransfers({
+    required String shiftId,
+    required List<Map<String, dynamic>> transfers,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase
+          .from('bartender_shifts')
+          .update({'transfers': transfers, 'updated_at': DateTime.now().toIso8601String()})
           .eq('id', shiftId);
     });
   }

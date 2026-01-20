@@ -30,7 +30,13 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   final _discountReasonController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit bookings
   final _dataService = DataService();
-  final _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      throw Exception('Supabase not initialized');
+    }
+  }
 
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
@@ -302,6 +308,9 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           'amount': totalAmount, // Total booking amount in kobo
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'department': 'reception',
+          'source_department': 'reception',
+          'source_type': 'room_booking',
+          'reference_id': bookingId,
           'reason': 'Room booking on credit - ${_nightsCount} night(s)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
@@ -310,6 +319,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               ? null 
               : _approvedByController.text.trim(), // Optional approved by
           'booking_id': bookingId, // Link to booking
+          'sale_id': bookingId,
         };
         
         await _dataService.recordDebt(debt);
