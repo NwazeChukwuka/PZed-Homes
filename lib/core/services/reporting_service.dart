@@ -245,15 +245,15 @@ class ReportingService {
         await _loadRoomTypePrices();
       }
       
-      // 4. Calculate totals from actual paid amounts (not base prices)
-      // Use paid_amount from bookings to reflect actual revenue after discounts
+      // 4. Calculate totals from actual booking totals
       final totalRevenue = revenueItems.fold<int>(0, (sum, booking) {
-        // Use paid_amount (actual amount received) instead of calculating from room prices
+        final totalAmount = (booking['total_amount'] as num?)?.toInt();
         final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
-        // Add extra charges if any
         final extras = ((booking['extra_charges'] ?? []) as List)
             .fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
-        return sum + paidAmount + extras;
+        final baseTotal = totalAmount ?? paidAmount;
+        final normalizedTotal = baseTotal >= extras ? baseTotal : baseTotal + extras;
+        return sum + normalizedTotal;
       });
 
       final totalExpenses = expenseItems.fold<int>(
@@ -286,11 +286,16 @@ class ReportingService {
     // If not, use 0 as fallback
     for (var booking in revenueItems) {
       final roomType = booking['rooms']['type'] as String;
-      final roomPrice = _roomTypePrices?[roomType] ?? 0;
-      breakdown[roomType] = (breakdown[roomType] ?? 0) + roomPrice;
-      
-      // Add extra charges
+      final totalAmount = (booking['total_amount'] as num?)?.toInt();
+      final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
       final extras = ((booking['extra_charges'] ?? []) as List);
+      final extrasSum = extras.fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
+      final baseTotal = totalAmount ?? paidAmount;
+      final roomRevenue = baseTotal >= extrasSum ? baseTotal - extrasSum : baseTotal;
+
+      breakdown[roomType] = (breakdown[roomType] ?? 0) + roomRevenue;
+
+      // Add extra charges (if present)
       for (var charge in extras) {
         final item = charge['item'] as String? ?? 'Extra Service';
         breakdown[item] = (breakdown[item] ?? 0) + ((charge['price'] ?? 0) as int);

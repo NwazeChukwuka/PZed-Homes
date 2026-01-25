@@ -7,6 +7,10 @@ import '../../core/utils/input_sanitizer.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 class ComprehensiveFinanceScreen extends StatefulWidget {
   const ComprehensiveFinanceScreen({super.key});
@@ -27,10 +31,16 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   List<Map<String, dynamic>> _expenses = [];
   List<Map<String, dynamic>> _payrollRecords = [];
   List<Map<String, dynamic>> _cashDeposits = [];
+  List<Map<String, dynamic>> _auditLogs = [];
   Map<String, dynamic> _financialSummary = {};
   Map<String, List<Map<String, dynamic>>> _departmentSales = {};
+  List<Map<String, dynamic>> _departmentPerformance = [];
   bool _isLoadingData = false;
   bool _isGeneratingReport = false;
+  DateTimeRange? _summaryRange;
+  bool _showPendingExpenses = false;
+  bool _showPendingPayroll = false;
+  bool _showOverdueDebtsOnly = false;
 
   // Controllers for debt recording
   final _debtAmountController = TextEditingController();
@@ -51,6 +61,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final _incomeAmountController = TextEditingController();
   final _incomeDescriptionController = TextEditingController();
   final _incomeSourceController = TextEditingController();
+  String _incomePaymentMethod = 'cash';
 
   // Controllers for expense recording
   final _expenseAmountController = TextEditingController();
@@ -62,6 +73,16 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final _payrollAmountController = TextEditingController();
   final _payrollMonthController = TextEditingController();
 
+  // Finance form state
+  final List<Map<String, dynamic>> _staffProfiles = [];
+  String? _selectedPayrollStaffId;
+  DateTime? _selectedPayrollMonth;
+  String _payrollPaymentMethod = 'bank_transfer';
+  String _expensePaymentMethod = 'cash';
+  String _expenseDepartment = 'all';
+  String _incomeDepartment = 'finance';
+  DateTime? _selectedDebtDueDate;
+
   // Controllers for cash deposit recording
   final _depositAmountController = TextEditingController();
   final _bankChargesController = TextEditingController();
@@ -72,8 +93,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 8, vsync: this);
+    _tabController = TabController(length: 9, vsync: this);
+    final now = DateTime.now();
+    _summaryRange = DateTimeRange(
+      start: DateTime(now.year, now.month, 1),
+      end: DateTime(now.year, now.month + 1, 0),
+    );
     _loadFinancialData();
+    _loadStaffProfiles();
   }
 
   String _formatKobo(num value) {
@@ -113,27 +140,80 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() => _isLoadingData = true);
     
     try {
-      final summary = await _dataService.getFinancialSummary();
-      final debts = await _dataService.getDebts();
-      final income = await _dataService.getIncomeRecords();
-      final expenses = await _dataService.getExpenses();
-      final payroll = await _dataService.getPayrollRecords();
-      final deposits = await _dataService.getCashDeposits();
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User must be logged in to record debts');
+      }
+      final summary = await _dataService.getFinancialSummary(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
+      final debts = await _dataService.getDebts(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
+      final income = await _dataService.getIncomeRecords(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
+      final expenses = await _dataService.getExpenses(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+        status: _showPendingExpenses ? 'Pending' : null,
+      );
+      final payroll = await _dataService.getPayrollRecords(
+        startMonth: _summaryRange?.start,
+        endMonth: _summaryRange?.end,
+        approvalStatus: _showPendingPayroll ? 'pending' : null,
+      );
+      final deposits = await _dataService.getCashDeposits(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
       final purchases = await _dataService.getRecentPurchases();
-      // Department sales snapshots
-      final vipSales = await _dataService.getDepartmentSales('vip_bar');
-      final outsideSales = await _dataService.getDepartmentSales('outside_bar');
-      final miniMartSales = await _dataService.getDepartmentSales('mini_mart');
-      final kitchenSales = await _dataService.getDepartmentSales('kitchen');
+      final auditLogs = await _dataService.getFinanceAuditLogs(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
+      final performance = await _dataService.getDepartmentPerformance(
+        startDate: _summaryRange?.start,
+        endDate: _summaryRange?.end,
+      );
+
+      // Department sales snapshots (today)
+      final today = DateTime.now();
+      final vipSales = await _dataService.getDepartmentSales(
+        department: 'vip_bar',
+        startDate: today,
+        endDate: today,
+      );
+      final outsideSales = await _dataService.getDepartmentSales(
+        department: 'outside_bar',
+        startDate: today,
+        endDate: today,
+      );
+      final miniMartSales = await _dataService.getDepartmentSales(
+        department: 'mini_mart',
+        startDate: today,
+        endDate: today,
+      );
+      final kitchenSales = await _dataService.getDepartmentSales(
+        department: 'kitchen',
+        startDate: today,
+        endDate: today,
+      );
 
       setState(() {
         _financialSummary = summary;
+        _departmentPerformance = performance;
         _debts = debts;
         _purchases = purchases;
         _incomeRecords = income;
         _expenses = expenses;
         _payrollRecords = payroll;
         _cashDeposits = deposits;
+        _auditLogs = auditLogs;
         _departmentSales = {
           'VIP Bar': vipSales,
           'Outside Bar': outsideSales,
@@ -155,6 +235,27 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
+  Future<void> _loadStaffProfiles() async {
+    try {
+      final staff = await _dataService.getStaffProfiles();
+      if (mounted) {
+        setState(() {
+          _staffProfiles
+            ..clear()
+            ..addAll(staff);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load staff profiles. Payroll entry will be limited.',
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -162,6 +263,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isAccountant = (user?.roles.any((role) => role.name == 'accountant') ?? false);
     final isAssumedAccountant = authService.isRoleAssumed && authService.assumedRole?.name == 'accountant';
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+    final canApprove = isOwnerOrManager || isAccountant || isAssumedAccountant;
     
     // Owner/Manager can only record if they assume accountant role
     final canRecord = (isAccountant || isAssumedAccountant) && !(isOwnerOrManager && !isAssumedAccountant);
@@ -190,6 +292,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             Tab(text: 'Payroll', icon: Icon(Icons.payment)),
             Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
             Tab(text: 'Reports', icon: Icon(Icons.assessment)),
+            Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
           ],
         ),
       ),
@@ -200,10 +303,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           _buildDebtsTab(canRecord),
           _buildPurchasesTab(canRecord),
           _buildIncomeTab(canRecord),
-          _buildExpensesTab(canRecord),
-          _buildPayrollTab(canRecord),
+          _buildExpensesTab(canRecord, canApprove),
+          _buildPayrollTab(canRecord, canApprove),
           _buildCashDepositsTab(canRecord),
           _buildReportsTab(),
+          _buildAuditTab(),
         ],
       ),
     );
@@ -215,6 +319,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildSummaryRangeSelector(),
+          const SizedBox(height: 16),
           _buildFinancialSummaryCard(),
           const SizedBox(height: 20),
           _buildDepartmentPerformanceCard(),
@@ -256,6 +362,82 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ),
               );
             }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRangeSelector() {
+    final now = DateTime.now();
+    final defaultStart = DateTime(now.year, now.month, 1);
+    final defaultEnd = DateTime(now.year, now.month + 1, 0);
+    final label =
+        '${_summaryRange!.start.toIso8601String().split('T')[0]}'
+        ' → ${_summaryRange!.end.toIso8601String().split('T')[0]}';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Summary Date Range',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('This Month'),
+                  selected: _summaryRange!.start == defaultStart && _summaryRange!.end == defaultEnd,
+                  onSelected: (_) {
+                    setState(() {
+                      _summaryRange = DateTimeRange(start: defaultStart, end: defaultEnd);
+                    });
+                    _loadFinancialData();
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Last 30 Days'),
+                  selected: now.difference(_summaryRange!.start).inDays == 30,
+                  onSelected: (_) {
+                    setState(() {
+                      _summaryRange = DateTimeRange(
+                        start: now.subtract(const Duration(days: 30)),
+                        end: now,
+                      );
+                    });
+                    _loadFinancialData();
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Custom'),
+                  selected: !(_summaryRange!.start == defaultStart && _summaryRange!.end == defaultEnd),
+                  onSelected: (_) async {
+                    final picked = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(2020),
+                      lastDate: now,
+                      initialDateRange: _summaryRange,
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        _summaryRange = picked;
+                      });
+                      _loadFinancialData();
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Selected: $label'),
           ],
         ),
       ),
@@ -354,6 +536,161 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
+  Widget _buildStatusChip(String status) {
+    final normalized = status.toLowerCase();
+    Color color;
+    switch (normalized) {
+      case 'approved':
+      case 'paid':
+        color = Colors.green;
+        break;
+      case 'rejected':
+      case 'cancelled':
+        color = Colors.red;
+        break;
+      default:
+        color = Colors.orange;
+    }
+    return Chip(
+      label: Text(status),
+      backgroundColor: color.withOpacity(0.15),
+      labelStyle: TextStyle(color: color),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Future<void> _showExpenseApprovalDialog(Map<String, dynamic> expense) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Expense Approval'),
+        content: Text(
+          'Approve expense of ₦${_formatKobo(expense['amount'] ?? 0)}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _showRejectionReasonDialog(
+                onSubmit: (reason) async {
+                  await _dataService.rejectExpense(
+                    expenseId: expense['id'],
+                    rejectedBy: userId,
+                    reason: reason,
+                  );
+                },
+              );
+              _loadFinancialData();
+            },
+            child: const Text('Reject'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _dataService.approveExpense(
+                expenseId: expense['id'],
+                approvedBy: userId,
+              );
+              _loadFinancialData();
+            },
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPayrollApprovalDialog(Map<String, dynamic> payroll) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Payroll Approval'),
+        content: Text(
+          'Approve payroll of ₦${_formatKobo(payroll['amount'] ?? 0)}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _showRejectionReasonDialog(
+                onSubmit: (reason) async {
+                  await _dataService.rejectPayroll(
+                    payrollId: payroll['id'],
+                    rejectedBy: userId,
+                    reason: reason,
+                  );
+                },
+              );
+              _loadFinancialData();
+            },
+            child: const Text('Reject'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _dataService.approvePayroll(
+                payrollId: payroll['id'],
+                approvedBy: userId,
+              );
+              _loadFinancialData();
+            },
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRejectionReasonDialog({
+    required Future<void> Function(String? reason) onSubmit,
+  }) async {
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rejection Reason'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Reason (optional)',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await onSubmit(controller.text.trim().isEmpty ? null : controller.text.trim());
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+  }
+
   Widget _buildDepartmentPerformanceCard() {
     return Card(
       child: Padding(
@@ -368,24 +705,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               ),
             ),
             const SizedBox(height: 16),
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: _dataService.getDepartmentPerformance(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-                final depts = snapshot.data ?? [];
-                if (depts.isEmpty) {
-                  return const Center(child: Text('No department data available'));
-                }
-                return Column(
-                  children: depts.map((dept) => _buildDepartmentItem(dept)).toList(),
-                );
-              },
-            ),
+            if (_isLoadingData)
+              const Center(child: CircularProgressIndicator())
+            else if (_departmentPerformance.isEmpty)
+              const Center(child: Text('No department data available'))
+            else
+              Column(
+                children: _departmentPerformance.map((dept) => _buildDepartmentItem(dept)).toList(),
+              ),
           ],
         ),
       ),
@@ -506,6 +833,18 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildDebtsTab(bool canRecord) {
+    final now = DateTime.now();
+    final debts = _showOverdueDebtsOnly
+        ? _debts.where((debt) {
+            final dueRaw = debt['due_date'];
+            if (dueRaw == null) return false;
+            final dueDate = DateTime.tryParse(dueRaw.toString());
+            if (dueDate == null) return false;
+            final status = (debt['status'] ?? '').toString().toLowerCase();
+            final isOpen = status == 'outstanding' || status == 'partially_paid';
+            return isOpen && dueDate.isBefore(DateTime(now.year, now.month, now.day));
+          }).toList()
+        : _debts;
     return Column(
       children: [
         if (canRecord)
@@ -517,12 +856,36 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               label: const Text('Record New Debt'),
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _showOverdueDebtsOnly ? 'Showing overdue debts' : 'Showing all debts',
+                  style: TextStyle(color: Colors.grey[700]),
+                ),
+              ),
+              Switch(
+                value: _showOverdueDebtsOnly,
+                onChanged: (value) {
+                  setState(() => _showOverdueDebtsOnly = value);
+                },
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: ListView.builder(
-            itemCount: _debts.length,
+            itemCount: debts.length,
             itemBuilder: (context, index) {
-              final debt = _debts[index];
+              final debt = debts[index];
               final isPending = debt['status'] == 'outstanding' || debt['status'] == 'partially_paid';
+              final dueRaw = debt['due_date'];
+              final dueDate = dueRaw != null ? DateTime.tryParse(dueRaw.toString()) : null;
+              final isOverdue = dueDate != null &&
+                  isPending &&
+                  dueDate.isBefore(DateTime(now.year, now.month, now.day));
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
@@ -539,7 +902,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                       if (debt['debtor_phone'] != null) 
                         Text('Phone: ${debt['debtor_phone']}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      // Note: department info is stored in reason field, not a separate column
+                      if (debt['department'] != null)
+                        Text('Department: ${debt['department']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      if (dueDate != null)
+                        Text(
+                          'Due: ${dueDate.toIso8601String().split('T')[0]}${isOverdue ? ' (Overdue)' : ''}',
+                          style: TextStyle(fontSize: 11, color: isOverdue ? Colors.red[700] : Colors.grey[500]),
+                        ),
                       if (debt['sold_by'] != null && debt['sold_by_profile'] != null)
                         Text('Sold by: ${debt['sold_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                       if (debt['created_by'] != null && debt['created_by_profile'] != null)
@@ -631,7 +1000,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildExpensesTab(bool canRecord) {
+  Widget _buildExpensesTab(bool canRecord, bool canApprove) {
     return Column(
       children: [
         if (canRecord)
@@ -643,6 +1012,27 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               label: const Text('Record Expense'),
             ),
           ),
+        if (canApprove)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _showPendingExpenses ? 'Showing pending only' : 'Showing all',
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                ),
+                Switch(
+                  value: _showPendingExpenses,
+                  onChanged: (value) {
+                    setState(() => _showPendingExpenses = value);
+                    _loadFinancialData();
+                  },
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             itemCount: _expenses.length,
@@ -652,9 +1042,23 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text(expense['description'] ?? 'Unknown'),
-                  subtitle: Text('₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}'),
-                  trailing: Text(expense['date'] ?? ''),
+                  subtitle: Text(
+                    '₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}',
+                  ),
+                  trailing: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(expense['transaction_date'] ?? expense['date'] ?? ''),
+                      const SizedBox(height: 4),
+                      _buildStatusChip(expense['status'] ?? 'Pending'),
+                    ],
+                  ),
                   leading: const Icon(Icons.trending_down, color: Colors.red),
+                  onTap: canApprove &&
+                          (expense['status']?.toString() ?? '').toLowerCase() == 'pending'
+                      ? () => _showExpenseApprovalDialog(expense)
+                      : null,
                 ),
               );
             },
@@ -664,7 +1068,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildPayrollTab(bool canRecord) {
+  Widget _buildPayrollTab(bool canRecord, bool canApprove) {
     return Column(
       children: [
         if (canRecord)
@@ -674,6 +1078,27 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               onPressed: () => _showAddPayrollDialog(),
               icon: const Icon(Icons.add),
               label: const Text('Record Payroll'),
+            ),
+          ),
+        if (canApprove)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _showPendingPayroll ? 'Showing pending only' : 'Showing all',
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                ),
+                Switch(
+                  value: _showPendingPayroll,
+                  onChanged: (value) {
+                    setState(() => _showPendingPayroll = value);
+                    _loadFinancialData();
+                  },
+                ),
+              ],
             ),
           ),
         Expanded(
@@ -687,10 +1112,16 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   title: Text(payroll['staff_name'] ?? 'Unknown'),
                   subtitle: Text('₦${_formatKobo(payroll['amount'] ?? 0)} - ${payroll['month'] ?? ''}'),
                   trailing: Chip(
-                    label: Text(payroll['status'] ?? ''),
-                    backgroundColor: payroll['status'] == 'paid' ? Colors.green : Colors.orange,
+                    label: Text(payroll['approval_status'] ?? payroll['status'] ?? ''),
+                    backgroundColor: (payroll['approval_status'] ?? 'pending') == 'approved'
+                        ? Colors.green
+                        : Colors.orange,
                   ),
                   leading: const Icon(Icons.payment, color: Colors.blue),
+                  onTap: canApprove &&
+                          (payroll['approval_status']?.toString() ?? '').toLowerCase() == 'pending'
+                      ? () => _showPayrollApprovalDialog(payroll)
+                      : null,
                 ),
               );
             },
@@ -745,6 +1176,44 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    'Monthly Export',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => context.push('/reporting'),
+                        icon: const Icon(Icons.assessment),
+                        label: const Text('Open Reporting'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _exportFinanceCsv,
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copy CSV'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _exportFinancePdf,
+                        icon: const Icon(Icons.picture_as_pdf),
+                        label: const Text('Share PDF'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     'Department Reports',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -789,6 +1258,32 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAuditTab() {
+    if (_isLoadingData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_auditLogs.isEmpty) {
+      return const Center(child: Text('No audit logs available'));
+    }
+    return ListView.builder(
+      itemCount: _auditLogs.length,
+      itemBuilder: (context, index) {
+        final log = _auditLogs[index];
+        final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
+        final createdAt = log['created_at']?.toString() ?? '';
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: ListTile(
+            leading: const Icon(Icons.security),
+            title: Text('${log['action']} on ${log['table_name']}'),
+            subtitle: Text('By $actor'),
+            trailing: Text(createdAt),
+          ),
+        );
+      },
     );
   }
 
@@ -863,10 +1358,28 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 TextField(
                   controller: _debtDueDateController,
                   decoration: const InputDecoration(
-                    labelText: 'Due Date (YYYY-MM-DD)',
+                    labelText: 'Due Date',
                     border: OutlineInputBorder(),
                     hintText: 'Optional',
+                    suffixIcon: Icon(Icons.calendar_today),
                   ),
+                  readOnly: true,
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      firstDate: now.subtract(const Duration(days: 1)),
+                      lastDate: now.add(const Duration(days: 365)),
+                      initialDate: _selectedDebtDueDate ?? now.add(const Duration(days: 30)),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        _selectedDebtDueDate = picked;
+                        _debtDueDateController.text =
+                            picked.toIso8601String().split('T')[0];
+                      });
+                    }
+                  },
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -927,6 +1440,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
 
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User must be logged in to record debts');
+      }
+
       // Convert naira to kobo
       final amountInNaira = double.tryParse(_debtAmountController.text.trim());
       if (amountInNaira == null || amountInNaira <= 0) {
@@ -934,18 +1453,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       }
       final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
 
-      // Parse due date
-      DateTime? dueDate;
-      if (_debtDueDateController.text.trim().isNotEmpty) {
-        try {
-          dueDate = DateTime.parse(_debtDueDateController.text.trim());
-        } catch (e) {
-          throw Exception('Invalid date format. Please use YYYY-MM-DD');
-        }
-      } else {
-        // Default to 30 days from now
-        dueDate = DateTime.now().add(const Duration(days: 30));
-      }
+      final dueDate = _selectedDebtDueDate ?? DateTime.now().add(const Duration(days: 30));
 
       final debt = {
         'debtor_name': InputSanitizer.sanitizeText(_debtorNameController.text.trim()),
@@ -953,11 +1461,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         'debtor_type': _debtorType,
         'amount': amountInKobo, // Store in kobo
         'owed_to': 'P-ZED Luxury Hotels & Suites',
-        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()) + 
-                  (_debtDepartment != 'all' ? ' (Department: $_debtDepartment)' : ''),
+        'department': _debtDepartment,
+        'source_department': _debtDepartment,
+        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()),
         'date': DateTime.now().toIso8601String().split('T')[0],
+        'due_date': dueDate.toIso8601String().split('T')[0],
         'status': 'outstanding', // Use 'outstanding' instead of 'pending' to match schema
-        'notes': 'Due date: ${dueDate.toIso8601String().split('T')[0]}', // Store due date in notes since column doesn't exist
+        'notes': null,
+        'created_by': userId,
+        'sold_by': userId,
       };
 
       await _dataService.recordDebt(debt);
@@ -1000,6 +1512,39 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               controller: _incomeSourceController,
               decoration: const InputDecoration(labelText: 'Source'),
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _incomeDepartment,
+              decoration: const InputDecoration(labelText: 'Department'),
+              items: const [
+                DropdownMenuItem(value: 'finance', child: Text('Finance')),
+                DropdownMenuItem(value: 'reception', child: Text('Reception')),
+                DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
+                DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _incomeDepartment = value ?? 'finance';
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _incomePaymentMethod,
+              decoration: const InputDecoration(labelText: 'Payment Method'),
+              items: const [
+                DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+                DropdownMenuItem(value: 'card', child: Text('Card')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _incomePaymentMethod = value ?? 'cash';
+                });
+              },
+            ),
           ],
         ),
         actions: [
@@ -1041,7 +1586,27 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               controller: _expenseCategoryController,
               decoration: const InputDecoration(labelText: 'Category'),
             ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              value: _expenseDepartment,
+              decoration: const InputDecoration(labelText: 'Department'),
+              items: const [
+                DropdownMenuItem(value: 'all', child: Text('All Departments')),
+                DropdownMenuItem(value: 'reception', child: Text('Reception')),
+                DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
+                DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _expenseDepartment = value ?? 'all';
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _expensePaymentMethod,
               decoration: const InputDecoration(labelText: 'Payment Method'),
               items: const [
                 DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -1049,7 +1614,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 DropdownMenuItem(value: 'card', child: Text('Card')),
               ],
               onChanged: (value) {
-                // Handle payment method selection
+                setState(() {
+                  _expensePaymentMethod = value ?? 'cash';
+                });
               },
             ),
           ],
@@ -1082,7 +1649,22 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           children: [
             TextField(
               controller: _staffIdController,
-              decoration: const InputDecoration(labelText: 'Staff ID'),
+              decoration: const InputDecoration(labelText: 'Staff ID (legacy)'),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedPayrollStaffId,
+              decoration: const InputDecoration(labelText: 'Staff'),
+              items: _staffProfiles.map((profile) {
+                final id = profile['id']?.toString();
+                final name = profile['full_name']?.toString() ?? 'Unknown';
+                return DropdownMenuItem(value: id, child: Text(name));
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedPayrollStaffId = value;
+                });
+              },
             ),
             TextField(
               controller: _payrollAmountController,
@@ -1091,7 +1673,41 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             TextField(
               controller: _payrollMonthController,
-              decoration: const InputDecoration(labelText: 'Month'),
+              decoration: const InputDecoration(
+                labelText: 'Month',
+                suffixIcon: Icon(Icons.calendar_today),
+              ),
+              readOnly: true,
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: context,
+                  firstDate: DateTime(now.year - 1, 1, 1),
+                  lastDate: DateTime(now.year + 1, 12, 31),
+                  initialDate: _selectedPayrollMonth ?? DateTime(now.year, now.month, 1),
+                );
+                if (picked != null) {
+                  setState(() {
+                    _selectedPayrollMonth = DateTime(picked.year, picked.month, 1);
+                    _payrollMonthController.text =
+                        '${picked.year}-${picked.month.toString().padLeft(2, '0')}-01';
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _payrollPaymentMethod,
+              decoration: const InputDecoration(labelText: 'Payment Method'),
+              items: const [
+                DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+                DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _payrollPaymentMethod = value ?? 'bank_transfer';
+                });
+              },
             ),
           ],
         ),
@@ -1190,8 +1806,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         'amount': amountInKobo, // Store in kobo
         'source': _incomeSourceController.text,
         'date': DateTime.now().toIso8601String().split('T')[0],
-        'department': 'finance',
-        'payment_method': 'cash',
+        'department': _incomeDepartment,
+        'payment_method': _incomePaymentMethod,
         'staff_id': userId, // Use current user ID
         'created_by': userId,
       };
@@ -1236,8 +1852,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         'amount': amountInKobo, // Store in kobo
         'category': _expenseCategoryController.text,
         'date': DateTime.now().toIso8601String().split('T')[0],
-        'department': 'all',
-        'payment_method': 'cash',
+        'department': _expenseDepartment,
+        'payment_method': _expensePaymentMethod,
         'profile_id': userId, // Use current user ID (expenses table uses profile_id)
       };
       
@@ -1276,12 +1892,20 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         throw Exception('Amount must be greater than zero');
       }
 
+      final staffId = _selectedPayrollStaffId ?? _staffIdController.text.trim();
+      if (staffId.isEmpty) {
+        throw Exception('Please select a staff member');
+      }
+      if (_selectedPayrollMonth == null) {
+        throw Exception('Please select payroll month');
+      }
+
       final payroll = {
-        'staff_id': _staffIdController.text,
+        'staff_id': staffId,
         'amount': amountInKobo, // Store in kobo
-        'month': _payrollMonthController.text,
+        'month': _selectedPayrollMonth!.toIso8601String().split('T')[0],
         'status': 'pending',
-        'payment_method': 'bank_transfer',
+        'payment_method': _payrollPaymentMethod,
         'processed_by': userId, // Track who recorded this
       };
       
@@ -1519,27 +2143,38 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   // Clear form methods
   void _clearDebtForm() {
     _debtorNameController.clear();
+    _debtorPhoneController.clear();
     _debtAmountController.clear();
     _debtDescriptionController.clear();
     _debtDueDateController.clear();
+    _debtorType = 'customer';
+    _debtDepartment = 'all';
+    _selectedDebtDueDate = null;
   }
 
   void _clearIncomeForm() {
     _incomeDescriptionController.clear();
     _incomeAmountController.clear();
     _incomeSourceController.clear();
+    _incomeDepartment = 'finance';
+    _incomePaymentMethod = 'cash';
   }
 
   void _clearExpenseForm() {
     _expenseDescriptionController.clear();
     _expenseAmountController.clear();
     _expenseCategoryController.clear();
+    _expenseDepartment = 'all';
+    _expensePaymentMethod = 'cash';
   }
 
   void _clearPayrollForm() {
     _staffIdController.clear();
     _payrollAmountController.clear();
     _payrollMonthController.clear();
+    _selectedPayrollStaffId = null;
+    _selectedPayrollMonth = null;
+    _payrollPaymentMethod = 'bank_transfer';
   }
 
   void _clearDepositForm() {
@@ -1594,6 +2229,251 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         );
       }
     }
+  }
+
+  Future<void> _exportFinanceCsv() async {
+    try {
+      final csv = _buildFinanceCsv();
+      await Clipboard.setData(ClipboardData(text: csv));
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Finance CSV copied to clipboard',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to export CSV. Please try again.',
+        );
+      }
+    }
+  }
+
+  Future<void> _exportFinancePdf() async {
+    try {
+      final pdf = await _buildFinancePdf();
+      await Printing.sharePdf(
+        bytes: Uint8List.fromList(pdf),
+        filename: 'finance_report_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to generate PDF. Please try again.',
+        );
+      }
+    }
+  }
+
+  String _buildFinanceCsv() {
+    final buffer = StringBuffer();
+    final rangeLabel = _summaryRange == null
+        ? 'This Month'
+        : '${_summaryRange!.start.toIso8601String().split('T')[0]}'
+            ' to ${_summaryRange!.end.toIso8601String().split('T')[0]}';
+
+    buffer.writeln('Finance Report,$rangeLabel');
+    buffer.writeln('Generated At,${DateTime.now().toIso8601String()}');
+    buffer.writeln('');
+    buffer.writeln('Summary');
+    buffer.writeln('Total Income,${_financialSummary['total_income'] ?? 0}');
+    buffer.writeln('Total Expenses,${_financialSummary['total_expenses'] ?? 0}');
+    buffer.writeln('Net Profit,${_financialSummary['net_profit'] ?? 0}');
+    buffer.writeln('');
+
+    void writeSection(String title, List<String> headers, List<List<String>> rows) {
+      buffer.writeln(title);
+      buffer.writeln(headers.join(','));
+      for (final row in rows) {
+        buffer.writeln(row.map(_escapeCsv).join(','));
+      }
+      buffer.writeln('');
+    }
+
+    writeSection(
+      'Income Records',
+      ['date', 'description', 'amount', 'department', 'payment_method'],
+      _incomeRecords.map((r) {
+        return [
+          r['date']?.toString() ?? '',
+          r['description']?.toString() ?? '',
+          r['amount']?.toString() ?? '0',
+          r['department']?.toString() ?? '',
+          r['payment_method']?.toString() ?? '',
+        ];
+      }).toList(),
+    );
+
+    writeSection(
+      'Expenses',
+      ['transaction_date', 'description', 'amount', 'department', 'status'],
+      _expenses.map((r) {
+        return [
+          r['transaction_date']?.toString() ?? '',
+          r['description']?.toString() ?? '',
+          r['amount']?.toString() ?? '0',
+          r['department']?.toString() ?? '',
+          r['status']?.toString() ?? '',
+        ];
+      }).toList(),
+    );
+
+    writeSection(
+      'Debts',
+      ['date', 'debtor_name', 'amount', 'paid_amount', 'status', 'due_date'],
+      _debts.map((r) {
+        return [
+          r['date']?.toString() ?? '',
+          r['debtor_name']?.toString() ?? '',
+          r['amount']?.toString() ?? '0',
+          r['paid_amount']?.toString() ?? '0',
+          r['status']?.toString() ?? '',
+          r['due_date']?.toString() ?? '',
+        ];
+      }).toList(),
+    );
+
+    writeSection(
+      'Payroll',
+      ['month', 'staff', 'amount', 'approval_status', 'payment_method'],
+      _payrollRecords.map((r) {
+        return [
+          r['month']?.toString() ?? '',
+          r['staff_name']?.toString() ?? '',
+          r['amount']?.toString() ?? '0',
+          r['approval_status']?.toString() ?? '',
+          r['payment_method']?.toString() ?? '',
+        ];
+      }).toList(),
+    );
+
+    writeSection(
+      'Cash Deposits',
+      ['date', 'bank_name', 'amount', 'net_amount'],
+      _cashDeposits.map((r) {
+        return [
+          r['date']?.toString() ?? '',
+          r['bank_name']?.toString() ?? '',
+          r['amount']?.toString() ?? '0',
+          r['net_amount']?.toString() ?? '0',
+        ];
+      }).toList(),
+    );
+
+    return buffer.toString();
+  }
+
+  String _escapeCsv(String value) {
+    final needsQuotes = value.contains(',') || value.contains('"') || value.contains('\n');
+    if (!needsQuotes) return value;
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  Future<List<int>> _buildFinancePdf() async {
+    final pdf = pw.Document();
+    final rangeLabel = _summaryRange == null
+        ? 'This Month'
+        : '${_summaryRange!.start.toIso8601String().split('T')[0]}'
+            ' to ${_summaryRange!.end.toIso8601String().split('T')[0]}';
+
+    pdf.addPage(
+      pw.MultiPage(
+        build: (context) {
+          return [
+            pw.Text('Finance Report', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            pw.Text('Range: $rangeLabel'),
+            pw.Text('Generated: ${DateTime.now().toIso8601String()}'),
+            pw.SizedBox(height: 12),
+            pw.Text('Summary', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Bullet(text: 'Total Income: ${_financialSummary['total_income'] ?? 0}'),
+            pw.Bullet(text: 'Total Expenses: ${_financialSummary['total_expenses'] ?? 0}'),
+            pw.Bullet(text: 'Net Profit: ${_financialSummary['net_profit'] ?? 0}'),
+            pw.SizedBox(height: 12),
+            _buildPdfTable(
+              title: 'Income Records',
+              headers: ['Date', 'Description', 'Amount'],
+              rows: _incomeRecords.take(50).map((r) {
+                return [
+                  r['date']?.toString() ?? '',
+                  r['description']?.toString() ?? '',
+                  r['amount']?.toString() ?? '0',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Expenses',
+              headers: ['Date', 'Description', 'Amount', 'Status'],
+              rows: _expenses.take(50).map((r) {
+                return [
+                  r['transaction_date']?.toString() ?? '',
+                  r['description']?.toString() ?? '',
+                  r['amount']?.toString() ?? '0',
+                  r['status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Debts',
+              headers: ['Date', 'Debtor', 'Amount', 'Status'],
+              rows: _debts.take(50).map((r) {
+                return [
+                  r['date']?.toString() ?? '',
+                  r['debtor_name']?.toString() ?? '',
+                  r['amount']?.toString() ?? '0',
+                  r['status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Payroll',
+              headers: ['Month', 'Staff', 'Amount', 'Status'],
+              rows: _payrollRecords.take(50).map((r) {
+                return [
+                  r['month']?.toString() ?? '',
+                  r['staff_name']?.toString() ?? '',
+                  r['amount']?.toString() ?? '0',
+                  r['approval_status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Cash Deposits',
+              headers: ['Date', 'Bank', 'Amount'],
+              rows: _cashDeposits.take(50).map((r) {
+                return [
+                  r['date']?.toString() ?? '',
+                  r['bank_name']?.toString() ?? '',
+                  r['amount']?.toString() ?? '0',
+                ];
+              }).toList(),
+            ),
+          ];
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
+  pw.Widget _buildPdfTable({
+    required String title,
+    required List<String> headers,
+    required List<List<String>> rows,
+  }) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(height: 8),
+        pw.Text(title, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 4),
+        pw.Table.fromTextArray(headers: headers, data: rows),
+      ],
+    );
   }
 
   Future<void> _generateFinancialReport() async {

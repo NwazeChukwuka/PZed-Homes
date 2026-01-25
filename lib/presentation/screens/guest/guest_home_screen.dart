@@ -151,6 +151,11 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> {
                         ),
                         child: const Text('Check Availability'),
                       ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => context.push('/guest/booking-lookup'),
+                        child: const Text('Already paid? Check booking status'),
+                      ),
                     ],
                   ),
                 ),

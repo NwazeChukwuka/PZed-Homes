@@ -6,6 +6,8 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 class HousekeepingScreen extends StatefulWidget {
   const HousekeepingScreen({super.key});
@@ -17,6 +19,15 @@ class HousekeepingScreen extends StatefulWidget {
 class _HousekeepingScreenState extends State<HousekeepingScreen> {
   bool _isLoading = false;
   final _dataService = DataService();
+  SupabaseClient? get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
+  StreamSubscription<List<Map<String, dynamic>>>? _roomsSub;
+  Timer? _refreshDebounce;
 
   // Pagination state
   int _rowsPerPage = 10;
@@ -28,6 +39,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
   void initState() {
     super.initState();
     _loadRooms();
+    _startRoomRealtime();
   }
 
   Future<void> _loadRooms() async {
@@ -61,8 +73,33 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
     }
   }
 
+  void _startRoomRealtime() {
+    final supabase = _supabase;
+    if (supabase == null) return;
+    _roomsSub?.cancel();
+    _roomsSub = supabase
+        .from('rooms')
+        .stream(primaryKey: ['id'])
+        .listen((_) {
+          _refreshDebounce?.cancel();
+          _refreshDebounce = Timer(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _loadRooms();
+            }
+          });
+        });
+  }
+
+  @override
+  void dispose() {
+    _roomsSub?.cancel();
+    _refreshDebounce?.cancel();
+    super.dispose();
+  }
+
   String _mapStatus(String s) {
     switch (s.toLowerCase()) {
+      case 'vacant':
       case 'available':
         return 'Vacant';
       case 'occupied':
@@ -71,23 +108,40 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
         return 'Maintenance';
       case 'dirty':
         return 'Dirty';
+      case 'cleaning':
+        return 'Cleaning';
       default:
         return 'Vacant';
     }
   }
 
   Future<void> _updateRoomStatus(String roomId, String newStatus) async {
-    // Mock: update locally
-    final idx = _allRooms.indexWhere((r) => r['id'] == roomId);
-    if (idx != -1) {
-      setState(() {
-        _allRooms[idx]['status'] = newStatus;
-      });
-      _updatePagination();
+    try {
+      setState(() => _isLoading = true);
+      await _dataService.updateRoomStatus(roomId, newStatus);
+      final idx = _allRooms.indexWhere((r) => r['id'] == roomId);
+      if (idx != -1) {
+        setState(() {
+          _allRooms[idx]['status'] = newStatus;
+          _isLoading = false;
+        });
+        _updatePagination();
+      } else {
+        setState(() => _isLoading = false);
+      }
       if (mounted) {
         ErrorHandler.showSuccessMessage(
           context,
           'Room status updated to $newStatus',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update room status. Please try again.',
         );
       }
     }

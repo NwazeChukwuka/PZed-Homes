@@ -175,7 +175,7 @@ class PermissionManager {
   static bool canAccess(AppRole userRole, String feature) {
     switch (feature) {
       case 'dashboard':
-        return true; // All roles can access dashboard
+        return userRole != AppRole.bartender; // Legacy bartender blocked
       
       case 'housekeeping':
         return [

@@ -24,15 +24,21 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   final _itemNameController = TextEditingController();
   final _quantityController = TextEditingController();
   final _unitController = TextEditingController();
+  final _categoryController = TextEditingController();
   final _supplierController = TextEditingController();
   final _notesController = TextEditingController();
   
-  // Budget tracking
-  double _totalBudget = 0.0;
-  double _remainingBudget = 0.0;
+  // Budget tracking (stored in kobo)
+  int _monthlyBudgetKobo = 0;
+  int _spentKobo = 0;
+  int _varianceKobo = 0;
+  bool _budgetExceeded = false;
+  bool _budgetSet = false;
   List<Map<String, dynamic>> _purchaseHistory = [];
   List<Map<String, dynamic>> _pendingOrders = [];
   bool _isLoading = true;
+  List<Map<String, dynamic>> _suppliers = [];
+  String? _selectedSupplierId;
 
   @override
   void initState() {
@@ -40,6 +46,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     // Initialize with default tab count
     _tabController = TabController(length: 2, vsync: this);
     _loadBudgetData();
+    _loadSuppliers();
   }
   
   @override
@@ -70,6 +77,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     _itemNameController.dispose();
     _quantityController.dispose();
     _unitController.dispose();
+    _categoryController.dispose();
     _supplierController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -77,20 +85,31 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   Future<void> _loadBudgetData() async {
     try {
-      // Load purchase orders from database
-      final orders = await _dataService.getPurchaseOrders();
-      
-      // Calculate budget from orders (you might want to add a budget table)
-      double totalSpent = 0.0;
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+      final nextMonthStart = DateTime(now.year, now.month + 1, 1);
+      final monthEnd = nextMonthStart.subtract(const Duration(milliseconds: 1));
+
+      // Load purchase orders for current month
+      final orders = await _dataService.getPurchaseOrders(
+        startDate: monthStart,
+        endDate: monthEnd,
+      );
+
+      int totalSpent = 0;
       for (var order in orders) {
         if (order['status'] == 'Confirmed' || order['status'] == 'Pending') {
-          totalSpent += ((order['total_cost'] as num?)?.toDouble() ?? 0.0) / 100; // Convert from kobo
+          totalSpent += (order['total_cost'] as num?)?.toInt() ?? 0;
         }
       }
-      
-      // For now, use a default budget - you can add a budget table later
-      _totalBudget = 500000.0; // Default budget
-      _remainingBudget = _totalBudget - totalSpent;
+
+      // Load monthly budget (set by management/accountant)
+      final budget = await _dataService.getMonthlyPurchaseBudget(monthStart);
+      _budgetSet = budget != null;
+      _monthlyBudgetKobo = (budget?['amount'] as num?)?.toInt() ?? 0;
+      _spentKobo = totalSpent;
+      _varianceKobo = _monthlyBudgetKobo - _spentKobo;
+      _budgetExceeded = _varianceKobo < 0;
       
       // Convert purchase orders to history format
       _purchaseHistory = orders.where((o) => o['status'] == 'Confirmed').map((order) {
@@ -129,6 +148,57 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     }
   }
 
+  Future<void> _loadSuppliers() async {
+    try {
+      final suppliers = await _dataService.getSuppliers();
+      if (mounted) {
+        setState(() {
+          _suppliers = suppliers;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load suppliers. You can still type a supplier manually.',
+        );
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _resolveSupplier() async {
+    final typedName = _supplierController.text.trim();
+    if (typedName.isNotEmpty) {
+      final existing = _suppliers.firstWhere(
+        (s) => s['name']?.toString().toLowerCase() == typedName.toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
+      if (existing.isNotEmpty) {
+        return existing;
+      }
+      final created = await _dataService.addSupplier(name: typedName);
+      if (mounted) {
+        setState(() {
+          _suppliers = [created, ..._suppliers];
+        });
+      }
+      return created;
+    }
+
+    if (_selectedSupplierId != null) {
+      final selected = _suppliers.firstWhere(
+        (s) => s['id']?.toString() == _selectedSupplierId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (selected.isNotEmpty) {
+        return selected;
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _recordPurchase() async {
     if (_amountController.text.isEmpty || 
         _itemNameController.text.isEmpty || 
@@ -153,11 +223,12 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       return;
     }
 
-    if (amount > _remainingBudget) {
+    final quantity = int.tryParse(_quantityController.text);
+    if (quantity == null || quantity <= 0) {
       if (mounted) {
         ErrorHandler.showWarningMessage(
           context,
-          'Insufficient budget remaining',
+          'Quantity must be greater than 0',
         );
       }
       return;
@@ -181,11 +252,15 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       if (existingItem.isNotEmpty) {
         stockItemId = existingItem['id']?.toString();
       } else {
+        final supplier = await _resolveSupplier();
         // Create new stock item if it doesn't exist
         stockItemId = await _dataService.addStockItem(
           name: _itemNameController.text.trim(),
           description: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
           unit: _unitController.text.trim(),
+          category: _categoryController.text.trim(),
+          preferredSupplierId: supplier?['id']?.toString(),
+          preferredSupplierName: supplier?['name']?.toString(),
         );
       }
 
@@ -195,15 +270,16 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
       // Create purchase order
       final totalCost = (amount * 100).toInt(); // Convert to kobo
+      final supplier = await _resolveSupplier();
       await _dataService.createPurchaseOrder({
         'purchaser_id': purchaserId,
-        'supplier_name': _supplierController.text.trim(),
+        'supplier_name': supplier?['name']?.toString() ?? _supplierController.text.trim(),
         'total_cost': totalCost,
         'items': [
           {
             'stock_item_id': stockItemId,
-            'quantity': int.parse(_quantityController.text),
-            'unit_cost': ((amount / int.parse(_quantityController.text)) * 100).toInt(),
+            'quantity': quantity,
+            'unit_cost': ((amount / quantity) * 100).toInt(),
           }
         ],
       });
@@ -213,8 +289,10 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       _itemNameController.clear();
       _quantityController.clear();
       _unitController.clear();
+      _categoryController.clear();
       _supplierController.clear();
       _notesController.clear();
+      _selectedSupplierId = null;
 
       if (mounted) {
         ErrorHandler.showSuccessMessage(
@@ -357,9 +435,11 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                 Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
                 const SizedBox(width: 8),
                 Text(
-                  'Budget: ₦${NumberFormat('#,##0.00').format(_remainingBudget)}',
+                  _budgetSet
+                      ? 'Budget: ₦${NumberFormat('#,##0.00').format(_monthlyBudgetKobo / 100)}'
+                      : 'Budget: Not set',
                   style: TextStyle(
-                    color: Colors.green[700],
+                    color: _budgetExceeded ? Colors.red[700] : Colors.green[700],
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -412,9 +492,46 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                 const SizedBox(width: 16),
                 Expanded(
                   child: TextField(
+                    controller: _categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedSupplierId,
+                    decoration: const InputDecoration(
+                      labelText: 'Preferred Supplier',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _suppliers.map((supplier) {
+                      final id = supplier['id']?.toString();
+                      final name = supplier['name']?.toString() ?? 'Unknown';
+                      return DropdownMenuItem(
+                        value: id,
+                        child: Text(name),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSupplierId = value;
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
                     controller: _supplierController,
                     decoration: const InputDecoration(
-                      labelText: 'Supplier',
+                      labelText: 'Supplier (type to add)',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -489,6 +606,17 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       return const Center(child: CircularProgressIndicator());
     }
 
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    final canManageBudget = user?.roles.any((r) =>
+            r.name == 'owner' ||
+            r.name == 'manager' ||
+            r.name == 'accountant') ??
+        false;
+    final percentUsed = _monthlyBudgetKobo == 0
+        ? 0.0
+        : (_spentKobo / _monthlyBudgetKobo) * 100;
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -520,8 +648,10 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                   children: [
                     Expanded(
                       child: _buildBudgetCard(
-                        'Total Budget',
-                        '₦${NumberFormat('#,##0.00').format(_totalBudget)}',
+                        'Monthly Budget',
+                        _budgetSet
+                            ? '₦${NumberFormat('#,##0.00').format(_monthlyBudgetKobo / 100)}'
+                            : 'Not set',
                         Colors.blue,
                         Icons.account_balance_wallet,
                       ),
@@ -529,10 +659,10 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                     const SizedBox(width: 16),
                     Expanded(
                       child: _buildBudgetCard(
-                        'Remaining',
-                        '₦${NumberFormat('#,##0.00').format(_remainingBudget)}',
-                        Colors.green,
-                        Icons.savings,
+                        _budgetExceeded ? 'Deficit' : 'Surplus',
+                        '₦${NumberFormat('#,##0.00').format(_varianceKobo.abs() / 100)}',
+                        _budgetExceeded ? Colors.red : Colors.green,
+                        _budgetExceeded ? Icons.warning : Icons.savings,
                       ),
                     ),
                   ],
@@ -543,7 +673,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                     Expanded(
                       child: _buildBudgetCard(
                         'Spent',
-                        '₦${NumberFormat('#,##0.00').format(_totalBudget - _remainingBudget)}',
+                        '₦${NumberFormat('#,##0.00').format(_spentKobo / 100)}',
                         Colors.red,
                         Icons.shopping_cart,
                       ),
@@ -552,19 +682,84 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                     Expanded(
                       child: _buildBudgetCard(
                         'Percentage Used',
-                        '${((_totalBudget - _remainingBudget) / _totalBudget * 100).toStringAsFixed(1)}%',
+                        '${percentUsed.toStringAsFixed(1)}%',
                         Colors.orange,
                         Icons.pie_chart,
                       ),
                     ),
                   ],
                 ),
+                if (canManageBudget) ...[
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showSetBudgetDialog,
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Set Monthly Budget'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _showSetBudgetDialog() async {
+    final controller = TextEditingController(
+      text: _budgetSet ? (_monthlyBudgetKobo / 100).toStringAsFixed(2) : '',
+    );
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Set Monthly Budget'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Amount (₦)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+    final amount = double.tryParse(controller.text.trim());
+    if (amount == null || amount <= 0) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(context, 'Enter a valid budget amount');
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    await _dataService.upsertMonthlyPurchaseBudget(
+      monthStart: monthStart,
+      amountKobo: (amount * 100).round(),
+      updatedBy: userId,
+    );
+    await _loadBudgetData();
   }
 
   Widget _buildBudgetCard(String title, String value, Color color, IconData icon) {

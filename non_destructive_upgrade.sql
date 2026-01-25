@@ -214,7 +214,7 @@ BEGIN
   PERFORM cron.schedule(
     'daily_management_digest',
     '0 7 * * *',
-    $$SELECT public.send_management_daily_digest();$$
+    'SELECT public.send_management_daily_digest()'
   );
 EXCEPTION
   WHEN OTHERS THEN
@@ -461,6 +461,8 @@ DROP TRIGGER IF EXISTS trg_notify_on_debt_updated ON public.debts;
 CREATE TRIGGER trg_notify_on_debt_updated
 AFTER UPDATE ON public.debts
 FOR EACH ROW EXECUTE FUNCTION public.notify_on_debt_updated();
+DO $$
+BEGIN
   DROP POLICY IF EXISTS "Owner can create staff profiles" ON public.profiles;
   DROP POLICY IF EXISTS "Owner and HR can create staff profiles" ON public.profiles;
   DROP POLICY IF EXISTS "Owner HR and Manager can create staff profiles" ON public.profiles;
@@ -618,9 +620,333 @@ BEGIN
 END;
 $$;
 
--- 4) Bookings columns and guest_profile_id nullable
+-- 4) Guest booking creation (atomic)
+CREATE OR REPLACE FUNCTION public.create_booking_with_availability_check(
+    p_guest_profile_id UUID,
+    p_requested_room_type TEXT,
+    p_check_in_date DATE,
+    p_check_out_date DATE,
+    p_total_amount INT8,
+    p_guest_name TEXT,
+    p_guest_email TEXT,
+    p_paid_amount INT8 DEFAULT 0,
+    p_payment_method TEXT DEFAULT 'cash',
+    p_payment_reference TEXT DEFAULT NULL,
+    p_payment_provider TEXT DEFAULT 'paystack',
+    p_guest_phone TEXT DEFAULT NULL,
+    p_terms_accepted BOOLEAN DEFAULT false,
+    p_terms_version TEXT DEFAULT NULL
+)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_booking_id UUID;
+    v_total_rooms INTEGER;
+    v_assigned_rooms INTEGER;
+    v_bookings_by_type INTEGER;
+    v_available_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO v_total_rooms
+    FROM public.rooms
+    WHERE type = p_requested_room_type
+    AND status = 'Vacant';
+
+    IF v_total_rooms = 0 THEN
+        RAISE EXCEPTION 'No rooms of type % are available', p_requested_room_type;
+    END IF;
+
+    SELECT COUNT(DISTINCT room_id) INTO v_assigned_rooms
+    FROM public.bookings
+    WHERE room_id IS NOT NULL
+    AND status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
+    AND check_in_date < p_check_out_date
+    AND check_out_date > p_check_in_date;
+
+    SELECT COUNT(*) INTO v_bookings_by_type
+    FROM public.bookings
+    WHERE room_id IS NULL
+    AND requested_room_type = p_requested_room_type
+    AND status IN ('Pending Check-in', 'Checked-in', 'confirmed', 'checked_in')
+    AND check_in_date < p_check_out_date
+    AND check_out_date > p_check_in_date;
+
+    v_available_count := v_total_rooms - v_assigned_rooms - v_bookings_by_type;
+
+    IF v_available_count <= 0 THEN
+        RAISE EXCEPTION 'No rooms of type % are available for the selected dates', p_requested_room_type;
+    END IF;
+
+    INSERT INTO public.bookings (
+        guest_profile_id,
+        requested_room_type,
+        check_in_date,
+        check_out_date,
+        total_amount,
+        paid_amount,
+        payment_method,
+        payment_reference,
+        payment_provider,
+        guest_name,
+        guest_email,
+        guest_phone,
+        status,
+        terms_accepted,
+        terms_version
+    ) VALUES (
+        p_guest_profile_id,
+        p_requested_room_type,
+        p_check_in_date,
+        p_check_out_date,
+        p_total_amount,
+        p_paid_amount,
+        p_payment_method,
+        p_payment_reference,
+        p_payment_provider,
+        p_guest_name,
+        p_guest_email,
+        p_guest_phone,
+        'Pending Check-in',
+        p_terms_accepted,
+        p_terms_version
+    ) RETURNING id INTO v_booking_id;
+
+    RETURN v_booking_id;
+END;
+$$;
+
+-- 4.0) Guest booking lookup by payment reference + email
+CREATE OR REPLACE FUNCTION public.get_guest_booking_status(
+    p_payment_reference TEXT,
+    p_guest_email TEXT
+)
+RETURNS TABLE (
+    booking_id UUID,
+    status TEXT,
+    requested_room_type TEXT,
+    check_in_date TIMESTAMPTZ,
+    check_out_date TIMESTAMPTZ,
+    room_id UUID,
+    room_number TEXT,
+    paid_amount INT8,
+    total_amount INT8,
+    guest_name TEXT,
+    guest_email TEXT,
+    payment_reference TEXT,
+    payment_method TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_recent_attempts INT;
+BEGIN
+    SELECT COUNT(*) INTO v_recent_attempts
+    FROM public.guest_lookup_attempts
+    WHERE guest_email = lower(p_guest_email)
+      AND created_at >= now() - interval '15 minutes';
+
+    IF v_recent_attempts >= 10 THEN
+        RAISE EXCEPTION 'Too many lookup attempts. Please try again later.';
+    END IF;
+
+    INSERT INTO public.guest_lookup_attempts (guest_email)
+    VALUES (lower(p_guest_email));
+
+    RETURN QUERY
+    SELECT b.id,
+           b.status,
+           b.requested_room_type,
+           b.check_in_date,
+           b.check_out_date,
+           b.room_id,
+           r.room_number,
+           b.paid_amount,
+           b.total_amount,
+           b.guest_name,
+           b.guest_email,
+           b.payment_reference,
+           b.payment_method
+    FROM public.bookings b
+    LEFT JOIN public.rooms r ON r.id = b.room_id
+    WHERE b.payment_reference = p_payment_reference
+      AND lower(COALESCE(b.guest_email, '')) = lower(p_guest_email)
+    ORDER BY b.created_at DESC
+    LIMIT 1;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.cleanup_guest_lookup_attempts()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+    DELETE FROM public.guest_lookup_attempts
+    WHERE created_at < now() - interval '7 days';
+END;
+$$;
+
+-- 4.0.1) Guest booking lookup attempts (rate limit)
 DO $$
 BEGIN
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name = 'guest_lookup_attempts'
+  ) THEN
+      CREATE TABLE public.guest_lookup_attempts (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          guest_email TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT now()
+      );
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_guest_lookup_attempts_email_time
+ON public.guest_lookup_attempts (guest_email, created_at DESC);
+
+ALTER TABLE public.guest_lookup_attempts ENABLE ROW LEVEL SECURITY;
+
+-- 4.1) Booking confirmation + columns
+CREATE OR REPLACE FUNCTION public.confirm_guest_booking(
+    p_booking_id UUID,
+    p_paid_amount INT8,
+    p_payment_reference TEXT DEFAULT NULL,
+    p_payment_method TEXT DEFAULT 'online',
+    p_guest_email TEXT DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_booking RECORD;
+    v_room_type TEXT;
+BEGIN
+    SELECT * INTO v_booking
+    FROM public.bookings
+    WHERE id = p_booking_id
+    FOR UPDATE;
+
+    IF v_booking IS NULL THEN
+        RAISE EXCEPTION 'Booking not found';
+    END IF;
+
+    IF v_booking.guest_profile_id IS NOT NULL THEN
+        IF v_booking.guest_profile_id IS DISTINCT FROM auth.uid() THEN
+            RAISE EXCEPTION 'Not authorized to confirm this booking';
+        END IF;
+    ELSE
+        IF p_payment_reference IS NULL OR p_guest_email IS NULL THEN
+            RAISE EXCEPTION 'Missing payment reference or guest email';
+        END IF;
+        IF v_booking.payment_reference IS DISTINCT FROM p_payment_reference THEN
+            RAISE EXCEPTION 'Invalid payment reference';
+        END IF;
+        IF lower(COALESCE(v_booking.guest_email, '')) <> lower(p_guest_email) THEN
+            RAISE EXCEPTION 'Guest email mismatch';
+        END IF;
+    END IF;
+
+    UPDATE public.bookings
+    SET status = 'Pending Check-in',
+        paid_amount = p_paid_amount,
+        payment_method = p_payment_method,
+        payment_reference = COALESCE(p_payment_reference, payment_reference),
+        payment_verified = true,
+        updated_at = now()
+    WHERE id = p_booking_id;
+
+    v_room_type := COALESCE(v_booking.requested_room_type, 'Room');
+    IF NOT EXISTS (
+        SELECT 1 FROM public.income_records
+        WHERE booking_id = p_booking_id
+          AND source = 'Room Booking'
+    ) THEN
+        INSERT INTO public.income_records (
+            description,
+            amount,
+            source,
+            date,
+            department,
+            payment_method,
+            booking_id,
+            created_by
+        ) VALUES (
+            'Room booking - ' || v_room_type,
+            p_paid_amount,
+            'Room Booking',
+            CURRENT_DATE,
+            'reception',
+            p_payment_method,
+            p_booking_id,
+            auth.uid()
+        );
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  PERFORM cron.schedule(
+    'guest_lookup_cleanup',
+    '0 3 * * 0',
+    'SELECT public.cleanup_guest_lookup_attempts()'
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- 4.1) Bookings columns and guest_profile_id nullable
+DO $$
+BEGIN
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'bookings' 
+      AND column_name = 'payment_reference'
+  ) THEN
+      ALTER TABLE public.bookings ADD COLUMN payment_reference TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'bookings' 
+      AND column_name = 'payment_provider'
+  ) THEN
+      ALTER TABLE public.bookings ADD COLUMN payment_provider TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'bookings' 
+      AND column_name = 'payment_verified'
+  ) THEN
+      ALTER TABLE public.bookings ADD COLUMN payment_verified BOOLEAN DEFAULT false;
+  END IF;
+
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'bookings' 
+      AND column_name = 'terms_accepted'
+  ) THEN
+      ALTER TABLE public.bookings ADD COLUMN terms_accepted BOOLEAN DEFAULT false;
+  END IF;
+
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'bookings' 
+      AND column_name = 'terms_version'
+  ) THEN
+      ALTER TABLE public.bookings ADD COLUMN terms_version TEXT;
+  END IF;
+
   IF NOT EXISTS (
       SELECT 1 FROM information_schema.columns 
       WHERE table_schema = 'public' 
@@ -711,6 +1037,118 @@ BEGIN
   ) THEN
       ALTER TABLE public.bookings ALTER COLUMN guest_profile_id DROP NOT NULL;
   END IF;
+END $$;
+
+-- Rooms UPDATE policy for staff (housekeeping + reception + management)
+DO $$
+BEGIN
+  BEGIN
+    DROP POLICY IF EXISTS "Staff update rooms" ON public.rooms;
+  EXCEPTION WHEN undefined_object THEN
+    NULL;
+  END;
+
+  CREATE POLICY "Staff update rooms" ON public.rooms
+  FOR UPDATE
+  USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'receptionist')
+      OR user_has_role(auth.uid(), 'housekeeper')
+      OR user_has_role(auth.uid(), 'cleaner')
+    )
+  )
+  WITH CHECK (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'receptionist')
+      OR user_has_role(auth.uid(), 'housekeeper')
+      OR user_has_role(auth.uid(), 'cleaner')
+    )
+  );
+END $$;
+
+-- Room status audit log
+DO $$
+BEGIN
+  IF NOT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name = 'room_status_logs'
+  ) THEN
+      CREATE TABLE public.room_status_logs (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
+          old_status TEXT,
+          new_status TEXT,
+          changed_by UUID REFERENCES public.profiles(id),
+          changed_at TIMESTAMPTZ DEFAULT now()
+      );
+  END IF;
+END $$;
+
+ALTER TABLE public.room_status_logs ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  BEGIN
+    DROP POLICY IF EXISTS "Staff read room status logs" ON public.room_status_logs;
+  EXCEPTION WHEN undefined_object THEN
+    NULL;
+  END;
+
+  CREATE POLICY "Staff read room status logs" ON public.room_status_logs
+  FOR SELECT
+  USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'receptionist')
+      OR user_has_role(auth.uid(), 'housekeeper')
+      OR user_has_role(auth.uid(), 'cleaner')
+    )
+  );
+END $$;
+
+CREATE OR REPLACE FUNCTION public.log_room_status_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.status IS DISTINCT FROM OLD.status THEN
+        INSERT INTO public.room_status_logs (
+            room_id,
+            old_status,
+            new_status,
+            changed_by
+        ) VALUES (
+            NEW.id,
+            OLD.status,
+            NEW.status,
+            auth.uid()
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+  BEGIN
+    DROP TRIGGER IF EXISTS room_status_change_log ON public.rooms;
+  EXCEPTION WHEN undefined_object THEN
+    NULL;
+  END;
+  CREATE TRIGGER room_status_change_log
+  AFTER UPDATE ON public.rooms
+  FOR EACH ROW
+  EXECUTE FUNCTION public.log_room_status_change();
 END $$;
 
 -- 5) Stock transfers + function
@@ -1000,19 +1438,6 @@ BEGIN
         COALESCE(p_notes, 'Direct supply approved')
     );
 
-    SELECT id INTO v_inventory_id
-    FROM public.inventory_items
-    WHERE name = v_item_name
-    AND department = v_request.bar;
-
-    IF v_inventory_id IS NULL THEN
-        RAISE EXCEPTION 'Inventory item not found for %', v_item_name;
-    END IF;
-
-    UPDATE public.inventory_items
-    SET current_stock = current_stock + v_request.quantity
-    WHERE id = v_inventory_id;
-
     UPDATE public.direct_supply_requests
     SET status = 'approved',
         approved_by = auth.uid(),
@@ -1241,7 +1666,10 @@ END $$;
 DO $$
 BEGIN
   CREATE OR REPLACE FUNCTION public.handle_debt_payment()
-  RETURNS TRIGGER AS $$
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  AS $func$
   DECLARE
     v_debt RECORD;
     v_department TEXT;
@@ -1306,7 +1734,7 @@ BEGIN
 
     RETURN NEW;
   END;
-  $$ LANGUAGE plpgsql SECURITY DEFINER;
+  $func$;
 
   DROP TRIGGER IF EXISTS handle_debt_payment_trigger ON public.debt_payments;
   CREATE TRIGGER handle_debt_payment_trigger
@@ -1625,10 +2053,211 @@ EXCEPTION
     NULL;
 END $$;
 
-CREATE OR REPLACE FUNCTION public.confirm_purchase_order(order_id uuid, storekeeper_id uuid)
+-- 8.5.1) Purchase budgets (monthly)
+-- 8.5) Suppliers (Purchasing)
+CREATE TABLE IF NOT EXISTS public.suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    contact_phone TEXT,
+    contact_email TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "Purchasing can view suppliers" ON public.suppliers FOR SELECT USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'purchaser')
+      OR user_has_role(auth.uid(), 'storekeeper')
+      OR user_has_role(auth.uid(), 'accountant')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Purchaser can add suppliers" ON public.suppliers FOR INSERT WITH CHECK (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'purchaser')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'accountant')
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Management can manage suppliers" ON public.suppliers FOR ALL USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'accountant')
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE public.stock_items ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE public.stock_items ADD COLUMN IF NOT EXISTS preferred_supplier_id UUID REFERENCES public.suppliers(id);
+ALTER TABLE public.stock_items ADD COLUMN IF NOT EXISTS preferred_supplier_name TEXT;
+
+-- 8.5.1) Purchase budgets (monthly)
+CREATE TABLE IF NOT EXISTS public.purchase_budgets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    month_start DATE NOT NULL UNIQUE,
+    amount INT8 NOT NULL, -- Stored in Kobo/Cents
+    created_by UUID REFERENCES public.profiles(id),
+    updated_by UUID REFERENCES public.profiles(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Finance approvals and audit logs
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'cash';
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES public.profiles(id);
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS rejected_by UUID REFERENCES public.profiles(id);
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
+ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approval_status TEXT DEFAULT 'pending';
+ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES public.profiles(id);
+ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS due_date DATE;
+
+CREATE TABLE IF NOT EXISTS public.finance_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    actor_id UUID REFERENCES public.profiles(id),
+    action TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    record_id UUID,
+    before_data JSONB,
+    after_data JSONB
+);
+
+ALTER TABLE public.finance_audit_logs ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "Active admin finance access audit logs" ON public.finance_audit_logs FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.log_finance_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.finance_audit_logs (
+    actor_id,
+    action,
+    table_name,
+    record_id,
+    before_data,
+    after_data
+  )
+  VALUES (
+    auth.uid(),
+    TG_OP,
+    TG_TABLE_NAME,
+    COALESCE((CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END), NULL),
+    (CASE WHEN TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE NULL END),
+    (CASE WHEN TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN to_jsonb(NEW) ELSE NULL END)
+  );
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_finance_audit_expenses ON public.expenses;
+CREATE TRIGGER trg_finance_audit_expenses
+AFTER INSERT OR UPDATE OR DELETE ON public.expenses
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_income ON public.income_records;
+CREATE TRIGGER trg_finance_audit_income
+AFTER INSERT OR UPDATE OR DELETE ON public.income_records
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_payroll ON public.payroll_records;
+CREATE TRIGGER trg_finance_audit_payroll
+AFTER INSERT OR UPDATE OR DELETE ON public.payroll_records
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_cash_deposits ON public.cash_deposits;
+CREATE TRIGGER trg_finance_audit_cash_deposits
+AFTER INSERT OR UPDATE OR DELETE ON public.cash_deposits
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_debts ON public.debts;
+CREATE TRIGGER trg_finance_audit_debts
+AFTER INSERT OR UPDATE OR DELETE ON public.debts
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_debt_payments ON public.debt_payments;
+CREATE TRIGGER trg_finance_audit_debt_payments
+AFTER INSERT OR UPDATE OR DELETE ON public.debt_payments
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+ALTER TABLE public.purchase_budgets ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "Management can manage purchase budgets" ON public.purchase_budgets FOR ALL USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'accountant')
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Purchaser can view purchase budgets" ON public.purchase_budgets FOR SELECT USING (
+    is_user_active(auth.uid())
+    AND (
+      user_has_role(auth.uid(), 'purchaser')
+      OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'manager')
+      OR user_has_role(auth.uid(), 'accountant')
+    )
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.confirm_purchase_order(order_id uuid, storekeeper_id uuid, location_id uuid DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
+DECLARE
+  v_location_id uuid;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles p
@@ -1643,19 +2272,35 @@ BEGIN
     RAISE EXCEPTION 'Only storekeeper or management can confirm purchase orders';
   END IF;
 
+  IF location_id IS NOT NULL THEN
+    v_location_id := location_id;
+  ELSE
+    SELECT id INTO v_location_id
+    FROM public.locations
+    WHERE lower(name) IN ('main store', 'main storeroom')
+    ORDER BY name
+    LIMIT 1;
+  END IF;
+
+  IF v_location_id IS NULL THEN
+    RAISE EXCEPTION 'Main Store location not found. Please select a location.';
+  END IF;
+
   UPDATE public.purchase_orders
   SET status = 'Confirmed', storekeeper_id = confirm_purchase_order.storekeeper_id
   WHERE id = order_id;
   
   INSERT INTO public.stock_transactions (stock_item_id, location_id, staff_profile_id, transaction_type, quantity, notes)
-  SELECT poi.stock_item_id, (SELECT id FROM public.locations WHERE name = 'Main Storeroom' LIMIT 1), storekeeper_id, 'Purchase', poi.quantity, 'PO Confirmed'
+  SELECT poi.stock_item_id, v_location_id, storekeeper_id, 'Purchase', poi.quantity, 'PO Confirmed'
   FROM public.purchase_order_items poi WHERE poi.purchase_order_id = order_id;
 END;
 $$;
 
 -- 8.6) Stock level calculation updated for adjustments
 CREATE OR REPLACE FUNCTION public.calculate_stock_level(item_id UUID, location_id UUID)
-RETURNS INTEGER AS $$
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $calc$
 DECLARE
     total_in INTEGER;
     total_out INTEGER;
@@ -1675,8 +2320,8 @@ BEGIN
     AND quantity < 0;
     
     RETURN total_in - total_out;
-END;
-$$ LANGUAGE plpgsql;
+  END;
+$calc$;
 
 -- 9) Views (refresh)
 DROP VIEW IF EXISTS public.room_occupancy CASCADE;

@@ -124,14 +124,16 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       final dispatchHistory = await _dataService.getDepartmentTransfers();
       final salesHistory = await _dataService.getKitchenSalesHistory();
       final allBookings = await _dataService.getBookings();
-      final fallbackLocations = [
-        {'id': 'loc001', 'name': 'Kitchen', 'type': 'Kitchen'},
-        {'id': 'loc002', 'name': 'VIP Bar', 'type': 'Bar'},
-        {'id': 'loc003', 'name': 'Outside Bar', 'type': 'Bar'},
-        {'id': 'loc004', 'name': 'Mini Mart', 'type': 'Other'},
-      ];
-
       if (!mounted) return;
+
+      if (locResponse.isEmpty) {
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'No locations found. Please add locations first.',
+          );
+        }
+      }
 
       final activeDepartments = deptResponse
           .where((d) => (d['name'] as String?)?.toLowerCase() != 'restaurant')
@@ -147,9 +149,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
-        _locations = locResponse.isNotEmpty
-            ? List<Map<String, dynamic>>.from(locResponse)
-            : List<Map<String, dynamic>>.from(fallbackLocations);
+        _locations = List<Map<String, dynamic>>.from(locResponse);
         _departments = List<Map<String, dynamic>>.from(activeDepartments);
         _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
         _salesHistory = List<Map<String, dynamic>>.from(salesHistory);

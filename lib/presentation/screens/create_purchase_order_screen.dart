@@ -20,13 +20,17 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
   
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _stockItems = [];
+  List<Map<String, dynamic>> _suppliers = [];
+  String? _selectedSupplierId;
   bool _isLoading = false;
   bool _isLoadingItems = true;
+  bool _isLoadingSuppliers = true;
 
   @override
   void initState() {
     super.initState();
     _loadStockItems();
+    _loadSuppliers();
   }
 
   Future<void> _loadStockItems() async {
@@ -43,6 +47,58 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
         setState(() => _isLoadingItems = false);
       }
     }
+  }
+
+  Future<void> _loadSuppliers() async {
+    try {
+      setState(() => _isLoadingSuppliers = true);
+      final suppliers = await _dataService.getSuppliers();
+      setState(() {
+        _suppliers = suppliers;
+        _isLoadingSuppliers = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load suppliers. You can still type a supplier manually.',
+        );
+        setState(() => _isLoadingSuppliers = false);
+      }
+    }
+  }
+
+  Future<String> _resolveSupplierName() async {
+    final typedName = _supplierController.text.trim();
+    if (typedName.isNotEmpty) {
+      final existing = _suppliers.firstWhere(
+        (s) => s['name']?.toString().toLowerCase() == typedName.toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
+      if (existing.isNotEmpty) {
+        return existing['name']?.toString() ?? typedName;
+      }
+      final created = await _dataService.addSupplier(name: typedName);
+      if (mounted) {
+        setState(() {
+          _suppliers = [created, ..._suppliers];
+        });
+      }
+      return created['name']?.toString() ?? typedName;
+    }
+
+    if (_selectedSupplierId != null) {
+      final selected = _suppliers.firstWhere(
+        (s) => s['id']?.toString() == _selectedSupplierId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (selected.isNotEmpty) {
+        return selected['name']?.toString() ?? '';
+      }
+    }
+
+    return '';
   }
 
   void _addItem() {
@@ -116,9 +172,16 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
         throw Exception('User must be logged in to create purchase orders');
       }
 
+      final supplierName = await _resolveSupplierName();
+      if (supplierName.isEmpty) {
+        ErrorHandler.showWarningMessage(context, 'Please select or enter a supplier');
+        setState(() => _isLoading = false);
+        return;
+      }
+
       await _dataService.createPurchaseOrder({
         'purchaser_id': purchaserId,
-        'supplier_name': _supplierController.text.trim(),
+        'supplier_name': supplierName,
         'total_cost': _totalCost, // Already in kobo
         'items': _items.map((item) => {
           'stock_item_id': item['stock_item_id'],
@@ -171,20 +234,41 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
         child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Supplier Name
-                          TextFormField(
-                            controller: _supplierController,
-                            decoration: const InputDecoration(
-                              labelText: 'Supplier Name *',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.business),
-                            ),
-                            validator: (value) {
-                              if (value?.trim().isEmpty ?? true) {
-                                return 'Please enter supplier name';
-                              }
-                              return null;
-                            },
+                          // Supplier
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedSupplierId,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Supplier',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.business),
+                                  ),
+                                  items: _suppliers.map((supplier) {
+                                    final id = supplier['id']?.toString();
+                                    final name = supplier['name']?.toString() ?? 'Unknown';
+                                    return DropdownMenuItem(
+                                      value: id,
+                                      child: Text(name),
+                                    );
+                                  }).toList(),
+                                  onChanged: _isLoadingSuppliers
+                                      ? null
+                                      : (value) => setState(() => _selectedSupplierId = value),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _supplierController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Supplier (type to add)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 24),
 

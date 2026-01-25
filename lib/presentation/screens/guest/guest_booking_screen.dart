@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,7 +6,6 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
-import 'package:pzed_homes/core/config/app_config.dart';
 
 class GuestBookingScreen extends StatefulWidget {
   const GuestBookingScreen({super.key});
@@ -25,6 +23,9 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _isLoading = false;
+  bool _termsAccepted = false;
+  String? _paymentReference;
+  static const String _termsVersion = 'v1';
 
   // Get Supabase client safely (returns null if not initialized)
   SupabaseClient? get _supabase {
@@ -39,7 +40,11 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   void initState() {
     super.initState();
     // Fallback values if no extra data
-    roomType = {'name': 'Standard Room', 'price': 1500000};
+    roomType = {
+      'name': 'Standard Room',
+      'price': 1500000,
+      'price_kobo': 1500000,
+    };
     checkInDate = DateTime.now();
     checkOutDate = DateTime.now().add(const Duration(days: 1));
   }
@@ -89,6 +94,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
   Future<void> _handlePayment() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_termsAccepted) {
+      ErrorHandler.showWarningMessage(
+        context,
+        'Please accept the terms and cancellation policy to continue.',
+      );
+      return;
+    }
 
     // Check if Supabase is initialized
     if (_supabase == null) {
@@ -102,8 +114,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Create guest profile or get existing one
-      final guestProfileId = await _getOrCreateGuestProfile();
+      // 1. Use guest account only if already logged in
+      final guestProfileId = _supabase!.auth.currentUser?.id;
+
+      // 2. Generate payment reference before booking creation
+      final paymentService = PaymentService();
+      if (!paymentService.isInitialized) {
+        throw Exception('Payment system is not configured. Please contact support.');
+      }
+      _paymentReference ??= paymentService.generateReference();
 
       // 2. Create booking atomically with availability check using database function
       // This prevents race conditions by performing availability check and booking creation
@@ -116,7 +135,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       if (paymentSuccess) {
         // 5. Update booking status to Pending Check-in (room will be assigned by receptionist)
         await _confirmBooking(bookingId);
-        _showSuccess('Payment successful! Your booking is confirmed. A room will be assigned when you arrive.');
+        final refText = _paymentReference == null ? '' : ' Reference: $_paymentReference';
+        _showSuccess(
+          'Payment successful! Your booking is confirmed. A room will be assigned when you arrive.$refText',
+        );
       } else {
         // Payment failed - delete the pending booking
         await _supabase!.from('bookings').delete().eq('id', bookingId);
@@ -160,141 +182,20 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  Future<String> _getOrCreateGuestProfile() async {
-    if (_supabase == null) {
-      throw Exception('Supabase is not configured');
-    }
-
-    // Sanitize inputs to prevent XSS and other security issues
-    final email = InputSanitizer.sanitizeEmail(_emailController.text.trim());
-    final fullName = InputSanitizer.sanitizeText(_nameController.text.trim());
-    final phone = InputSanitizer.sanitizePhone(_phoneController.text.trim());
-    
-    try {
-      // Check if profile exists
-      final existing = await _supabase!
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle();
-
-      if (existing != null) {
-        return existing['id'] as String;
-      }
-
-      // Profile doesn't exist - need to create auth user first
-      // Generate a secure temporary password (guest can reset via email if needed)
-      final tempPassword = _generateSecurePassword();
-      
-      // Create auth user - this will trigger the profile creation via database trigger
-      final authResponse = await _supabase!.auth.signUp(
-        email: email,
-        password: tempPassword,
-        data: {
-          'full_name': fullName,
-          'phone': phone,
-        },
-      );
-
-      if (authResponse.user == null) {
-        throw Exception('Failed to create auth user');
-      }
-
-      final userId = authResponse.user!.id;
-
-      // Wait a moment for the trigger to create the profile
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Verify profile was created and update with additional info if needed
-      final profile = await _supabase!
-          .from('profiles')
-          .select('id, phone')
-          .eq('id', userId)
-          .single();
-
-      // Update phone if it wasn't set by trigger
-      if (phone.isNotEmpty && (profile['phone'] == null || profile['phone'].toString().isEmpty)) {
-        await _supabase!
-            .from('profiles')
-            .update({'phone': phone})
-            .eq('id', userId);
-      }
-
-      // CRITICAL: Send password reset email so guest can set their own password
-      // This allows guests to log in and view their bookings
-      // Make this more robust - retry once if it fails
-      bool emailSent = false;
-      for (int attempt = 0; attempt < 2 && !emailSent; attempt++) {
-        try {
-          await _supabase!.auth.resetPasswordForEmail(
-            email,
-            redirectTo: AppConfig.passwordResetUrl,
-          );
-          emailSent = true;
-          if (kDebugMode) {
-            debugPrint('Password reset email sent successfully to $email');
-          }
-        } catch (e) {
-          if (attempt == 1) {
-            // Final attempt failed - log but don't fail the booking
-            // Guest can use "Forgot Password" later
-            if (kDebugMode) {
-              debugPrint('Warning: Could not send password reset email after 2 attempts: $e');
-            }
-          } else {
-            // Wait a bit before retry
-            await Future.delayed(const Duration(milliseconds: 500));
-          }
-        }
-      }
-
-      return userId;
-    } catch (e) {
-      // If user already exists in auth, try to sign in to get the user ID
-      if (e.toString().contains('already registered') || e.toString().contains('already exists')) {
-        try {
-          // User exists in auth - find their profile
-          final profile = await _supabase!
-              .from('profiles')
-              .select('id')
-              .eq('email', email)
-              .maybeSingle();
-          
-          if (profile != null) {
-            return profile['id'] as String;
-          }
-        } catch (_) {
-          // Fall through to throw original error
-        }
-      }
-      throw Exception('Error creating guest profile: $e');
-    }
-  }
-
-  /// Generate a secure temporary password for guest accounts
-  String _generateSecurePassword() {
-    // Generate a random password - guest can reset via email if needed
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%^&*';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    final password = StringBuffer();
-    for (int i = 0; i < 16; i++) {
-      password.write(chars[(random + i) % chars.length]);
-    }
-    return password.toString();
-  }
+  // Guest accounts are created only via explicit signup on the landing page.
 
   // NEW: Use atomic database function to prevent race conditions
   // This function atomically checks room availability and creates the booking
-  Future<String> _createPendingBookingAtomically(String guestProfileId) async {
+  Future<String> _createPendingBookingAtomically(String? guestProfileId) async {
     if (_supabase == null) {
       throw Exception('Supabase is not configured');
     }
 
     try {
       final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Standard';
-      final guestName = _nameController.text.trim();
-      final guestEmail = _emailController.text.trim();
-      final guestPhone = _phoneController.text.trim();
+      final guestName = InputSanitizer.sanitizeText(_nameController.text.trim());
+      final guestEmail = InputSanitizer.sanitizeEmail(_emailController.text.trim());
+      final guestPhone = InputSanitizer.sanitizePhone(_phoneController.text.trim());
       
       // Use database function to atomically check availability and create booking
       // This prevents race conditions where multiple guests book the same room type simultaneously
@@ -308,9 +209,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
           'p_total_amount': _totalPriceInKobo, // Already in kobo
           'p_paid_amount': 0, // Will be updated after successful payment
           'p_payment_method': 'paystack', // Will be updated after payment
+          'p_payment_reference': _paymentReference,
+          'p_payment_provider': 'paystack',
           'p_guest_name': guestName,
           'p_guest_email': guestEmail,
           'p_guest_phone': guestPhone.isNotEmpty ? guestPhone : null,
+          'p_terms_accepted': _termsAccepted,
+          'p_terms_version': _termsVersion,
         },
       );
 
@@ -334,13 +239,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         throw Exception('Payment system is not configured. Please contact support.');
       }
 
-      final email = _emailController.text.trim();
+      final email = InputSanitizer.sanitizeEmail(_emailController.text.trim());
       if (email.isEmpty) {
         throw Exception('Email is required for payment');
       }
 
-      // Generate unique payment reference
-      final reference = paymentService.generateReference();
+      final reference = _paymentReference ?? paymentService.generateReference();
+      _paymentReference = reference;
       
       // Show loading dialog
       if (mounted) {
@@ -393,29 +298,17 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
 
     try {
-      // Update booking status to Pending Check-in (room will be assigned by receptionist)
-      // Don't update room status - rooms stay Vacant until check-in
-      await _supabase!
-          .from('bookings')
-          .update({
-            'status': 'Pending Check-in',
-            'paid_amount': _totalPriceInKobo, // Already in kobo
-          })
-          .eq('id', bookingId);
-      
-      // Create income record for booking payment
-      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Room';
-      await _supabase!
-          .from('income_records')
-          .insert({
-            'description': 'Room booking - $roomTypeName',
-            'amount': _totalPriceInKobo, // Already in kobo
-            'source': 'Room Booking',
-            'date': DateTime.now().toIso8601String().split('T')[0],
-            'department': 'reception',
-            'payment_method': 'online', // Guest paid online via Paystack
-            'booking_id': bookingId,
-          });
+      final response = await _supabase!.functions.invoke(
+        'verify_guest_booking_payment',
+        body: {
+          'booking_id': bookingId,
+          'payment_reference': _paymentReference,
+          'guest_email': InputSanitizer.sanitizeEmail(_emailController.text.trim()),
+        },
+      );
+      if (response.status != 200) {
+        throw Exception('Payment verification failed');
+      }
       
       // Note: Room status remains 'Vacant' - receptionist will assign room and update status at check-in
     } catch (e) {
@@ -780,6 +673,25 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _termsAccepted,
+                        onChanged: (value) {
+                          setState(() => _termsAccepted = value ?? false);
+                        },
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _termsAccepted = !_termsAccepted),
+                          child: Text(
+                            'I agree to the booking terms & cancellation policy',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : SizedBox(

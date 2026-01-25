@@ -28,6 +28,7 @@ import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_home_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_booking_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
+import 'package:pzed_homes/presentation/screens/guest/guest_booking_lookup_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/about_us_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/services_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/contact_us_screen.dart';
@@ -160,6 +161,11 @@ class AppRouter {
           final checkOut = extra?['checkOutDate'] as DateTime? ?? DateTime.now().add(const Duration(days: 1));
           return const AvailableRoomsScreen();
         },
+      ),
+      GoRoute(
+        path: '/guest/booking-lookup',
+        name: 'guest-booking-lookup',
+        builder: (context, state) => const GuestBookingLookupScreen(),
       ),
       GoRoute(
         path: '/guest/about',
@@ -477,13 +483,13 @@ class AppRouter {
       case AppRole.vip_bartender:
       case AppRole.outside_bartender:
       case AppRole.bartender:
-        return location.startsWith('/inventory') ||
-               location.startsWith('/stock') ||
-               location.startsWith('/communications') ||
+        return location.startsWith('/communications') ||
                location.startsWith('/profile');
       
       case AppRole.security:
-        return location.startsWith('/communications') ||
+        return location.startsWith('/dashboard') ||
+               location.startsWith('/maintenance') ||
+               location.startsWith('/communications') ||
                location.startsWith('/profile');
       
       case AppRole.laundry_attendant:

@@ -120,10 +120,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final payroll = await _dataService.getPayrollRecords();
       final deposits = await _dataService.getCashDeposits();
       final checkedInGuests = await _dataService.getCheckedInGuests();
-      final vipSales = await _dataService.getDepartmentSales('vip_bar');
-      final outsideSales = await _dataService.getDepartmentSales('outside_bar');
-      final miniMartSales = await _dataService.getDepartmentSales('mini_mart');
-      final kitchenSales = await _dataService.getDepartmentSales('kitchen');
+      final today = DateTime.now();
+      final vipSales = await _dataService.getDepartmentSales(
+        department: 'vip_bar',
+        startDate: today,
+        endDate: today,
+      );
+      final outsideSales = await _dataService.getDepartmentSales(
+        department: 'outside_bar',
+        startDate: today,
+        endDate: today,
+      );
+      final miniMartSales = await _dataService.getDepartmentSales(
+        department: 'mini_mart',
+        startDate: today,
+        endDate: today,
+      );
+      final kitchenSales = await _dataService.getDepartmentSales(
+        department: 'kitchen',
+        startDate: today,
+        endDate: today,
+      );
       final pendingSupplies = canApproveSupplies
           ? await _dataService.getDirectSupplyRequests(status: 'pending')
           : <Map<String, dynamic>>[];

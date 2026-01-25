@@ -112,7 +112,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   Widget _buildReadOnlyStoreView() {
     final dataService = DataService();
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: dataService.getInventoryItems(),
+      future: dataService.getStockLevels(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -131,7 +131,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         if (items.isEmpty) {
           return ErrorHandler.buildEmptyWidget(
             context,
-            message: 'No inventory items available',
+            message: 'No stock items available',
           );
         }
         
@@ -145,9 +145,11 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
               child: ListTile(
                 leading: const Icon(Icons.inventory_2, color: Colors.green),
                 title: Text(item['name'] ?? 'Unknown'),
-                subtitle: Text('Stock: ${item['current_stock'] ?? 0} ${item['unit'] ?? ''}'),
+                subtitle: Text(
+                  'Stock: ${item['current_stock'] ?? 0} (${item['location_name'] ?? 'Unknown Location'})',
+                ),
                 trailing: Text(
-                  item['department'] ?? 'N/A',
+                  item['min_stock'] != null ? 'Min: ${item['min_stock']}' : 'Min: N/A',
                   style: TextStyle(color: Colors.grey[600]),
                 ),
               ),
@@ -172,10 +174,10 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   final _notesController = TextEditingController();
   final _dataService = DataService();
 
-  String? _selectedItemId;
+  String? _selectedStockItemId;
   String? _selectedLocationId;
   bool _isLoading = false;
-  List<Map<String, dynamic>> _inventoryItems = [];
+  List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _locations = [];
 
   @override
@@ -193,12 +195,12 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
 
   Future<void> _loadData() async {
     try {
-      final items = await _dataService.getInventoryItems();
+      final items = await _dataService.getStockItems();
       // Get locations from departments or use a locations table
       // For now, we'll use a predefined list from database or create a locations table
       final locations = await _getLocations();
       setState(() {
-        _inventoryItems = items;
+        _stockItems = items;
         _locations = locations;
       });
     } catch (e) {
@@ -242,7 +244,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
 
   Future<void> _recordDirectEntry() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedItemId == null || _selectedLocationId == null) {
+    if (_selectedStockItemId == null || _selectedLocationId == null) {
       if (mounted) {
         ErrorHandler.showWarningMessage(
           context,
@@ -258,41 +260,11 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
       final staffId = authService.currentUser?.id ?? 'system';
       final quantity = int.parse(_quantityController.text);
       
-      // Map inventory_item_id to stock_item_id
-      // First, find or create corresponding stock_item
-      String? stockItemId;
-      final inventoryItem = _inventoryItems.firstWhere((i) => i['id'] == _selectedItemId);
-      final itemName = inventoryItem['name'] as String;
-      
-      try {
-        // Try to find existing stock_item by name
-        final stockItems = await _dataService.getStockItems();
-        final existingStockItem = stockItems.firstWhere(
-          (si) => (si['name'] as String? ?? '').toLowerCase() == itemName.toLowerCase(),
-          orElse: () => <String, dynamic>{},
-        );
-        
-        if (existingStockItem.isNotEmpty) {
-          stockItemId = existingStockItem['id'] as String?;
-        } else {
-          // Create new stock_item if it doesn't exist
-          // Note: This requires adding a method to create stock_items, or we can use Supabase directly
-          throw Exception(
-            'Stock item "$itemName" not found in stock_items table. '
-            'Please create it first or use an existing stock item.'
-          );
-        }
-      } catch (e) {
-        throw Exception('Failed to map inventory item to stock item: $e');
-      }
-      
-      if (stockItemId == null) {
-        throw Exception('Could not find or create stock_item for inventory item');
-      }
+      final stockItemId = _selectedStockItemId!;
 
       // Record stock transaction using stock_item_id
       await _dataService.recordStockTransaction({
-        'stock_item_id': stockItemId, // Now using correct stock_item_id
+        'stock_item_id': stockItemId,
         'location_id': _selectedLocationId!, // Required
         'staff_profile_id': staffId, // Required
         'transaction_type': 'Purchase', // Use standard transaction type
@@ -313,7 +285,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         _quantityController.clear();
         _notesController.clear();
         setState(() {
-          _selectedItemId = null;
+          _selectedStockItemId = null;
           _selectedLocationId = null;
         });
         // Reload data to reflect changes
@@ -342,16 +314,16 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           const Text('Use this form to record stock that did not come from a purchaser (e.g., direct delivery from management).', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 16),
           // Dropdown to select a stock item
-          _inventoryItems.isEmpty
+          _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  value: _selectedItemId,
+                  value: _selectedStockItemId,
                   decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
-                  items: _inventoryItems.map((item) => DropdownMenuItem<String>(
+                  items: _stockItems.map((item) => DropdownMenuItem<String>(
                     value: item['id']?.toString(),
                     child: Text(item['name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _selectedItemId = val),
+                  onChanged: (val) => setState(() => _selectedStockItemId = val),
                   validator: (val) => val == null ? 'Please select an item' : null,
                 ),
           const SizedBox(height: 16),
@@ -485,9 +457,9 @@ class _StockTransferFormState extends State<StockTransferForm> {
 
   List<String> _rolesForLocation(String locationName) {
     final name = locationName.toLowerCase();
-    if (name.contains('vip')) return ['vip_bartender', 'bartender'];
+    if (name.contains('vip')) return ['vip_bartender'];
     if (name.contains('outside') || name.contains('bar')) {
-      return ['outside_bartender', 'bartender'];
+      return ['outside_bartender'];
     }
     if (name.contains('kitchen')) return ['kitchen_staff'];
     if (name.contains('laundry')) return ['laundry_attendant'];

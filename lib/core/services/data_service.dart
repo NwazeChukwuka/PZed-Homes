@@ -229,6 +229,9 @@ class DataService {
     String? description,
     String? unit,
     int? minStock,
+    String? category,
+    String? preferredSupplierId,
+    String? preferredSupplierName,
   }) async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -236,12 +239,50 @@ class DataService {
           .insert({
             'name': name,
             'description': description,
+            'category': category?.trim().isNotEmpty == true ? category?.trim() : null,
+            'preferred_supplier_id':
+                preferredSupplierId?.trim().isNotEmpty == true ? preferredSupplierId?.trim() : null,
+            'preferred_supplier_name':
+                preferredSupplierName?.trim().isNotEmpty == true ? preferredSupplierName?.trim() : null,
             'unit': unit?.isNotEmpty == true ? unit : 'units',
             'min_stock': minStock ?? 10,
           })
           .select('id')
           .single();
       return response['id'] as String;
+    });
+  }
+
+  // Suppliers
+  Future<List<Map<String, dynamic>>> getSuppliers() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('suppliers')
+          .select()
+          .order('name')
+          .limit(500);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> addSupplier({
+    required String name,
+    String? description,
+    String? contactPhone,
+    String? contactEmail,
+  }) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('suppliers')
+          .insert({
+            'name': name.trim(),
+            'description': description?.trim().isNotEmpty == true ? description?.trim() : null,
+            'contact_phone': contactPhone?.trim().isNotEmpty == true ? contactPhone?.trim() : null,
+            'contact_email': contactEmail?.trim().isNotEmpty == true ? contactEmail?.trim() : null,
+          })
+          .select()
+          .single();
+      return Map<String, dynamic>.from(response);
     });
   }
 
@@ -423,13 +464,24 @@ class DataService {
   }
 
   // Financial Data
-  Future<List<Map<String, dynamic>>> getExpenses() async {
+  Future<List<Map<String, dynamic>>> getExpenses({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? status,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
-          .from('expenses')
-          .select()
-          .order('transaction_date', ascending: false)
-          .limit(100);
+      var query = _supabase.from('expenses').select();
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+      if (startDate != null) {
+        query = query.gte('transaction_date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('transaction_date', endDate.toIso8601String().split('T')[0]);
+      }
+      final response = await query.order('transaction_date', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -442,18 +494,58 @@ class DataService {
         'category': expense['category'],
         'transaction_date': expense['transaction_date'] ?? expense['date'] ?? DateTime.now().toIso8601String().split('T')[0],
         'department': expense['department'] ?? 'all',
+        'payment_method': expense['payment_method'] ?? 'cash',
         'profile_id': expense['profile_id'] ?? expense['staff_id'], // Schema uses profile_id
+        'status': expense['status'] ?? 'Pending',
       });
     });
   }
 
-  Future<List<Map<String, dynamic>>> getIncomeRecords() async {
+  Future<void> approveExpense({
+    required String expenseId,
+    required String approvedBy,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('expenses').update({
+        'status': 'Approved',
+        'approved_by': approvedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+        'rejected_by': null,
+        'rejected_at': null,
+        'rejection_reason': null,
+      }).eq('id', expenseId);
+    });
+  }
+
+  Future<void> rejectExpense({
+    required String expenseId,
+    required String rejectedBy,
+    String? reason,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('expenses').update({
+        'status': 'Rejected',
+        'rejected_by': rejectedBy,
+        'rejected_at': DateTime.now().toIso8601String(),
+        'rejection_reason': reason,
+      }).eq('id', expenseId);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getIncomeRecords({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
-          .from('income_records')
-          .select()
-          .order('date', ascending: false)
-          .limit(100);
+      var query = _supabase.from('income_records').select();
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+      }
+      final response = await query.order('date', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -474,14 +566,31 @@ class DataService {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getPayrollRecords() async {
+  Future<List<Map<String, dynamic>>> getPayrollRecords({
+    DateTime? startMonth,
+    DateTime? endMonth,
+    String? approvalStatus,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('payroll_records')
-          .select()
-          .order('month', ascending: false)
-          .limit(50);
-      return List<Map<String, dynamic>>.from(response);
+          .select('*, staff:profiles!staff_id(full_name)');
+      if (approvalStatus != null && approvalStatus.isNotEmpty) {
+        query = query.eq('approval_status', approvalStatus);
+      }
+      if (startMonth != null) {
+        query = query.gte('month', DateTime(startMonth.year, startMonth.month, 1).toIso8601String().split('T')[0]);
+      }
+      if (endMonth != null) {
+        query = query.lte('month', DateTime(endMonth.year, endMonth.month, 1).toIso8601String().split('T')[0]);
+      }
+      final response = await query.order('month', ascending: false).limit(limit);
+      return List<Map<String, dynamic>>.from(response).map((row) {
+        final mapped = Map<String, dynamic>.from(row);
+        mapped['staff_name'] = (row['staff'] as Map?)?['full_name'];
+        return mapped;
+      }).toList();
     });
   }
 
@@ -495,17 +604,74 @@ class DataService {
         'payment_method': payroll['payment_method'] ?? 'bank_transfer',
         'processed_by': payroll['processed_by'],
         'notes': payroll['notes'],
+        'approval_status': payroll['approval_status'] ?? 'pending',
       });
     });
   }
 
-  Future<List<Map<String, dynamic>>> getCashDeposits() async {
+  Future<void> approvePayroll({
+    required String payrollId,
+    required String approvedBy,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('payroll_records').update({
+        'approval_status': 'approved',
+        'approved_by': approvedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+        'rejection_reason': null,
+      }).eq('id', payrollId);
+    });
+  }
+
+  Future<void> rejectPayroll({
+    required String payrollId,
+    required String rejectedBy,
+    String? reason,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('payroll_records').update({
+        'approval_status': 'rejected',
+        'approved_by': rejectedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+        'rejection_reason': reason,
+      }).eq('id', payrollId);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getCashDeposits({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
-          .from('cash_deposits')
-          .select()
-          .order('date', ascending: false)
-          .limit(50);
+      var query = _supabase.from('cash_deposits').select();
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+      }
+      final response = await query.order('date', ascending: false).limit(limit);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getFinanceAuditLogs({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('finance_audit_logs')
+          .select('*, actor:profiles!actor_id(full_name)');
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      final response = await query.order('created_at', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -581,12 +747,14 @@ class DataService {
         'reference_id': debt['reference_id'],
         'reason': debt['reason'],
         'date': debt['date'] ?? DateTime.now().toIso8601String().split('T')[0],
+        'due_date': debt['due_date'],
         'status': debt['status'] ?? 'outstanding',
         'sold_by': debt['sold_by'], // Staff who made the credit sale
         'approved_by': debt['approved_by'], // Manually entered name (optional)
         'booking_id': debt['booking_id'], // Link to booking if applicable
         'sale_id': debt['sale_id'], // Link to sale if applicable
         'notes': debt['notes'], // Optional notes
+        'created_by': debt['created_by'],
       });
     });
   }
@@ -655,17 +823,24 @@ class DataService {
   }
 
   // Financial Summary
-  Future<Map<String, dynamic>> getFinancialSummary() async {
+  Future<Map<String, dynamic>> getFinancialSummary({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     return await _retryOperation(() async {
+      final rangeStart = startDate ?? DateTime.now().subtract(const Duration(days: 30));
+      final rangeEnd = endDate ?? DateTime.now();
       final income = await _supabase
           .from('income_records')
           .select('amount')
-          .gte('date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
+          .gte('date', rangeStart.toIso8601String().split('T')[0])
+          .lte('date', rangeEnd.toIso8601String().split('T')[0]);
       
       final expenses = await _supabase
           .from('expenses')
           .select('amount')
-          .gte('transaction_date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
+          .gte('transaction_date', rangeStart.toIso8601String().split('T')[0])
+          .lte('transaction_date', rangeEnd.toIso8601String().split('T')[0]);
 
       final totalIncome = (income as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
       final totalExpenses = (expenses as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
@@ -679,19 +854,26 @@ class DataService {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getDepartmentPerformance() async {
+  Future<List<Map<String, dynamic>>> getDepartmentPerformance({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     return await _retryOperation(() async {
+      final rangeStart = startDate ?? DateTime.now().subtract(const Duration(days: 30));
+      final rangeEnd = endDate ?? DateTime.now();
       // Get income by department
       final incomeRecords = await _supabase
           .from('income_records')
           .select('department, amount')
-          .gte('date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
+          .gte('date', rangeStart.toIso8601String().split('T')[0])
+          .lte('date', rangeEnd.toIso8601String().split('T')[0]);
       
       // Get expenses by department
       final expenses = await _supabase
           .from('expenses')
           .select('department, amount')
-          .gte('date', DateTime.now().subtract(const Duration(days: 30)).toIso8601String().split('T')[0]);
+          .gte('transaction_date', rangeStart.toIso8601String().split('T')[0])
+          .lte('transaction_date', rangeEnd.toIso8601String().split('T')[0]);
       
       // Calculate totals by department
       final Map<String, double> revenueByDept = {};
@@ -884,19 +1066,30 @@ class DataService {
   }
 
   // Department Sales
-  Future<List<Map<String, dynamic>>> getDepartmentSales([String? department]) async {
+  Future<List<Map<String, dynamic>>> getDepartmentSales({
+    String? department,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 1000,
+  }) async {
     return await _retryOperation(() async {
       var query = _supabase
           .from('department_sales')
           .select();
       
-      if (department != null) {
+      if (department != null && department.isNotEmpty) {
         query = query.eq('department', department);
+      }
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
       }
       
       final response = await query
           .order('date', ascending: false)
-          .limit(1000);
+          .limit(limit);
       
       return List<Map<String, dynamic>>.from(response);
     });
@@ -1044,18 +1237,59 @@ class DataService {
   }
 
   // Purchase Orders
-  Future<List<Map<String, dynamic>>> getPurchaseOrders({String? status}) async {
+  Future<List<Map<String, dynamic>>> getPurchaseOrders({
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
       var query = _supabase
           .from('purchase_orders')
-          .select('*, purchase_order_items(*, stock_items(name)), purchaser:profiles!purchaser_id(full_name), storekeeper:profiles!storekeeper_id(full_name)');
-      
-      if (status != null) {
+          .select(
+            '*, purchase_order_items(*, stock_items(name, unit)), purchaser:profiles!purchaser_id(full_name), storekeeper:profiles!storekeeper_id(full_name)',
+          );
+
+      if (status != null && status.isNotEmpty) {
         query = query.eq('status', status);
       }
-      
-      final response = await query.order('created_at', ascending: false).limit(100);
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
       return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<Map<String, dynamic>?> getMonthlyPurchaseBudget(DateTime monthStart) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('purchase_budgets')
+          .select()
+          .eq('month_start', monthStart.toIso8601String().split('T')[0])
+          .maybeSingle();
+      if (response == null) return null;
+      return Map<String, dynamic>.from(response);
+    });
+  }
+
+  Future<void> upsertMonthlyPurchaseBudget({
+    required DateTime monthStart,
+    required int amountKobo,
+    required String updatedBy,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('purchase_budgets').upsert({
+        'month_start': monthStart.toIso8601String().split('T')[0],
+        'amount': amountKobo,
+        'updated_by': updatedBy,
+      }, onConflict: 'month_start');
     });
   }
 

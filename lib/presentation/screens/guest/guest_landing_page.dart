@@ -346,13 +346,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 onTap: () => _sendEmail('pzedglobal@gmail.com'),
               ),
               const SizedBox(height: 16),
-              const Text('Unity FM Junction, off Nwiboko Enigwe Street, Amike-Aba, Abakaliki'),
+              const Text('Unity FM Junction, Amike-Aba, Abakaliki'),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    Navigator.pop(context); // Close the current dialog
+                    Navigator.pop(context);
                     _showContactForm(context);
                   },
                   icon: const Icon(Icons.message),
