@@ -61,7 +61,13 @@ class MainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              const Text('P-ZED Luxury Hotels & Suites'),
+              const Expanded(
+                child: Text(
+                  'P-ZED Luxury Hotels & Suites',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -116,7 +122,13 @@ class MainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              const Text('P-ZED Luxury Hotels & Suites'),
+              const Expanded(
+                child: Text(
+                  'P-ZED Luxury Hotels & Suites',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),

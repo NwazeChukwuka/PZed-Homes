@@ -1,12 +1,15 @@
 {
-    "name": "pzed_homes",
-    "short_name": "pzed_homes",
-    "start_url": ".",
+    "name": "P-ZED Homes",
+    "short_name": "P-ZED",
+    "start_url": "/?source=pwa",
+    "scope": "/",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0B5E3B",
+    "theme_color": "#0B5E3B",
+    "description": "Hotel management and guest booking for P-ZED Luxury Hotels & Suites.",
+    "lang": "en",
     "orientation": "portrait-primary",
+    "categories": ["business", "productivity", "travel"],
     "prefer_related_applications": false,
     "icons": [
         {

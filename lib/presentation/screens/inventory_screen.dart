@@ -1186,6 +1186,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final supabase = _dataService.supabase;
       final user = authService.currentUser;
       final isBartender = _hasBartenderRole(authService, user);
+      final isManagement = user?.roles.any((role) =>
+              role == AppRole.owner || role == AppRole.manager) ??
+          false;
       final barKey = _selectedBar ?? _selectedBarForSales ?? _bartenderDepartment(authService, user);
       if (isBartender && barKey == null) {
         throw Exception('Select a bar before making sales.');
@@ -1238,7 +1241,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         }
       }
 
-      if (isBartender && activeShiftId == null) {
+      if (isBartender && activeShiftId == null && !isManagement) {
         throw Exception('No active shift found. Start your shift before making sales.');
       }
 

@@ -909,13 +909,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDepartmentSalesQuickCards(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Wrap(
       spacing: 12,
       runSpacing: 12,
       children: _deptSalesTotals.entries.map((e) {
         return AppAnimations.animatedCard(
           child: Container(
-            width: 220,
+            width: isMobile ? double.infinity : 220,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -1036,9 +1037,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildMetricCard(BuildContext context, String title, String value, IconData icon, Color color) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return AppAnimations.animatedCard(
       child: Container(
-        width: 200,
+        width: isMobile ? double.infinity : 200,
         padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1984,13 +1986,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _inlineCards(BuildContext context, List<(String, String, IconData)> items) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Wrap(
       spacing: 12,
       runSpacing: 12,
       children: items.map((it) {
         final (title, value, icon) = it;
         return Container(
-          width: 220,
+          width: isMobile ? double.infinity : 220,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
