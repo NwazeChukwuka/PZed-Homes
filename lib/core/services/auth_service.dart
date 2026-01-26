@@ -234,38 +234,54 @@ class AuthService with ChangeNotifier {
         throw Exception('Profile not found');
       }
 
-      final roles = (profileResponse['roles'] as List<dynamic>? ?? ['guest']);
+      // Safely extract roles - handle any format
+      final rolesRaw = profileResponse['roles'];
+      final roles = (rolesRaw is List) 
+          ? rolesRaw.map((r) => r.toString()).toList()
+          : (rolesRaw != null ? [rolesRaw.toString()] : ['guest']);
       
-      // Parse roles with error handling
+      // Helper function to safely parse a role name without throwing
+      AppRole? _safeParseRole(String roleName) {
+        final trimmed = roleName.trim();
+        if (trimmed.isEmpty) return null;
+        
+        // Try exact match first
+        for (final role in AppRole.values) {
+          if (role.name == trimmed) {
+            return role;
+          }
+        }
+        
+        // Try case-insensitive match
+        for (final role in AppRole.values) {
+          if (role.name.toLowerCase() == trimmed.toLowerCase()) {
+            return role;
+          }
+        }
+        
+        return null;
+      }
+      
+      // Parse roles with error handling - never throw
       final parsedRoles = <AppRole>[];
       for (final roleStr in roles) {
         try {
-          final roleName = (roleStr as String).trim();
+          final roleName = roleStr.toString().trim();
           if (roleName.isEmpty) continue;
           
-          // Try to find the role by name (case-insensitive)
-          AppRole? role;
-          try {
-            role = AppRole.values.byName(roleName);
-          } catch (_) {
-            // Try case-insensitive match
-            role = AppRole.values.firstWhere(
-              (r) => r.name.toLowerCase() == roleName.toLowerCase(),
-              orElse: () => AppRole.guest,
-            );
-            if (role == AppRole.guest && roleName.toLowerCase() != 'guest') {
-              role = null; // Not found
-            }
-          }
-          
+          final role = _safeParseRole(roleName);
           if (role != null) {
             parsedRoles.add(role);
           } else {
-            print('WARNING: Invalid role name: $roleStr');
+            if (kDebugMode) {
+              print('WARNING: Invalid role name: $roleStr');
+            }
           }
         } catch (e) {
-          // Skip invalid role names
-          print('WARNING: Error parsing role: $roleStr - $e');
+          // Skip invalid role names - never throw
+          if (kDebugMode) {
+            print('WARNING: Error parsing role: $roleStr - $e');
+          }
         }
       }
       
