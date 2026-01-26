@@ -235,30 +235,53 @@ class AuthService with ChangeNotifier {
       }
 
       final roles = (profileResponse['roles'] as List<dynamic>? ?? ['guest']);
-      final primaryRole = roles.isNotEmpty 
-          ? AppRole.values.byName(roles.first as String)
+      
+      // Parse roles with error handling
+      final parsedRoles = <AppRole>[];
+      for (final roleStr in roles) {
+        try {
+          final roleName = (roleStr as String).trim();
+          if (roleName.isEmpty) continue;
+          
+          // Try to find the role by name (case-insensitive)
+          AppRole? role;
+          try {
+            role = AppRole.values.byName(roleName);
+          } catch (_) {
+            // Try case-insensitive match
+            role = AppRole.values.firstWhere(
+              (r) => r.name.toLowerCase() == roleName.toLowerCase(),
+              orElse: () => AppRole.guest,
+            );
+            if (role == AppRole.guest && roleName.toLowerCase() != 'guest') {
+              role = null; // Not found
+            }
+          }
+          
+          if (role != null) {
+            parsedRoles.add(role);
+          } else {
+            print('WARNING: Invalid role name: $roleStr');
+          }
+        } catch (e) {
+          // Skip invalid role names
+          print('WARNING: Error parsing role: $roleStr - $e');
+        }
+      }
+      
+      // Determine primary role from parsed roles (first valid role, or guest)
+      final primaryRole = parsedRoles.isNotEmpty 
+          ? parsedRoles.first
           : AppRole.guest;
           
       final permissions = permissionsResponse
           .map((p) => p['permission'] as String)
           .toList();
-
-      // Parse roles with error handling
-      final parsedRoles = <AppRole>[];
-      for (final roleStr in roles) {
-        try {
-          final role = AppRole.values.byName(roleStr as String);
-          parsedRoles.add(role);
-        } catch (e) {
-          // Skip invalid role names
-          print('WARNING: Invalid role name: $roleStr');
-        }
-      }
       
       // #region agent log
       try { 
         final logData = {
-          'location': 'auth_service.dart:251',
+          'location': 'auth_service.dart:280',
           'message': 'User roles loaded',
           'data': {
             'userId': profileResponse['id'],
@@ -277,6 +300,11 @@ class AuthService with ChangeNotifier {
       } catch (_) {}
       print('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
       // #endregion
+      
+      // Ensure we have at least one role
+      if (parsedRoles.isEmpty) {
+        parsedRoles.add(AppRole.guest);
+      }
 
       _currentUser = AppUser(
         id: profileResponse['id'],
