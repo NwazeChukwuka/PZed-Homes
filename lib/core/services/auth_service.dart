@@ -241,25 +241,49 @@ class AuthService with ChangeNotifier {
           : (rolesRaw != null ? [rolesRaw.toString()] : ['guest']);
       
       // Helper function to safely parse a role name without throwing
+      // NEVER uses byName() - only safe iteration
       AppRole? _safeParseRole(String roleName) {
-        final trimmed = roleName.trim();
-        if (trimmed.isEmpty) return null;
-        
-        // Try exact match first
-        for (final role in AppRole.values) {
-          if (role.name == trimmed) {
-            return role;
+        try {
+          final trimmed = roleName.trim();
+          if (trimmed.isEmpty) return null;
+          
+          // Debug: Print all available enum values
+          if (kDebugMode && trimmed == 'outside_bartender') {
+            print('DEBUG: Looking for outside_bartender');
+            print('DEBUG: Available roles: ${AppRole.values.map((r) => r.name).join(', ')}');
           }
-        }
-        
-        // Try case-insensitive match
-        for (final role in AppRole.values) {
-          if (role.name.toLowerCase() == trimmed.toLowerCase()) {
-            return role;
+          
+          // Try exact match first - iterate manually, NEVER use byName()
+          for (final role in AppRole.values) {
+            if (role.name == trimmed) {
+              if (kDebugMode && trimmed == 'outside_bartender') {
+                print('DEBUG: Found exact match: ${role.name}');
+              }
+              return role;
+            }
           }
+          
+          // Try case-insensitive match
+          for (final role in AppRole.values) {
+            if (role.name.toLowerCase() == trimmed.toLowerCase()) {
+              if (kDebugMode && trimmed == 'outside_bartender') {
+                print('DEBUG: Found case-insensitive match: ${role.name}');
+              }
+              return role;
+            }
+          }
+          
+          if (kDebugMode && trimmed == 'outside_bartender') {
+            print('DEBUG: No match found for: $trimmed');
+          }
+          return null;
+        } catch (e) {
+          // Never throw - return null on any error
+          if (kDebugMode) {
+            print('ERROR in _safeParseRole for "$roleName": $e');
+          }
+          return null;
         }
-        
-        return null;
       }
       
       // Parse roles with error handling - never throw
@@ -297,7 +321,7 @@ class AuthService with ChangeNotifier {
       // #region agent log
       try { 
         final logData = {
-          'location': 'auth_service.dart:280',
+          'location': 'auth_service.dart:297',
           'message': 'User roles loaded',
           'data': {
             'userId': profileResponse['id'],
@@ -322,15 +346,33 @@ class AuthService with ChangeNotifier {
         parsedRoles.add(AppRole.guest);
       }
 
-      _currentUser = AppUser(
-        id: profileResponse['id'],
-        name: profileResponse['full_name'],
-        email: profileResponse['email'] ?? '',
-        role: primaryRole,
-        roles: parsedRoles.isNotEmpty ? parsedRoles : [primaryRole],
-        permissions: permissions,
-        department: profileResponse['department'] as String?,
-      );
+      // Create user object with comprehensive error handling
+      try {
+        _currentUser = AppUser(
+          id: profileResponse['id'],
+          name: profileResponse['full_name'],
+          email: profileResponse['email'] ?? '',
+          role: primaryRole,
+          roles: parsedRoles.isNotEmpty ? parsedRoles : [primaryRole],
+          permissions: permissions,
+          department: profileResponse['department'] as String?,
+        );
+      } catch (e) {
+        // If creating AppUser fails, log and use guest role
+        if (kDebugMode) {
+          print('ERROR creating AppUser: $e');
+          print('Stack trace: ${StackTrace.current}');
+        }
+        _currentUser = AppUser(
+          id: profileResponse['id'],
+          name: profileResponse['full_name'] ?? 'Unknown',
+          email: profileResponse['email'] ?? '',
+          role: AppRole.guest,
+          roles: [AppRole.guest],
+          permissions: [],
+          department: profileResponse['department'] as String?,
+        );
+      }
       
       _isLoggedIn = true;
       _isLoading = false;
