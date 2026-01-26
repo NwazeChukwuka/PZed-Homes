@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -514,19 +516,34 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> clockIn() async {
+    // #region agent log
+    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:516","message":"clockIn entry","data":{"userId":_currentUser?.id,"supabaseNull":_supabase==null},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"E"})}\n', mode: FileMode.append); } catch (_) {}
+    // #endregion
     if (_currentUser == null) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:518","message":"User null check failed","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"F"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       throw Exception('User must be logged in to clock in');
     }
     if (_supabase == null) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:521","message":"Supabase null check failed","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"G"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       throw Exception('Supabase is not configured');
     }
     
     await _checkClockInStatus();
     if (_isClockedIn) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:525","message":"Already clocked in check failed","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"H"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       throw Exception('You are already clocked in today');
     }
     
     try {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:529","message":"Before database insert","data":{"profileId":_currentUser!.id,"date":DateTime.now().toIso8601String().split('T')[0]},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"I"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       final response = await _supabase!
           .from('attendance_records')
           .insert({
@@ -536,12 +553,17 @@ class AuthService with ChangeNotifier {
           })
           .select()
           .single();
-      
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:538","message":"Database insert success","data":{"attendanceId":response['id']},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"J"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       _isClockedIn = true;
       _currentAttendanceId = response['id'] as String?;
       _clockInTime = DateTime.now();
       notifyListeners();
     } catch (e) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:544","message":"Database insert error","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"K"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       throw Exception('Failed to clock in: $e');
     }
   }

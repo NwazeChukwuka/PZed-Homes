@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -165,9 +167,18 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _handleClockIn() async {
+    // #region agent log
+    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:167","message":"Clock-in button clicked","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})}\n', mode: FileMode.append); } catch (_) {}
+    // #endregion
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:170","message":"Before clockIn call","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       await authService.clockIn();
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:172","message":"After clockIn call - success","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       if (mounted) {
         setState(() {
           _isClockedIn = true;
@@ -181,6 +192,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         );
       }
     } catch (e) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:183","message":"Clock-in error caught","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       if (mounted) {
         ErrorHandler.handleError(
           context,

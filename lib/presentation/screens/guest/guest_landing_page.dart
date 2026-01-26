@@ -1278,7 +1278,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                           const SizedBox(height: 4),
                           const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
                           const SizedBox(height: 4),
-                          const Text('Unity FM Junction, off Nwiboko Enigwe Street, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
+                          const Text('Unity FM Junction, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
                         ],
                       ),
                     ),

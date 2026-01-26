@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 // Supabase removed for mock-only mode
@@ -60,13 +62,22 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   @override
   void initState() {
     super.initState();
+    // #region agent log
+    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:61","message":"Inventory screen initState","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"L"})}\n', mode: FileMode.append); } catch (_) {}
+    // #endregion
     _updateTabController();
     _loadInventory();
     _loadTransactions();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authService = Provider.of<AuthService>(context, listen: false);
       final user = authService.currentUser;
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:68","message":"PostFrameCallback - role check","data":{"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"M"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       final userDepartment = _bartenderDepartment(authService, user);
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:69","message":"Department detection result","data":{"userDepartment":userDepartment,"selectedBar":_selectedBar},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"N"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       if (userDepartment != null && _selectedBar == null) {
         setState(() {
           _selectedBar = userDepartment;
@@ -97,7 +108,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isBartender = _hasBartenderRole(authService, user);
-    
+    // #region agent log
+    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:96","message":"Tab controller update","data":{"isBartender":isBartender,"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name,"tabCount":isBartender?3:2},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"O"})}\n', mode: FileMode.append); } catch (_) {}
+    // #endregion
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
     _tabController = TabController(length: tabCount, vsync: this);
   }
