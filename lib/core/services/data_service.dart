@@ -1122,14 +1122,29 @@ class DataService {
   // HR methods
   Future<void> assignRoleToStaff(String staffId, String role, {bool isTemporary = false, DateTime? expiryDate}) async {
     await _retryOperation(() async {
+      final assignedBy = _supabase.auth.currentUser?.id;
+      if (assignedBy == null) {
+        throw Exception('No active user session found');
+      }
+
+      if (!isTemporary) {
+        await _supabase
+            .from('profiles')
+            .update({
+              'roles': [role],
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', staffId);
+      }
+
       await _supabase.from('staff_role_assignments').insert({
         'staff_id': staffId,
         'assigned_role': role,
-        'is_temporary': isTemporary,
-        'assigned_by': _supabase.auth.currentUser?.id,
-        'assigned_date': DateTime.now().toIso8601String().split('T')[0],
-        'expiry_date': expiryDate?.toIso8601String().split('T')[0],
-        'reason': isTemporary ? 'Temporary role assignment' : 'Permanent role assignment',
+        'assigned_by': assignedBy,
+        'start_date': DateTime.now().toIso8601String().split('T')[0],
+        'end_date': expiryDate?.toIso8601String().split('T')[0],
+        'is_active': true,
+        'notes': isTemporary ? 'Temporary role assignment' : 'Permanent role assignment',
       });
     });
   }

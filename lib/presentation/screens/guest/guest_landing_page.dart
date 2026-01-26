@@ -289,7 +289,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
 
   Future<void> _openMaps() async {
     final url = Uri.encodeFull(
-      'https://www.google.com/maps/search/?api=1&query=Unity+FM+Junction%2C+off+Nwiboko+Enigwe+Street%2C+Amike-Aba%2C+Abakaliki',
+      'https://www.google.com/maps/search/?api=1&query=Unity+FM+Junction%2C+Amike-Aba%2C+Abakaliki',
     );
     await _launchUrl(url);
   }
@@ -385,7 +385,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Unity FM Junction, off Nwiboko Enigwe Street, Amike-Aba, Abakaliki'),
+              const Text('Unity FM Junction, Amike-Aba, Abakaliki'),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -1323,7 +1323,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               color: Colors.black.withOpacity(0.2),
             ),
             child: const Text(
-              '© 2025 P-ZED Luxury Hotels & Suites. All rights reserved.',
+              '© 2026 P-ZED Luxury Hotels & Suites. All rights reserved.',
               style: TextStyle(color: Colors.white60),
               textAlign: TextAlign.center,
             ),

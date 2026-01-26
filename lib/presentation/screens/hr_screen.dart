@@ -714,28 +714,66 @@ class _HrScreenState extends State<HrScreen>
         .where((r) => r != AppRole.owner && r != AppRole.guest)
         .toList();
     AppRole? selected;
+    String? selectedBar;
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isPromote ? 'Promote Staff' : 'Demote Staff'),
-        content: DropdownButtonFormField<AppRole>(
-          decoration: const InputDecoration(labelText: 'Select Role'),
-          items: available
-              .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
-              .toList(),
-          onChanged: (v) => selected = v,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(isPromote ? 'Promote Staff' : 'Demote Staff'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<AppRole>(
+                decoration: const InputDecoration(labelText: 'Select Role'),
+                items: available
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
+                    .toList(),
+                onChanged: (v) {
+                  setDialogState(() {
+                    selected = v;
+                    if (selected != AppRole.bartender) {
+                      selectedBar = null;
+                    }
+                  });
+                },
+              ),
+              if (selected == AppRole.bartender) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Select Bar'),
+                  value: selectedBar,
+                  items: const [
+                    DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                    DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedBar = v),
+                ),
+              ],
+            ],
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (selected != null) {
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (selected == null) return;
+                if (selected == AppRole.bartender && selectedBar == null) {
+                  ErrorHandler.showWarningMessage(
+                    context,
+                    'Please select a bar for the bartender role',
+                  );
+                  return;
+                }
+                final roleToAssign = selected == AppRole.bartender
+                    ? (selectedBar == 'outside_bar'
+                        ? AppRole.outside_bartender
+                        : AppRole.vip_bartender)
+                    : selected!;
                 await _dataService.assignRoleToStaff(
                   user['id'] as String,
-                  selected!.name,
+                  roleToAssign.name,
                   isTemporary: false,
                 );
                 if (!mounted) return;
@@ -744,14 +782,14 @@ class _HrScreenState extends State<HrScreen>
                 if (mounted) {
                   ErrorHandler.showSuccessMessage(
                     context,
-                    'Updated role to ${selected!.name} for ${user['full_name']}',
+                    'Updated role to ${roleToAssign.name} for ${user['full_name']}',
                   );
                 }
-              }
-            },
-            child: Text(isPromote ? 'Promote' : 'Demote'),
-          ),
-        ],
+              },
+              child: Text(isPromote ? 'Promote' : 'Demote'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -759,6 +797,7 @@ class _HrScreenState extends State<HrScreen>
   Future<void> _showAssignRoleDialog(Map<String, dynamic>? user) async {
     String? staffId = user?['id'] as String?;
     AppRole? selectedRole;
+    String? selectedBar;
     bool isTemporary = false;
     DateTime? expiry;
 
@@ -797,8 +836,27 @@ class _HrScreenState extends State<HrScreen>
                         (r) => DropdownMenuItem(value: r, child: Text(r.name)),
                       )
                       .toList(),
-                  onChanged: (v) => selectedRole = v,
+                  onChanged: (v) {
+                    setState(() {
+                      selectedRole = v;
+                      if (selectedRole != AppRole.bartender) {
+                        selectedBar = null;
+                      }
+                    });
+                  },
                 ),
+                if (selectedRole == AppRole.bartender) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(labelText: 'Select Bar'),
+                    value: selectedBar,
+                    items: const [
+                      DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                      DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                    ],
+                    onChanged: (v) => setState(() => selectedBar = v),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SwitchListTile(
                   value: isTemporary,
@@ -836,9 +894,21 @@ class _HrScreenState extends State<HrScreen>
             ElevatedButton(
               onPressed: () async {
                 if (staffId != null && selectedRole != null) {
+                  if (selectedRole == AppRole.bartender && selectedBar == null) {
+                    ErrorHandler.showWarningMessage(
+                      context,
+                      'Please select a bar for the bartender role',
+                    );
+                    return;
+                  }
+                  final roleToAssign = selectedRole == AppRole.bartender
+                      ? (selectedBar == 'outside_bar'
+                          ? AppRole.outside_bartender
+                          : AppRole.vip_bartender)
+                      : selectedRole!;
                   await _dataService.assignRoleToStaff(
                     staffId!,
-                    selectedRole!.name,
+                    roleToAssign.name,
                     isTemporary: isTemporary,
                     expiryDate: expiry,
                   );

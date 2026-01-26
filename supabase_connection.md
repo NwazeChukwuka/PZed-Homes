@@ -285,7 +285,8 @@ CREATE TABLE public.positions (
     benefits TEXT, -- Comma-separated or JSON
     department TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -424,7 +425,8 @@ CREATE TABLE public.room_status_logs (
     room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
     old_status TEXT,
     new_status TEXT,
-    changed_by UUID REFERENCES public.profiles(id),
+    changed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    changed_by_name TEXT,
     changed_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -592,7 +594,7 @@ CREATE POLICY "Allow read access" ON public.menu_items FOR SELECT USING (true);
 CREATE TABLE public.bookings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    guest_profile_id UUID REFERENCES public.profiles(id),
+    guest_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     room_id UUID REFERENCES public.rooms(id), -- NULL until receptionist assigns room
     requested_room_type TEXT, -- Room type requested by guest (e.g., 'Standard', 'Deluxe')
     check_in_date TIMESTAMPTZ NOT NULL,
@@ -613,10 +615,12 @@ CREATE TABLE public.bookings (
     discount_amount INT8 DEFAULT 0,
     discount_percentage NUMERIC(5,2) DEFAULT 0,
     discount_reason TEXT,
-    discount_applied_by UUID REFERENCES public.profiles(id),
+    discount_applied_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    discount_applied_by_name TEXT,
     extra_charges JSONB DEFAULT '[]'::jsonb, -- Stores POS orders: [{item: "Coke", price: 500, qty: 2}]
     notes TEXT,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -658,7 +662,8 @@ CREATE TABLE public.booking_charges (
     price INT8 NOT NULL, -- Stored in Kobo/Cents
     quantity INTEGER DEFAULT 1,
     department TEXT,
-    added_by UUID REFERENCES public.profiles(id),
+    added_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    added_by_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -694,7 +699,8 @@ CREATE TABLE public.stock_transactions (
     created_at TIMESTAMPTZ DEFAULT now(),
     stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
     location_id UUID REFERENCES public.locations(id) NOT NULL,
-    staff_profile_id UUID REFERENCES public.profiles(id) NOT NULL,
+    staff_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    staff_name TEXT,
     transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage', 'Adjustment', 'Direct_Supply'
     quantity INT NOT NULL, -- Positive or Negative
     shift_id UUID REFERENCES public.bartender_shifts(id),
@@ -760,9 +766,11 @@ CREATE TABLE public.direct_supply_requests (
     stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
     bar TEXT NOT NULL CHECK (bar IN ('vip_bar', 'outside_bar')),
     quantity INT NOT NULL CHECK (quantity > 0),
-    requested_by UUID REFERENCES public.profiles(id) NOT NULL,
+    requested_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    requested_by_name TEXT,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied')),
-    approved_by UUID REFERENCES public.profiles(id),
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_by_name TEXT,
     approved_at TIMESTAMPTZ,
     notes TEXT
 );
@@ -931,8 +939,10 @@ CREATE TABLE public.stock_transfers (
     source_location_id UUID REFERENCES public.locations(id) NOT NULL,
     destination_location_id UUID REFERENCES public.locations(id) NOT NULL,
     quantity INT NOT NULL CHECK (quantity > 0),
-    issued_by_id UUID REFERENCES public.profiles(id) NOT NULL,
-    received_by_id UUID REFERENCES public.profiles(id) NOT NULL,
+    issued_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    issued_by_name TEXT,
+    received_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    received_by_name TEXT,
     notes TEXT,
     status TEXT DEFAULT 'Confirmed' CHECK (status IN ('Pending', 'Confirmed', 'Cancelled'))
 );
@@ -1049,7 +1059,8 @@ CREATE TABLE public.department_transfers (
     destination_department TEXT,
     menu_item_id UUID REFERENCES public.menu_items(id),
     quantity INT,
-    dispatched_by_id UUID REFERENCES public.profiles(id),
+    dispatched_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    dispatched_by_name TEXT,
     status TEXT DEFAULT 'Pending', -- 'Pending', 'Confirmed'
     unit_price INT8 DEFAULT 0, -- Stored in Kobo/Cents
     total_amount INT8 DEFAULT 0, -- quantity * unit_price
@@ -1098,8 +1109,10 @@ $$;
 CREATE TABLE public.purchase_orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    purchaser_id UUID REFERENCES public.profiles(id),
-    storekeeper_id UUID REFERENCES public.profiles(id),
+    purchaser_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    purchaser_name TEXT,
+    storekeeper_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    storekeeper_name TEXT,
     status TEXT DEFAULT 'Pending',
     supplier_name TEXT,
     total_cost INT8 -- Stored in Kobo/Cents
@@ -1120,8 +1133,10 @@ CREATE TABLE public.purchase_budgets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     month_start DATE NOT NULL UNIQUE,
     amount INT8 NOT NULL, -- Stored in Kobo/Cents
-    created_by UUID REFERENCES public.profiles(id),
-    updated_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1260,7 +1275,8 @@ $$;
 CREATE TABLE public.expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    profile_id UUID REFERENCES public.profiles(id),
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    profile_name TEXT,
     amount INT8 NOT NULL, -- Stored in Kobo/Cents
     description TEXT,
     category TEXT,
@@ -1270,9 +1286,11 @@ CREATE TABLE public.expenses (
     receipt_url TEXT,
     payment_method TEXT DEFAULT 'cash', -- 'cash', 'bank_transfer', 'card'
     status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected')),
-    approved_by UUID REFERENCES public.profiles(id),
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_by_name TEXT,
     approved_at TIMESTAMPTZ,
-    rejected_by UUID REFERENCES public.profiles(id),
+    rejected_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    rejected_by_name TEXT,
     rejected_at TIMESTAMPTZ,
     rejection_reason TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -1303,9 +1321,11 @@ CREATE TABLE public.income_records (
     date DATE DEFAULT CURRENT_DATE,
     department TEXT DEFAULT 'finance',
     payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'bank_transfer'
-    staff_id UUID REFERENCES public.profiles(id),
+    staff_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    staff_name TEXT,
     booking_id UUID REFERENCES public.bookings(id), -- Optional link to booking
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -1327,17 +1347,20 @@ USING (
 CREATE TABLE public.payroll_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    staff_id UUID REFERENCES public.profiles(id) NOT NULL,
+    staff_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    staff_name TEXT,
     amount INT8 NOT NULL, -- Stored in Kobo/Cents
     month DATE NOT NULL, -- First day of the month
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
     payment_method TEXT DEFAULT 'bank_transfer', -- 'bank_transfer', 'cash'
     notes TEXT,
     approval_status TEXT DEFAULT 'pending' CHECK (approval_status IN ('pending', 'approved', 'rejected')),
-    approved_by UUID REFERENCES public.profiles(id),
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_by_name TEXT,
     approved_at TIMESTAMPTZ,
     rejection_reason TEXT,
-    processed_by UUID REFERENCES public.profiles(id),
+    processed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    processed_by_name TEXT,
     processed_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1378,8 +1401,10 @@ CREATE TABLE public.cash_deposits (
     net_amount INT8 NOT NULL, -- amount - bank_charges
     date DATE DEFAULT CURRENT_DATE,
     description TEXT,
-    staff_id UUID REFERENCES public.profiles(id),
-    created_by UUID REFERENCES public.profiles(id),
+    staff_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    staff_name TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -1414,8 +1439,10 @@ CREATE TABLE public.debts (
     paid_amount INT8 DEFAULT 0, -- Stored in Kobo/Cents
     last_payment_date DATE,
     notes TEXT,
-    created_by UUID REFERENCES public.profiles(id),
-    sold_by UUID REFERENCES public.profiles(id), -- Staff who made the credit sale
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
+    sold_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Staff who made the credit sale
+    sold_by_name TEXT,
     approved_by TEXT, -- Manually entered name of supervisor/staff who approved (optional)
     booking_id UUID REFERENCES public.bookings(id), -- Link to booking if debt from room booking
     sale_id UUID, -- Generic sale ID (can link to department_sales or mini_mart_sales)
@@ -1431,7 +1458,8 @@ CREATE TABLE public.debts (
 CREATE TABLE public.finance_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    actor_id UUID REFERENCES public.profiles(id),
+    actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    actor_name TEXT,
     action TEXT NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
     table_name TEXT NOT NULL,
     record_id UUID,
@@ -1560,8 +1588,10 @@ CREATE TABLE public.debt_payments (
     amount INT8 NOT NULL, -- Payment amount in Kobo/Cents
     payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'transfer', 'card', 'other')),
     payment_date DATE DEFAULT CURRENT_DATE NOT NULL,
-    collected_by UUID REFERENCES public.profiles(id), -- Staff who collected the payment
-    created_by UUID REFERENCES public.profiles(id), -- Staff who recorded the payment
+    collected_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Staff who collected the payment
+    collected_by_name TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Staff who recorded the payment
+    created_by_name TEXT,
     notes TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1739,7 +1769,8 @@ CREATE TABLE public.mini_mart_sales (
     payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'mobile_money'
     customer_name TEXT, -- Optional: for walk-in customers
     booking_id UUID REFERENCES public.bookings(id), -- Optional: if linked to guest booking
-    sold_by UUID REFERENCES public.profiles(id) NOT NULL,
+    sold_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    sold_by_name TEXT,
     notes TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1875,7 +1906,8 @@ CREATE TABLE public.kitchen_sales (
     total_amount INT8 NOT NULL, -- quantity * unit_price
     payment_method TEXT DEFAULT 'cash', -- 'cash', 'card', 'transfer', 'credit'
     booking_id UUID REFERENCES public.bookings(id),
-    sold_by UUID REFERENCES public.profiles(id) NOT NULL,
+    sold_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    sold_by_name TEXT,
     notes TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1918,7 +1950,8 @@ USING (
 CREATE TABLE public.bartender_shifts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    bartender_id UUID REFERENCES public.profiles(id) NOT NULL,
+    bartender_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    bartender_name TEXT,
     bar TEXT NOT NULL CHECK (bar IN ('vip_bar', 'outside_bar')),
     start_time TIMESTAMPTZ NOT NULL,
     end_time TIMESTAMPTZ,
@@ -1931,7 +1964,8 @@ CREATE TABLE public.bartender_shifts (
     closing_stock JSONB DEFAULT '[]'::jsonb,
     notes TEXT,
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'cancelled')),
-    closed_by UUID REFERENCES public.profiles(id),
+    closed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    closed_by_name TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -1986,9 +2020,11 @@ CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDA
 CREATE TABLE public.staff_role_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    staff_id UUID REFERENCES public.profiles(id) NOT NULL,
+    staff_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    staff_name TEXT,
     assigned_role TEXT NOT NULL, -- Role being assigned
-    assigned_by UUID REFERENCES public.profiles(id) NOT NULL,
+    assigned_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    assigned_by_name TEXT,
     start_date DATE,
     end_date DATE, -- NULL for permanent assignments
     is_active BOOLEAN DEFAULT true,
@@ -2029,12 +2065,14 @@ CREATE TABLE public.maintenance_work_orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
     asset_id UUID REFERENCES public.assets(id),
-    reported_by_id UUID REFERENCES public.profiles(id),
+    reported_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    reported_by_name TEXT,
     issue_description TEXT,
     location TEXT, -- Specific location text
     priority TEXT DEFAULT 'Medium' CHECK (priority IN ('Low', 'Medium', 'High', 'Urgent')),
     status TEXT DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Completed', 'Cancelled')),
-    assigned_to UUID REFERENCES public.profiles(id),
+    assigned_to UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    assigned_to_name TEXT,
     estimated_cost INT8, -- Stored in Kobo/Cents
     actual_cost INT8, -- Stored in Kobo/Cents
     due_date DATE,
@@ -2049,8 +2087,10 @@ CREATE TABLE public.work_orders (
     description TEXT,
     priority TEXT DEFAULT 'Medium' CHECK (priority IN ('Low', 'Medium', 'High', 'Urgent')),
     status TEXT DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Completed', 'Cancelled')),
-    assigned_to UUID REFERENCES public.profiles(id),
-    created_by UUID REFERENCES public.profiles(id),
+    assigned_to UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    assigned_to_name TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_by_name TEXT,
     room_id UUID REFERENCES public.rooms(id),
     estimated_cost INT8, -- Stored in Kobo/Cents
     actual_cost INT8, -- Stored in Kobo/Cents
@@ -2093,7 +2133,8 @@ CREATE POLICY "Active staff access work orders" ON public.work_orders FOR ALL US
 -- ==============================================
 CREATE TABLE public.attendance_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    profile_id UUID REFERENCES public.profiles(id),
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    profile_name TEXT,
     clock_in_time TIMESTAMPTZ DEFAULT now(),
     clock_out_time TIMESTAMPTZ,
     date DATE DEFAULT CURRENT_DATE,
@@ -2128,7 +2169,8 @@ CREATE POLICY "Active staff can insert attendance records" ON public.attendance_
 CREATE TABLE public.posts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMPTZ DEFAULT now(),
-    author_profile_id UUID REFERENCES public.profiles(id),
+    author_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    author_name TEXT,
     title TEXT,
     content TEXT,
     department TEXT,
@@ -2194,7 +2236,8 @@ CREATE POLICY "Active staff access kitchen orders" ON public.kitchen_orders FOR 
 -- ==============================================
 CREATE TABLE public.notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES public.profiles(id),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    user_name TEXT,
     title TEXT NOT NULL,
     message TEXT,
     type TEXT DEFAULT 'info' CHECK (type IN ('info', 'warning', 'error', 'success')),
@@ -3311,6 +3354,218 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+-- Cleanup references before deleting a profile (testing support)
+CREATE OR REPLACE FUNCTION public.cleanup_profile_references()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+    -- Bookings
+    UPDATE public.bookings
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+    UPDATE public.bookings
+    SET discount_applied_by_name = COALESCE(discount_applied_by_name, OLD.full_name),
+        discount_applied_by = NULL
+    WHERE discount_applied_by = OLD.id;
+    UPDATE public.bookings
+    SET guest_profile_id = NULL
+    WHERE guest_profile_id = OLD.id;
+
+    -- Booking charges
+    UPDATE public.booking_charges
+    SET added_by_name = COALESCE(added_by_name, OLD.full_name),
+        added_by = NULL
+    WHERE added_by = OLD.id;
+
+    -- Stock transactions
+    UPDATE public.stock_transactions
+    SET staff_name = COALESCE(staff_name, OLD.full_name),
+        staff_profile_id = NULL
+    WHERE staff_profile_id = OLD.id;
+
+    -- Direct supply requests
+    UPDATE public.direct_supply_requests
+    SET requested_by_name = COALESCE(requested_by_name, OLD.full_name),
+        requested_by = NULL
+    WHERE requested_by = OLD.id;
+    UPDATE public.direct_supply_requests
+    SET approved_by_name = COALESCE(approved_by_name, OLD.full_name),
+        approved_by = NULL
+    WHERE approved_by = OLD.id;
+
+    -- Stock transfers
+    UPDATE public.stock_transfers
+    SET issued_by_name = COALESCE(issued_by_name, OLD.full_name),
+        issued_by_id = NULL
+    WHERE issued_by_id = OLD.id;
+    UPDATE public.stock_transfers
+    SET received_by_name = COALESCE(received_by_name, OLD.full_name),
+        received_by_id = NULL
+    WHERE received_by_id = OLD.id;
+
+    -- Department transfers
+    UPDATE public.department_transfers
+    SET dispatched_by_name = COALESCE(dispatched_by_name, OLD.full_name),
+        dispatched_by_id = NULL
+    WHERE dispatched_by_id = OLD.id;
+
+    -- Purchase orders/budgets
+    UPDATE public.purchase_orders
+    SET purchaser_name = COALESCE(purchaser_name, OLD.full_name),
+        purchaser_id = NULL
+    WHERE purchaser_id = OLD.id;
+    UPDATE public.purchase_orders
+    SET storekeeper_name = COALESCE(storekeeper_name, OLD.full_name),
+        storekeeper_id = NULL
+    WHERE storekeeper_id = OLD.id;
+    UPDATE public.purchase_budgets
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+    UPDATE public.purchase_budgets
+    SET updated_by_name = COALESCE(updated_by_name, OLD.full_name),
+        updated_by = NULL
+    WHERE updated_by = OLD.id;
+
+    -- Expenses/income/payroll
+    UPDATE public.expenses
+    SET profile_name = COALESCE(profile_name, OLD.full_name),
+        profile_id = NULL
+    WHERE profile_id = OLD.id;
+    UPDATE public.expenses
+    SET approved_by_name = COALESCE(approved_by_name, OLD.full_name),
+        approved_by = NULL
+    WHERE approved_by = OLD.id;
+    UPDATE public.expenses
+    SET rejected_by_name = COALESCE(rejected_by_name, OLD.full_name),
+        rejected_by = NULL
+    WHERE rejected_by = OLD.id;
+    UPDATE public.income_records
+    SET staff_name = COALESCE(staff_name, OLD.full_name),
+        staff_id = NULL
+    WHERE staff_id = OLD.id;
+    UPDATE public.income_records
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+    UPDATE public.payroll_records
+    SET staff_name = COALESCE(staff_name, OLD.full_name),
+        staff_id = NULL
+    WHERE staff_id = OLD.id;
+    UPDATE public.payroll_records
+    SET approved_by_name = COALESCE(approved_by_name, OLD.full_name),
+        approved_by = NULL
+    WHERE approved_by = OLD.id;
+    UPDATE public.payroll_records
+    SET processed_by_name = COALESCE(processed_by_name, OLD.full_name),
+        processed_by = NULL
+    WHERE processed_by = OLD.id;
+
+    -- Debts/payments
+    UPDATE public.debts
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+    UPDATE public.debts
+    SET sold_by_name = COALESCE(sold_by_name, OLD.full_name),
+        sold_by = NULL
+    WHERE sold_by = OLD.id;
+    UPDATE public.debt_payments
+    SET collected_by_name = COALESCE(collected_by_name, OLD.full_name),
+        collected_by = NULL
+    WHERE collected_by = OLD.id;
+    UPDATE public.debt_payments
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+
+    -- Sales/shift logs
+    UPDATE public.mini_mart_sales
+    SET sold_by_name = COALESCE(sold_by_name, OLD.full_name),
+        sold_by = NULL
+    WHERE sold_by = OLD.id;
+    UPDATE public.kitchen_sales
+    SET sold_by_name = COALESCE(sold_by_name, OLD.full_name),
+        sold_by = NULL
+    WHERE sold_by = OLD.id;
+    UPDATE public.bartender_shifts
+    SET bartender_name = COALESCE(bartender_name, OLD.full_name),
+        bartender_id = NULL
+    WHERE bartender_id = OLD.id;
+    UPDATE public.bartender_shifts
+    SET closed_by_name = COALESCE(closed_by_name, OLD.full_name),
+        closed_by = NULL
+    WHERE closed_by = OLD.id;
+
+    -- HR/attendance/communications
+    UPDATE public.positions
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+    UPDATE public.attendance_records
+    SET profile_name = COALESCE(profile_name, OLD.full_name),
+        profile_id = NULL
+    WHERE profile_id = OLD.id;
+    UPDATE public.posts
+    SET author_name = COALESCE(author_name, OLD.full_name),
+        author_profile_id = NULL
+    WHERE author_profile_id = OLD.id;
+    UPDATE public.notifications
+    SET user_name = COALESCE(user_name, OLD.full_name),
+        user_id = NULL
+    WHERE user_id = OLD.id;
+    UPDATE public.staff_role_assignments
+    SET staff_name = COALESCE(staff_name, OLD.full_name),
+        staff_id = NULL
+    WHERE staff_id = OLD.id;
+    UPDATE public.staff_role_assignments
+    SET assigned_by_name = COALESCE(assigned_by_name, OLD.full_name),
+        assigned_by = NULL
+    WHERE assigned_by = OLD.id;
+
+    -- Maintenance
+    UPDATE public.maintenance_work_orders
+    SET reported_by_name = COALESCE(reported_by_name, OLD.full_name),
+        reported_by_id = NULL
+    WHERE reported_by_id = OLD.id;
+    UPDATE public.maintenance_work_orders
+    SET assigned_to_name = COALESCE(assigned_to_name, OLD.full_name),
+        assigned_to = NULL
+    WHERE assigned_to = OLD.id;
+    UPDATE public.work_orders
+    SET assigned_to_name = COALESCE(assigned_to_name, OLD.full_name),
+        assigned_to = NULL
+    WHERE assigned_to = OLD.id;
+    UPDATE public.work_orders
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+
+    -- Logs
+    UPDATE public.room_status_logs
+    SET changed_by_name = COALESCE(changed_by_name, OLD.full_name),
+        changed_by = NULL
+    WHERE changed_by = OLD.id;
+    UPDATE public.finance_audit_logs
+    SET actor_name = COALESCE(actor_name, OLD.full_name),
+        actor_id = NULL
+    WHERE actor_id = OLD.id;
+    UPDATE public.cash_deposits
+    SET staff_name = COALESCE(staff_name, OLD.full_name),
+        staff_id = NULL
+    WHERE staff_id = OLD.id;
+    UPDATE public.cash_deposits
+    SET created_by_name = COALESCE(created_by_name, OLD.full_name),
+        created_by = NULL
+    WHERE created_by = OLD.id;
+
+    RETURN OLD;
+END;
+$$;
+
 -- Create triggers for updated_at
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_room_types_updated_at BEFORE UPDATE ON public.room_types FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -3335,6 +3590,11 @@ CREATE TRIGGER update_mini_mart_sales_updated_at BEFORE UPDATE ON public.mini_ma
 CREATE TRIGGER update_department_sales_updated_at BEFORE UPDATE ON public.department_sales FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_bartender_shifts_updated_at BEFORE UPDATE ON public.bartender_shifts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_staff_role_assignments_updated_at BEFORE UPDATE ON public.staff_role_assignments FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_cleanup_profile_references ON public.profiles;
+CREATE TRIGGER trg_cleanup_profile_references
+BEFORE DELETE ON public.profiles
+FOR EACH ROW EXECUTE FUNCTION public.cleanup_profile_references();
 
 -- ==============================================
 -- 19. VIEWS (FIXED)

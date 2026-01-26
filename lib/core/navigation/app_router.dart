@@ -38,6 +38,7 @@ import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart'
 import 'package:pzed_homes/presentation/screens/storekeeper_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/mini_mart_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/presentation/screens/reset_password_screen.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -188,6 +189,16 @@ class AppRouter {
         path: '/login',
         name: 'login',
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/auth/reset-password',
+        name: 'reset-password',
+        builder: (context, state) => const ResetPasswordScreen(),
+      ),
+      GoRoute(
+        path: '/auth/callback',
+        name: 'auth-callback',
+        builder: (context, state) => const ResetPasswordScreen(),
       ),
 
       // Staff routes with role-based access
