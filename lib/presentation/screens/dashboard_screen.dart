@@ -1532,6 +1532,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildAttendanceCard() {
+    // Clock-in/clock-out functionality removed - return empty widget
+    return const SizedBox.shrink();
     if (_isLoadingAttendance) return const LinearProgressIndicator();
 
     return Container(
@@ -1745,14 +1747,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   DateTimeRange _currentRange() {
     final now = DateTime.now();
+    
+    // Business day starts at 5:00 AM, not midnight
+    // If current time is before 5 AM, "today" is from 5 AM yesterday to 4:59:59 AM today
+    // If current time is 5 AM or later, "today" is from 5 AM today to 4:59:59 AM tomorrow
+    DateTime getBusinessDayStart(DateTime date) {
+      if (date.hour < 5) {
+        // Before 5 AM, business day started yesterday at 5 AM
+        final yesterday = date.subtract(const Duration(days: 1));
+        return DateTime(yesterday.year, yesterday.month, yesterday.day, 5, 0, 0);
+      } else {
+        // 5 AM or later, business day started today at 5 AM
+        return DateTime(date.year, date.month, date.day, 5, 0, 0);
+      }
+    }
+    
+    DateTime getBusinessDayEnd(DateTime date) {
+      if (date.hour < 5) {
+        // Before 5 AM, business day ends today at 4:59:59 AM
+        return DateTime(date.year, date.month, date.day, 4, 59, 59, 999);
+      } else {
+        // 5 AM or later, business day ends tomorrow at 4:59:59 AM
+        final tomorrow = date.add(const Duration(days: 1));
+        return DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 4, 59, 59, 999);
+      }
+    }
+    
     switch (_timeRange) {
       case TimeRange.today:
-        return DateTimeRange(start: DateTime(now.year, now.month, now.day), end: now);
+        // Today: from 5 AM (business day start) to 4:59:59 AM next day
+        final start = getBusinessDayStart(now);
+        final end = getBusinessDayEnd(now);
+        return DateTimeRange(start: start, end: end);
       case TimeRange.week:
-        final start = now.subtract(Duration(days: now.weekday - 1));
-        return DateTimeRange(start: DateTime(start.year, start.month, start.day), end: now);
+        // This week: from 5 AM of Monday (or 7 days ago if before 5 AM) to end of current business day
+        final weekStart = now.subtract(Duration(days: now.weekday - 1));
+        final businessWeekStart = getBusinessDayStart(weekStart);
+        final businessWeekEnd = getBusinessDayEnd(now);
+        return DateTimeRange(start: businessWeekStart, end: businessWeekEnd);
       case TimeRange.month:
-        return DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
+        // This month: from 5 AM of first day of month to end of current business day
+        final monthStart = DateTime(now.year, now.month, 1);
+        final businessMonthStart = getBusinessDayStart(monthStart);
+        final businessMonthEnd = getBusinessDayEnd(now);
+        return DateTimeRange(start: businessMonthStart, end: businessMonthEnd);
       case TimeRange.custom:
         return _customRange ?? DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
     }
@@ -1760,17 +1798,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _isInRange(DateTime date) {
     final r = _currentRange();
-    return !date.isBefore(r.start) && !date.isAfter(r.end);
+    // Compare full datetime (including time) to respect 5 AM business day boundary
+    // Business day: 5:00 AM to 4:59:59.999 AM next calendar day
+    // Transaction at 4:59 AM belongs to previous business day
+    // Transaction at 5:00 AM belongs to current business day
+    return (date.isAfter(r.start) || date.isAtSameMomentAs(r.start)) 
+        && (date.isBefore(r.end) || date.isAtSameMomentAs(r.end));
+  }
+  
+  // Helper to parse timestamp from various formats
+  DateTime? _parseTimestamp(dynamic timestamp) {
+    if (timestamp == null) return null;
+    
+    try {
+      final str = timestamp.toString().trim();
+      if (str.isEmpty) return null;
+      
+      // Try ISO 8601 format first
+      if (str.contains('T') || str.contains('Z')) {
+        return DateTime.parse(str);
+      }
+      
+      // Try space-separated format (replace space with T)
+      if (str.contains(' ')) {
+        final normalized = str.replaceFirst(' ', 'T');
+        return DateTime.parse(normalized);
+      }
+      
+      // Try date-only format
+      if (str.length == 10 && str.contains('-')) {
+        return DateTime.parse(str);
+      }
+      
+      // Try parsing as-is
+      return DateTime.parse(str);
+    } catch (e) {
+      return null;
+    }
   }
 
   // Aggregate for owner/manager
   Widget _buildManagementAggregate(BuildContext context) {
     final inRangeIncome = _incomeRecords.where((e) {
-      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      final d = _parseTimestamp(e['date']);
       return d != null && _isInRange(d);
     }).toList();
     final inRangeExpenses = _expenseRecords.where((e) {
-      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      final d = _parseTimestamp(e['date']);
       return d != null && _isInRange(d);
     }).toList();
 
@@ -1921,7 +1995,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final r = _currentRange();
     int countInRange(List<Map<String, dynamic>> list, String dateKey) {
       return list.where((e) {
-        final d = DateTime.tryParse(e[dateKey]?.toString() ?? '');
+        final d = _parseTimestamp(e[dateKey]);
         return d != null && _isInRange(d);
       }).length;
     }
@@ -1942,7 +2016,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildReceptionistPanel(BuildContext context) {
     // Using bookings as proxy for processed rooms in range
     final processed = _bookings.where((b) {
-      final ci = DateTime.tryParse(b['check_in']?.toString() ?? '');
+      final ci = _parseTimestamp(b['check_in'] ?? b['check_in_date']);
       return ci != null && _isInRange(ci);
     }).length;
     return _inlineCards(context, [
@@ -1953,7 +2027,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Bartender metrics (sales from stock transactions)
   Widget _buildBartenderPanel(BuildContext context) {
     final sales = _stockTransactions.where((t) {
-      final ts = DateTime.tryParse((t['timestamp']?.toString() ?? '').replaceFirst(' ', 'T'));
+      final ts = _parseTimestamp(t['timestamp']);
       return (t['type'] == 'sale') && ts != null && _isInRange(ts);
     }).toList();
     final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as int).abs()));
@@ -1968,7 +2042,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildKitchenPanel(BuildContext context) {
     // Proxy using income records from vip/outside bar as dispatched
     final inRange = _incomeRecords.where((e) {
-      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      final d = _parseTimestamp(e['date']);
       final dept = e['department']?.toString() ?? '';
       final isBar = dept == 'vip_bar' || dept == 'outside_bar';
       return d != null && _isInRange(d) && isBar;
@@ -1983,7 +2057,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Storekeeper metrics
   Widget _buildStorekeeperPanel(BuildContext context) {
     final movements = _stockTransactions.where((t) {
-      final ts = DateTime.tryParse((t['timestamp']?.toString() ?? '').replaceFirst(' ', 'T'));
+      final ts = _parseTimestamp(t['timestamp']);
       return ts != null && _isInRange(ts);
     }).length;
     return _inlineCards(context, [
@@ -1994,7 +2068,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Purchaser metrics
   Widget _buildPurchaserPanel(BuildContext context) {
     final kitchenExpenses = _expenseRecords.where((e) {
-      final d = DateTime.tryParse(e['date']?.toString() ?? '');
+      final d = _parseTimestamp(e['date']);
       return d != null && _isInRange(d) && (e['department'] == 'kitchen');
     }).toList();
     final total = kitchenExpenses.fold<num>(0, (s, e) => s + (e['amount'] as num));

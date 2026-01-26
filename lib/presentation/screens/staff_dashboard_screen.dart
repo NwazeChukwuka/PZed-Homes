@@ -2022,6 +2022,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Widget _buildAttendanceCard() {
+    // Clock-in/clock-out functionality removed - return empty widget
+    return const SizedBox.shrink();
     // #region agent log
     try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"})}\n', mode: FileMode.append); } catch (_) {}
     print('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');

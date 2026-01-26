@@ -379,10 +379,7 @@ class AuthService with ChangeNotifier {
       _isLoadingUserData = false;
       notifyListeners();
       
-      // Check clock-in status for non-management in background
-      if (!isManagementRole()) {
-        unawaited(_checkClockInStatus());
-      }
+      // Clock-in check removed - no longer required
       
     } catch (e) {
       // On any error, clear user and fail
@@ -575,13 +572,7 @@ class AuthService with ChangeNotifier {
     _sessionRefreshTimer?.cancel();
     _sessionWarningTimer?.cancel();
     
-    if (_isClockedIn) {
-      try {
-        await clockOut();
-      } catch (e) {
-        // Continue with logout even if clock out fails
-      }
-    }
+    // Clock-out on logout removed - no longer required
     
     await _supabase!.auth.signOut();
     
@@ -602,116 +593,24 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
+  // Clock-in/clock-out functionality removed - no longer required
+  // Transactions can be made without clocking in
   Future<void> _checkClockInStatus() async {
-    if (_currentUser == null || _supabase == null) return;
-    
-    try {
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
-      
-      final response = await _supabase!
-          .from('attendance_records')
-          .select('id, clock_in_time')
-          .eq('profile_id', _currentUser!.id)
-          .gte('clock_in_time', startOfDay.toIso8601String())
-          .isFilter('clock_out_time', null)
-          .order('clock_in_time', ascending: false)
-          .limit(1)
-          .maybeSingle();
-      
-      if (response != null) {
-        _isClockedIn = true;
-        _currentAttendanceId = response['id'] as String?;
-        _clockInTime = DateTime.tryParse(response['clock_in_time'] as String? ?? '');
-      } else {
-        _isClockedIn = false;
-        _currentAttendanceId = null;
-        _clockInTime = null;
-      }
-      notifyListeners();
-    } catch (e) {
-      _isClockedIn = false;
-      _currentAttendanceId = null;
-      _clockInTime = null;
-    }
+    // No-op - clock-in is disabled
+    _isClockedIn = false;
+    _currentAttendanceId = null;
+    _clockInTime = null;
   }
 
   Future<void> clockIn() async {
-    // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:516","message":"clockIn entry","data":{"userId":_currentUser?.id,"supabaseNull":_supabase==null},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"E"})}\n', mode: FileMode.append); } catch (_) {}
-    // #endregion
-    if (_currentUser == null) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:518","message":"User null check failed","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"F"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      throw Exception('User must be logged in to clock in');
-    }
-    if (_supabase == null) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:521","message":"Supabase null check failed","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"G"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      throw Exception('Supabase is not configured');
-    }
-    
-    await _checkClockInStatus();
-    if (_isClockedIn) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:525","message":"Already clocked in check failed","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"H"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      throw Exception('You are already clocked in today');
-    }
-    
-    try {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:529","message":"Before database insert","data":{"profileId":_currentUser!.id,"date":DateTime.now().toIso8601String().split('T')[0]},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"I"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      final response = await _supabase!
-          .from('attendance_records')
-          .insert({
-            'profile_id': _currentUser!.id,
-            'clock_in_time': DateTime.now().toIso8601String(),
-            'date': DateTime.now().toIso8601String().split('T')[0],
-          })
-          .select()
-          .single();
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:538","message":"Database insert success","data":{"attendanceId":response['id']},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"J"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      _isClockedIn = true;
-      _currentAttendanceId = response['id'] as String?;
-      _clockInTime = DateTime.now();
-      notifyListeners();
-    } catch (e) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"auth_service.dart:544","message":"Database insert error","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"K"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
-      throw Exception('Failed to clock in: $e');
-    }
+    // Clock-in functionality removed - do nothing
+    // Transactions work without clock-in
+    return;
   }
 
   Future<void> clockOut() async {
-    if (_currentUser == null || !_isClockedIn || _currentAttendanceId == null) {
-      throw Exception('You are not clocked in');
-    }
-    if (_supabase == null) {
-      throw Exception('Supabase is not configured');
-    }
-    
-    try {
-      await _supabase!
-          .from('attendance_records')
-          .update({
-            'clock_out_time': DateTime.now().toIso8601String(),
-          })
-          .eq('id', _currentAttendanceId!);
-      
-      _isClockedIn = false;
-      _clockInTime = null;
-      _currentAttendanceId = null;
-      notifyListeners();
-    } catch (e) {
-      throw Exception('Failed to clock out: $e');
-    }
+    // Clock-out functionality removed - do nothing
+    return;
   }
 
   bool isManagementRole() {
