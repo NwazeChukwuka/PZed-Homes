@@ -1106,25 +1106,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        // Customer Info
-                        TextField(
-                          controller: _customerNameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Customer Name (Optional)',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _customerPhoneController,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone (Optional)',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
                           value: _paymentMethod,
                           decoration: const InputDecoration(
@@ -1145,13 +1126,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           },
                         ),
                         
-                        // Show warning and approved by field for credit payment
+                        // Show customer info fields only for credit payment
                         if (_paymentMethod == 'Credit')
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              const SizedBox(height: 16),
                               Container(
-                                margin: const EdgeInsets.only(top: 8, bottom: 12),
+                                margin: const EdgeInsets.only(bottom: 12),
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: Colors.orange[50],
@@ -1171,6 +1153,24 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                   ],
                                 ),
                               ),
+                              TextField(
+                                controller: _customerNameController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Customer Name *',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _customerPhoneController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Phone *',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
                               TextField(
                                 controller: _approvedByController,
                                 decoration: const InputDecoration(

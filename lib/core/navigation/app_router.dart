@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -445,8 +447,51 @@ class AppRouter {
 
           // Role-based access control
           if (currentUser != null) {
-            final userRole = currentUser.role;
-            final hasAccess = _hasAccessToRoute(userRole, location);
+            final authService = Provider.of<AuthService>(context, listen: false);
+            
+            // Check assumed role first, then check all user roles
+            bool hasAccess = false;
+            AppRole? checkedRole;
+            
+            if (authService.isRoleAssumed && authService.assumedRole != null) {
+              // Use assumed role
+              checkedRole = authService.assumedRole;
+              hasAccess = _hasAccessToRoute(authService.assumedRole!, location);
+            } else {
+              // Check if any of the user's roles have access
+              for (final role in currentUser.roles) {
+                if (_hasAccessToRoute(role, location)) {
+                  hasAccess = true;
+                  checkedRole = role;
+                  break;
+                }
+              }
+            }
+            
+            // #region agent log
+            try { 
+              final logData = {
+                'location': 'app_router.dart:446',
+                'message': 'Router access check',
+                'data': {
+                  'route': location,
+                  'userId': currentUser.id,
+                  'userRoles': currentUser.roles.map((r) => r.name).toList(),
+                  'primaryRole': currentUser.role.name,
+                  'isRoleAssumed': authService.isRoleAssumed,
+                  'assumedRole': authService.assumedRole?.name,
+                  'checkedRole': checkedRole?.name,
+                  'hasAccess': hasAccess
+                },
+                'timestamp': DateTime.now().millisecondsSinceEpoch,
+                'sessionId': 'debug-session',
+                'runId': 'run1',
+                'hypothesisId': 'S'
+              };
+              File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+            } catch (_) {}
+            print('DEBUG Router: route=$location, roles=${currentUser.roles.map((r) => r.name)}, hasAccess=$hasAccess');
+            // #endregion
             
             if (!hasAccess) {
               return '/dashboard'; // Redirect to dashboard if no access

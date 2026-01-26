@@ -143,12 +143,40 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Future<void> _loadInventory() async {
-        setState(() {
+    // #region agent log
+    try { 
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final logData = {
+        'location': 'inventory_screen.dart:132',
+        'message': 'Loading inventory',
+        'data': {
+          'userId': user?.id,
+          'userRoles': user?.roles.map((r) => r.name).toList(),
+          'isRoleAssumed': authService.isRoleAssumed,
+          'assumedRole': authService.assumedRole?.name
+        },
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+        'hypothesisId': 'X'
+      };
+      File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+    } catch (_) {}
+    print('DEBUG InventoryScreen: Starting _loadInventory');
+    // #endregion
+    setState(() {
       _isLoading = true;
     });
 
     try {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:139","message":"Calling getInventoryItems","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Y"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       final inventory = await _dataService.getInventoryItems();
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"})}\n', mode: FileMode.append); } catch (_) {}
+      // #endregion
       final stockLevels = await _dataService.getStockLevels();
       final stockItems = await _dataService.supabase
           .from('stock_items')
@@ -179,6 +207,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         _isLoading = false;
       });
     } catch (e) {
+      // #region agent log
+      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:172","message":"_loadInventory error","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"AA"})}\n', mode: FileMode.append); } catch (_) {}
+      print('DEBUG InventoryScreen: Error loading inventory: $e');
+      // #endregion
       setState(() {
         _isLoading = false;
       });

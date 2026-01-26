@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -35,6 +37,29 @@ class MainScreen extends StatelessWidget {
         if (authService.isRoleAssumed && authService.assumedRole != null) {
           accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(authService.assumedRole!));
         }
+        
+        // #region agent log
+        try { 
+          final logData = {
+            'location': 'main_screen.dart:37',
+            'message': 'Accessible features computed',
+            'data': {
+              'userId': user?.id,
+              'userRoles': userRoles.map((r) => r.name).toList(),
+              'isRoleAssumed': authService.isRoleAssumed,
+              'assumedRole': authService.assumedRole?.name,
+              'accessibleFeatures': accessibleFeatures.toList(),
+              'hasInventory': accessibleFeatures.contains('inventory')
+            },
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'sessionId': 'debug-session',
+            'runId': 'run1',
+            'hypothesisId': 'T'
+          };
+          File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+        } catch (_) {}
+        print('DEBUG MainScreen: userRoles=${userRoles.map((r) => r.name)}, accessibleFeatures=${accessibleFeatures.toList()}, hasInventory=${accessibleFeatures.contains('inventory')}');
+        // #endregion
 
         return ResponsiveLayout(
           mobile: _buildMobileLayout(context, userRoles, accessibleFeatures.toList()),
@@ -809,7 +834,46 @@ class MainScreen extends StatelessWidget {
       items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
     }
     if (accessibleFeatures.contains('inventory')) {
+      // #region agent log
+      try { 
+        final logData = {
+          'location': 'main_screen.dart:811',
+          'message': 'Adding inventory menu item',
+          'data': {
+            'userRoles': userRoles.map((r) => r.name).toList(),
+            'accessibleFeatures': accessibleFeatures.toList(),
+            'hasInventory': accessibleFeatures.contains('inventory')
+          },
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'sessionId': 'debug-session',
+          'runId': 'run1',
+          'hypothesisId': 'V'
+        };
+        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+      } catch (_) {}
+      print('DEBUG MainScreen: Adding inventory menu item for roles: ${userRoles.map((r) => r.name)}');
+      // #endregion
       items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));
+    } else {
+      // #region agent log
+      try { 
+        final logData = {
+          'location': 'main_screen.dart:811',
+          'message': 'Inventory menu item NOT added',
+          'data': {
+            'userRoles': userRoles.map((r) => r.name).toList(),
+            'accessibleFeatures': accessibleFeatures.toList(),
+            'hasInventory': false
+          },
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'sessionId': 'debug-session',
+          'runId': 'run1',
+          'hypothesisId': 'W'
+        };
+        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+      } catch (_) {}
+      print('DEBUG MainScreen: Inventory NOT in accessibleFeatures. Features: ${accessibleFeatures.toList()}');
+      // #endregion
     }
     if (accessibleFeatures.contains('kitchen')) {
       items.add(NavigationItem(icon: Icons.restaurant, label: 'Kitchen', route: '/kitchen'));

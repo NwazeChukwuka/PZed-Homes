@@ -2022,6 +2022,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Widget _buildAttendanceCard() {
+    // #region agent log
+    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"})}\n', mode: FileMode.append); } catch (_) {}
+    print('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');
+    // #endregion
     if (_isLoadingAttendance) return const LinearProgressIndicator();
 
     return Container(
@@ -2058,14 +2062,32 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _isClockedIn ? _handleClockOut : _handleClockIn,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _isClockedIn ? Colors.red : Colors.green,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 48),
-            ),
-            child: Text(_isClockedIn ? 'Clock Out' : 'Clock In'),
+          Builder(
+            builder: (context) {
+              // #region agent log
+              try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2061","message":"Rendering clock button","data":{"isClockedIn":_isClockedIn,"handlerExists":true},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"})}\n', mode: FileMode.append); } catch (_) {}
+              print('DEBUG: Rendering clock button - isClockedIn: $_isClockedIn');
+              // #endregion
+              return ElevatedButton(
+                onPressed: () {
+                  // #region agent log
+                  try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2062","message":"Button onPressed triggered","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"R"})}\n', mode: FileMode.append); } catch (_) {}
+                  print('DEBUG: Button pressed! isClockedIn: $_isClockedIn');
+                  // #endregion
+                  if (_isClockedIn) {
+                    _handleClockOut();
+                  } else {
+                    _handleClockIn();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isClockedIn ? Colors.red : Colors.green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+                child: Text(_isClockedIn ? 'Clock Out' : 'Clock In'),
+              );
+            },
           ),
         ],
       ),

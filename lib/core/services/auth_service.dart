@@ -243,12 +243,47 @@ class AuthService with ChangeNotifier {
           .map((p) => p['permission'] as String)
           .toList();
 
+      // Parse roles with error handling
+      final parsedRoles = <AppRole>[];
+      for (final roleStr in roles) {
+        try {
+          final role = AppRole.values.byName(roleStr as String);
+          parsedRoles.add(role);
+        } catch (e) {
+          // Skip invalid role names
+          print('WARNING: Invalid role name: $roleStr');
+        }
+      }
+      
+      // #region agent log
+      try { 
+        final logData = {
+          'location': 'auth_service.dart:251',
+          'message': 'User roles loaded',
+          'data': {
+            'userId': profileResponse['id'],
+            'rawRoles': roles.map((r) => r.toString()).toList(),
+            'parsedRoles': parsedRoles.map((r) => r.name).toList(),
+            'primaryRole': primaryRole.name,
+            'hasVipBartender': parsedRoles.contains(AppRole.vip_bartender),
+            'hasOutsideBartender': parsedRoles.contains(AppRole.outside_bartender)
+          },
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'sessionId': 'debug-session',
+          'runId': 'run1',
+          'hypothesisId': 'U'
+        };
+        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
+      } catch (_) {}
+      print('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
+      // #endregion
+
       _currentUser = AppUser(
         id: profileResponse['id'],
         name: profileResponse['full_name'],
         email: profileResponse['email'] ?? '',
         role: primaryRole,
-        roles: roles.map((role) => AppRole.values.byName(role as String)).toList(),
+        roles: parsedRoles.isNotEmpty ? parsedRoles : [primaryRole],
         permissions: permissions,
         department: profileResponse['department'] as String?,
       );
