@@ -899,6 +899,180 @@ EXCEPTION
     NULL;
 END $$;
 
+-- Helper: drop FK constraint for a given table+column
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT con.conname AS constraint_name,
+           con.conrelid::regclass AS table_name
+    FROM pg_constraint con
+    JOIN pg_attribute att
+      ON att.attrelid = con.conrelid
+     AND att.attnum = ANY (con.conkey)
+    WHERE con.contype = 'f'
+      AND (
+        (con.conrelid::regclass = 'public.bookings'::regclass AND att.attname IN ('guest_profile_id','discount_applied_by','created_by')) OR
+        (con.conrelid::regclass = 'public.booking_charges'::regclass AND att.attname IN ('added_by')) OR
+        (con.conrelid::regclass = 'public.stock_transactions'::regclass AND att.attname IN ('staff_profile_id')) OR
+        (con.conrelid::regclass = 'public.direct_supply_requests'::regclass AND att.attname IN ('requested_by','approved_by')) OR
+        (con.conrelid::regclass = 'public.stock_transfers'::regclass AND att.attname IN ('issued_by_id','received_by_id')) OR
+        (con.conrelid::regclass = 'public.department_transfers'::regclass AND att.attname IN ('dispatched_by_id')) OR
+        (con.conrelid::regclass = 'public.purchase_orders'::regclass AND att.attname IN ('purchaser_id','storekeeper_id')) OR
+        (con.conrelid::regclass = 'public.purchase_budgets'::regclass AND att.attname IN ('created_by','updated_by')) OR
+        (con.conrelid::regclass = 'public.expenses'::regclass AND att.attname IN ('profile_id','approved_by','rejected_by')) OR
+        (con.conrelid::regclass = 'public.income_records'::regclass AND att.attname IN ('staff_id','created_by')) OR
+        (con.conrelid::regclass = 'public.payroll_records'::regclass AND att.attname IN ('staff_id','approved_by','processed_by')) OR
+        (con.conrelid::regclass = 'public.debts'::regclass AND att.attname IN ('created_by','sold_by')) OR
+        (con.conrelid::regclass = 'public.debt_payments'::regclass AND att.attname IN ('collected_by','created_by')) OR
+        (con.conrelid::regclass = 'public.mini_mart_sales'::regclass AND att.attname IN ('sold_by')) OR
+        (con.conrelid::regclass = 'public.kitchen_sales'::regclass AND att.attname IN ('sold_by')) OR
+        (con.conrelid::regclass = 'public.bartender_shifts'::regclass AND att.attname IN ('bartender_id','closed_by')) OR
+        (con.conrelid::regclass = 'public.positions'::regclass AND att.attname IN ('created_by')) OR
+        (con.conrelid::regclass = 'public.attendance_records'::regclass AND att.attname IN ('profile_id')) OR
+        (con.conrelid::regclass = 'public.posts'::regclass AND att.attname IN ('author_profile_id')) OR
+        (con.conrelid::regclass = 'public.notifications'::regclass AND att.attname IN ('user_id')) OR
+        (con.conrelid::regclass = 'public.staff_role_assignments'::regclass AND att.attname IN ('staff_id','assigned_by')) OR
+        (con.conrelid::regclass = 'public.maintenance_work_orders'::regclass AND att.attname IN ('reported_by_id','assigned_to')) OR
+        (con.conrelid::regclass = 'public.work_orders'::regclass AND att.attname IN ('assigned_to','created_by'))
+      )
+  LOOP
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
+  END LOOP;
+END $$;
+
+-- Add snapshot columns + re-add FKs with ON DELETE SET NULL
+DO $$
+BEGIN
+  ALTER TABLE public.bookings
+    ADD COLUMN IF NOT EXISTS discount_applied_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+  ALTER TABLE public.booking_charges ADD COLUMN IF NOT EXISTS added_by_name TEXT;
+  ALTER TABLE public.stock_transactions ADD COLUMN IF NOT EXISTS staff_name TEXT;
+  ALTER TABLE public.direct_supply_requests
+    ADD COLUMN IF NOT EXISTS requested_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS approved_by_name TEXT;
+  ALTER TABLE public.stock_transfers
+    ADD COLUMN IF NOT EXISTS issued_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS received_by_name TEXT;
+  ALTER TABLE public.department_transfers ADD COLUMN IF NOT EXISTS dispatched_by_name TEXT;
+  ALTER TABLE public.purchase_orders
+    ADD COLUMN IF NOT EXISTS purchaser_name TEXT,
+    ADD COLUMN IF NOT EXISTS storekeeper_name TEXT;
+  ALTER TABLE public.purchase_budgets
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS updated_by_name TEXT;
+  ALTER TABLE public.expenses
+    ADD COLUMN IF NOT EXISTS profile_name TEXT,
+    ADD COLUMN IF NOT EXISTS approved_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS rejected_by_name TEXT;
+  ALTER TABLE public.income_records
+    ADD COLUMN IF NOT EXISTS staff_name TEXT,
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+  ALTER TABLE public.payroll_records
+    ADD COLUMN IF NOT EXISTS staff_name TEXT,
+    ADD COLUMN IF NOT EXISTS approved_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS processed_by_name TEXT;
+  ALTER TABLE public.debts
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS sold_by_name TEXT;
+  ALTER TABLE public.debt_payments
+    ADD COLUMN IF NOT EXISTS collected_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+  ALTER TABLE public.mini_mart_sales ADD COLUMN IF NOT EXISTS sold_by_name TEXT;
+  ALTER TABLE public.kitchen_sales ADD COLUMN IF NOT EXISTS sold_by_name TEXT;
+  ALTER TABLE public.bartender_shifts
+    ADD COLUMN IF NOT EXISTS bartender_name TEXT,
+    ADD COLUMN IF NOT EXISTS closed_by_name TEXT;
+  ALTER TABLE public.positions ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+  ALTER TABLE public.attendance_records ADD COLUMN IF NOT EXISTS profile_name TEXT;
+  ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_name TEXT;
+  ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS user_name TEXT;
+  ALTER TABLE public.staff_role_assignments
+    ADD COLUMN IF NOT EXISTS staff_name TEXT,
+    ADD COLUMN IF NOT EXISTS assigned_by_name TEXT;
+  ALTER TABLE public.maintenance_work_orders
+    ADD COLUMN IF NOT EXISTS reported_by_name TEXT,
+    ADD COLUMN IF NOT EXISTS assigned_to_name TEXT;
+  ALTER TABLE public.work_orders
+    ADD COLUMN IF NOT EXISTS assigned_to_name TEXT,
+    ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Recreate FK constraints with ON DELETE SET NULL
+DO $$
+BEGIN
+  ALTER TABLE public.bookings
+    ADD CONSTRAINT bookings_guest_profile_id_fkey FOREIGN KEY (guest_profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT bookings_discount_applied_by_fkey FOREIGN KEY (discount_applied_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT bookings_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.booking_charges
+    ADD CONSTRAINT booking_charges_added_by_fkey FOREIGN KEY (added_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.stock_transactions
+    ADD CONSTRAINT stock_transactions_staff_profile_id_fkey FOREIGN KEY (staff_profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.direct_supply_requests
+    ADD CONSTRAINT direct_supply_requests_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT direct_supply_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.stock_transfers
+    ADD CONSTRAINT stock_transfers_issued_by_id_fkey FOREIGN KEY (issued_by_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT stock_transfers_received_by_id_fkey FOREIGN KEY (received_by_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.department_transfers
+    ADD CONSTRAINT department_transfers_dispatched_by_id_fkey FOREIGN KEY (dispatched_by_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.purchase_orders
+    ADD CONSTRAINT purchase_orders_purchaser_id_fkey FOREIGN KEY (purchaser_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT purchase_orders_storekeeper_id_fkey FOREIGN KEY (storekeeper_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.purchase_budgets
+    ADD CONSTRAINT purchase_budgets_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT purchase_budgets_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.expenses
+    ADD CONSTRAINT expenses_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT expenses_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT expenses_rejected_by_fkey FOREIGN KEY (rejected_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.income_records
+    ADD CONSTRAINT income_records_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT income_records_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.payroll_records
+    ADD CONSTRAINT payroll_records_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT payroll_records_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT payroll_records_processed_by_fkey FOREIGN KEY (processed_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.debts
+    ADD CONSTRAINT debts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT debts_sold_by_fkey FOREIGN KEY (sold_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.debt_payments
+    ADD CONSTRAINT debt_payments_collected_by_fkey FOREIGN KEY (collected_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT debt_payments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.mini_mart_sales
+    ADD CONSTRAINT mini_mart_sales_sold_by_fkey FOREIGN KEY (sold_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.kitchen_sales
+    ADD CONSTRAINT kitchen_sales_sold_by_fkey FOREIGN KEY (sold_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.bartender_shifts
+    ADD CONSTRAINT bartender_shifts_bartender_id_fkey FOREIGN KEY (bartender_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT bartender_shifts_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.positions
+    ADD CONSTRAINT positions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.attendance_records
+    ADD CONSTRAINT attendance_records_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.posts
+    ADD CONSTRAINT posts_author_profile_id_fkey FOREIGN KEY (author_profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.notifications
+    ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.staff_role_assignments
+    ADD CONSTRAINT staff_role_assignments_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT staff_role_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.maintenance_work_orders
+    ADD CONSTRAINT maintenance_work_orders_reported_by_id_fkey FOREIGN KEY (reported_by_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT maintenance_work_orders_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ALTER TABLE public.work_orders
+    ADD CONSTRAINT work_orders_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES public.profiles(id) ON DELETE SET NULL,
+    ADD CONSTRAINT work_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 -- 4.1) Bookings columns and guest_profile_id nullable
 DO $$
 BEGIN
@@ -2391,3 +2565,46 @@ GRANT SELECT ON public.room_occupancy TO anon, authenticated;
 GRANT SELECT ON public.bookings_needing_room_assignment TO anon, authenticated;
 GRANT SELECT ON public.stock_levels TO anon, authenticated;
 GRANT SELECT ON public.daily_sales TO anon, authenticated;
+
+-- Fix attendance_records INSERT policy to allow staff to clock in
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Active staff can insert attendance records" ON public.attendance_records;
+  CREATE POLICY "Active staff can insert attendance records" ON public.attendance_records FOR INSERT WITH CHECK (
+    is_user_active(auth.uid())
+    AND (
+      profile_id = auth.uid() OR profile_id IS NULL
+    )
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() 
+      AND p.status = 'Active'
+      AND p.roles IS NOT NULL
+      AND array_length(p.roles, 1) > 0
+    )
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Add UPDATE policy for clock-out functionality
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Active staff can update own attendance records" ON public.attendance_records;
+  CREATE POLICY "Active staff can update own attendance records" ON public.attendance_records FOR UPDATE USING (
+    is_user_active(auth.uid())
+    AND (
+      profile_id = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM public.profiles p
+        WHERE p.id = auth.uid() 
+        AND p.status = 'Active'
+        AND ('hr' = ANY(p.roles) OR 'manager' = ANY(p.roles) OR 'owner' = ANY(p.roles))
+      )
+    )
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;

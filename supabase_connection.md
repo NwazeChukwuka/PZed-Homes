@@ -2155,11 +2155,29 @@ CREATE POLICY "Active staff can view attendance records" ON public.attendance_re
 );
 
 CREATE POLICY "Active staff can insert attendance records" ON public.attendance_records FOR INSERT WITH CHECK (
-  EXISTS (
+  is_user_active(auth.uid())
+  AND (
+    profile_id = auth.uid() OR profile_id IS NULL
+  )
+  AND EXISTS (
     SELECT 1 FROM public.profiles p
     WHERE p.id = auth.uid() 
     AND p.status = 'Active'
+    AND p.roles IS NOT NULL
     AND array_length(p.roles, 1) > 0
+  )
+);
+
+CREATE POLICY "Active staff can update own attendance records" ON public.attendance_records FOR UPDATE USING (
+  is_user_active(auth.uid())
+  AND (
+    profile_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() 
+      AND p.status = 'Active'
+      AND ('hr' = ANY(p.roles) OR 'manager' = ANY(p.roles) OR 'owner' = ANY(p.roles))
+    )
   )
 );
 

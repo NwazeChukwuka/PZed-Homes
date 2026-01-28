@@ -1266,7 +1266,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         throw Exception('Failed to get location ID for $locationName');
       }
 
-      // Get active bartender shift for shift tracking
+      // Get active bartender shift for optional tracking (not required for transactions)
       String? activeShiftId;
       try {
         final today = DateTime.now().toIso8601String().split('T')[0];
@@ -1285,10 +1285,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           debugPrint('Warning: Could not find active shift: $e');
         }
       }
-
-      if (isBartender && activeShiftId == null && !isManagement) {
-        throw Exception('No active shift found. Start your shift before making sales.');
-      }
+      // Note: No shift is required to make transactions - shift tracking is optional
 
       // Process each item sale
       for (final saleItem in _currentSale) {
