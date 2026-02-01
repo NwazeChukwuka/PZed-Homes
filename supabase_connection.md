@@ -1920,6 +1920,7 @@ USING (
   AND (
     user_has_role(auth.uid(), 'kitchen_staff')
     OR user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'vip_bartender') -- VIP bartenders can assist with kitchen sales
     OR user_has_role(auth.uid(), 'manager')
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
@@ -1932,6 +1933,7 @@ WITH CHECK (
   AND (
     user_has_role(auth.uid(), 'kitchen_staff')
     OR user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'vip_bartender') -- VIP bartenders can assist with kitchen sales
     OR user_has_role(auth.uid(), 'manager')
     OR user_has_role(auth.uid(), 'owner')
   )
@@ -3796,6 +3798,193 @@ INSERT INTO public.site_media (content_key, title, media_url) VALUES
 ('facility_vip_bar', 'VIP Bar Image', ''),
 ('facility_kitchen', 'Kitchen Image', '')
 ON CONFLICT (content_key) DO NOTHING;
+
+-- ==============================================
+-- 21.1. PENDING STOCK COUNTS (Daily Stock Count System)
+-- ==============================================
+CREATE TABLE IF NOT EXISTS public.pending_stock_counts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    location_id UUID REFERENCES public.locations(id) NOT NULL,
+    count_type TEXT NOT NULL, -- 'Opening' or 'Closing'
+    count_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    submitted_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL NOT NULL,
+    submitted_at TIMESTAMPTZ DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
+    rejected_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    rejected_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Create stock_count_items table (individual items in a count)
+CREATE TABLE IF NOT EXISTS public.stock_count_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_count_id UUID REFERENCES public.pending_stock_counts(id) ON DELETE CASCADE NOT NULL,
+    stock_item_id UUID REFERENCES public.stock_items(id) NOT NULL,
+    counted_quantity INT NOT NULL DEFAULT 0,
+    system_quantity INT NOT NULL DEFAULT 0, -- System calculated stock at time of count
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.pending_stock_counts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stock_count_items ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for pending_stock_counts
+CREATE POLICY "Active staff view pending stock counts" ON public.pending_stock_counts FOR SELECT USING (
+    is_user_active(auth.uid())
+    AND (
+        user_has_role(auth.uid(), 'owner')
+        OR user_has_role(auth.uid(), 'manager')
+        OR user_has_role(auth.uid(), 'supervisor')
+        OR user_has_role(auth.uid(), 'storekeeper')
+        OR location_id IN (
+            SELECT l.id
+            FROM public.locations l
+            WHERE (
+                (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+                OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
+                OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+                OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+                OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+                OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+                OR (l.name = 'Store' AND (user_has_role(auth.uid(), 'storekeeper') OR user_has_role(auth.uid(), 'purchaser')))
+            )
+        )
+    )
+);
+
+CREATE POLICY "Active staff can submit stock counts" ON public.pending_stock_counts FOR INSERT WITH CHECK (
+    is_user_active(auth.uid())
+    AND submitted_by = auth.uid()
+    AND location_id IN (
+        SELECT l.id
+        FROM public.locations l
+        WHERE (
+            user_has_role(auth.uid(), 'owner')
+            OR user_has_role(auth.uid(), 'manager')
+            OR user_has_role(auth.uid(), 'supervisor')
+            OR user_has_role(auth.uid(), 'storekeeper')
+            OR (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+            OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
+            OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+            OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+            OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+            OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+            OR (l.name = 'Store' AND (user_has_role(auth.uid(), 'storekeeper') OR user_has_role(auth.uid(), 'purchaser')))
+        )
+    )
+);
+
+CREATE POLICY "Management can approve/reject stock counts" ON public.pending_stock_counts FOR UPDATE USING (
+    is_user_active(auth.uid())
+    AND (
+        user_has_role(auth.uid(), 'owner')
+        OR user_has_role(auth.uid(), 'manager')
+        OR user_has_role(auth.uid(), 'supervisor')
+        OR user_has_role(auth.uid(), 'storekeeper')
+    )
+);
+
+-- RLS Policies for stock_count_items
+CREATE POLICY "Active staff view stock count items" ON public.stock_count_items FOR SELECT USING (
+    is_user_active(auth.uid())
+    AND EXISTS (
+        SELECT 1 FROM public.pending_stock_counts psc
+        WHERE psc.id = stock_count_items.stock_count_id
+        AND (
+            user_has_role(auth.uid(), 'owner')
+            OR user_has_role(auth.uid(), 'manager')
+            OR user_has_role(auth.uid(), 'supervisor')
+            OR user_has_role(auth.uid(), 'storekeeper')
+            OR psc.location_id IN (
+                SELECT l.id
+                FROM public.locations l
+                WHERE (
+                    (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+                    OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
+                    OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+                    OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+                    OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+                    OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+                    OR (l.name = 'Store' AND (user_has_role(auth.uid(), 'storekeeper') OR user_has_role(auth.uid(), 'purchaser')))
+                )
+            )
+        )
+    )
+);
+
+CREATE POLICY "Active staff can insert stock count items" ON public.stock_count_items FOR INSERT WITH CHECK (
+    is_user_active(auth.uid())
+    AND EXISTS (
+        SELECT 1 FROM public.pending_stock_counts psc
+        WHERE psc.id = stock_count_items.stock_count_id
+        AND psc.submitted_by = auth.uid()
+        AND psc.status = 'pending'
+    )
+);
+
+-- Function to approve a stock count and create adjustment transactions
+CREATE OR REPLACE FUNCTION public.approve_stock_count(count_id UUID, approver_id UUID, approval_notes TEXT DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    count_record RECORD;
+    count_item RECORD;
+    adjustment_quantity INT;
+BEGIN
+    -- Get the pending count record
+    SELECT * INTO count_record
+    FROM public.pending_stock_counts
+    WHERE id = count_id AND status = 'pending';
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Stock count not found or already processed';
+    END IF;
+    
+    -- Update the count status to approved
+    UPDATE public.pending_stock_counts
+    SET status = 'approved',
+        approved_by = approver_id,
+        approved_at = now(),
+        notes = COALESCE(approval_notes, notes),
+        updated_at = now()
+    WHERE id = count_id;
+    
+    -- Create adjustment transactions for each item
+    FOR count_item IN 
+        SELECT * FROM public.stock_count_items WHERE stock_count_id = count_id
+    LOOP
+        -- Calculate the adjustment needed (counted - system)
+        adjustment_quantity := count_item.counted_quantity - count_item.system_quantity;
+        
+        -- Only create transaction if there's a difference
+        IF adjustment_quantity != 0 THEN
+            INSERT INTO public.stock_transactions (
+                stock_item_id,
+                location_id,
+                staff_profile_id,
+                transaction_type,
+                quantity,
+                notes
+            ) VALUES (
+                count_item.stock_item_id,
+                count_record.location_id,
+                count_record.submitted_by,
+                'Adjustment',
+                adjustment_quantity,
+                format('Daily stock count (%s) - Approved by management', count_record.count_type)
+            );
+        END IF;
+    END LOOP;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.approve_stock_count(UUID, UUID, TEXT) TO authenticated;
 
 -- ==============================================
 -- 22. GRANT PERMISSIONS

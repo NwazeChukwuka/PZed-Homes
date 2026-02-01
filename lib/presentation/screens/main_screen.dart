@@ -935,17 +935,21 @@ class MainScreen extends StatelessWidget {
                 // Close dialog first
                 context.pop();
                 
-                // Logout and navigate safely
-                await Provider.of<AuthService>(context, listen: false).logout();
+                // Logout first to clear auth state
+                final authService = Provider.of<AuthService>(context, listen: false);
+                await authService.logout();
                 
-                // Navigate to home after a brief delay
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (context.mounted) {
-                    context.go('/');
-                  }
-                });
+                // Navigate directly to guest page (bypasses RootDecider)
+                // This prevents showing intermediate "nameless user" state
+                if (context.mounted) {
+                  context.go('/guest');
+                }
               } catch (e) {
                 print('DEBUG: Logout navigation error: $e');
+                // If logout fails, still try to navigate to guest page
+                if (context.mounted) {
+                  context.go('/guest');
+                }
               }
             },
             child: const Text('Logout'),

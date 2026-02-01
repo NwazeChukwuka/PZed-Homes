@@ -112,6 +112,9 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     if (roles.contains(AppRole.laundry_attendant)) {
       allowed.add('Laundry');
     }
+    if (roles.contains(AppRole.storekeeper) || roles.contains(AppRole.purchaser)) {
+      allowed.add('Store');
+    }
 
     _allowedLocationNames = allowed.toList();
 
@@ -195,47 +198,72 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
-      final List<Map<String, dynamic>> transactions = [];
+      final List<Map<String, dynamic>> countItems = [];
 
+      // Collect all items with counts (even if same as system quantity)
       for (var item in _stockItems) {
         final itemId = item['id'] as String;
         final qtyString = _controllers[itemId]?.text.trim() ?? '';
         
         if (qtyString.isNotEmpty) {
-          final quantity = int.tryParse(qtyString) ?? 0;
-          final previous = _previousCounts[itemId] ?? 0;
-          final delta = quantity - previous;
-          if (delta != 0) {
-            transactions.add({
-              'stock_item_id': itemId,
-              'location_id': _selectedLocationId,
-              'staff_profile_id': staffId,
-              'transaction_type': 'Adjustment',
-              'quantity': delta,
-              'notes': 'Daily stock count (${_countType.toLowerCase()})',
-            });
-          }
+          final countedQuantity = int.tryParse(qtyString) ?? 0;
+          final systemQuantity = _previousCounts[itemId] ?? 0;
+          
+          // Include all items that were counted (even if no change)
+          countItems.add({
+            'stock_item_id': itemId,
+            'counted_quantity': countedQuantity,
+            'system_quantity': systemQuantity,
+          });
         }
       }
 
-      if (transactions.isNotEmpty) {
-        await _supabase.from('stock_transactions').insert(transactions);
-        
-        // Note: Stock levels for stock_items are calculated from stock_transactions
-        // using the calculate_stock_level() function, so no manual update is needed.
-        // The transactions themselves represent the stock changes.
-
+      if (countItems.isEmpty) {
         if (mounted) {
-          ErrorHandler.showSuccessMessage(
+          ErrorHandler.showWarningMessage(
             context,
-            'Stock count submitted successfully!',
+            'Please enter counts for at least one item',
           );
         }
-
-        // Clear controllers and reload data
-        _controllers.forEach((key, value) => value.clear());
-        await _loadData();
+        return;
       }
+
+      // Create pending stock count record
+      final countDate = DateTime.now().toIso8601String().split('T')[0];
+      final countResponse = await _supabase
+          .from('pending_stock_counts')
+          .insert({
+            'location_id': _selectedLocationId,
+            'count_type': _countType,
+            'count_date': countDate,
+            'submitted_by': staffId,
+            'status': 'pending',
+          })
+          .select('id')
+          .single();
+
+      final countId = countResponse['id'] as String;
+
+      // Insert count items with reference to the pending count
+      final itemsToInsert = countItems.map((item) => <String, dynamic>{
+        'stock_count_id': countId,
+        'stock_item_id': item['stock_item_id'],
+        'counted_quantity': item['counted_quantity'],
+        'system_quantity': item['system_quantity'],
+      }).toList();
+
+      await _supabase.from('stock_count_items').insert(itemsToInsert);
+
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Stock count submitted for management approval!',
+        );
+      }
+
+      // Clear controllers and reload data
+      _controllers.forEach((key, value) => value.clear());
+      await _loadData();
     } catch (e) {
       if (mounted) {
         ErrorHandler.handleError(

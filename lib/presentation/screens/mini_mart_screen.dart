@@ -235,29 +235,28 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         final itemName = itemData['name'] as String? ?? 'Item';
         final unit = itemData['unit'] as String? ?? 'units';
         
-        if (currentStock < quantity) {
-          throw Exception(
-            'Insufficient stock for $itemName. Available: $currentStock $unit, Requested: $quantity'
-          );
+        // Check stock for warning (non-blocking)
+        // Sales are allowed even with zero/negative stock to accommodate delayed stock updates
+        if (currentStock < quantity && mounted) {
+          debugPrint('Warning: Low stock for $itemName. Available: $currentStock $unit, Requested: $quantity. Sale will proceed and may result in negative stock.');
         }
 
-        // Calculate new stock
+        // Calculate new stock (may be negative)
         final newStock = currentStock - quantity;
 
-        // CRITICAL: Update stock atomically with WHERE clause to prevent race conditions
-        // This ensures that if another sale happens concurrently, only one will succeed
+        // Update stock atomically (allows negative stock)
+        // Removed .gte() constraint to allow negative stock when management delays updates
         final updateResponse = await _supabase
             .from('mini_mart_items')
             .update({'stock_quantity': newStock})
             .eq('id', itemId)
-            .gte('stock_quantity', quantity) // Only update if stock is still sufficient
             .select('id')
             .maybeSingle();
 
-        // If update returned null, stock was insufficient (race condition detected)
+        // If update returned null, item may have been deleted
         if (updateResponse == null) {
           throw Exception(
-            'Stock for $itemName was updated by another transaction. Please refresh and try again.'
+            'Item $itemName not found or was deleted. Please refresh and try again.'
           );
         }
 
@@ -936,11 +935,12 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                             return Card(
                               elevation: 2,
                               child: InkWell(
-                                onTap: isOutOfStock ? null : () => _addItemToSale(item),
+                                onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
                                 child: Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: isOutOfStock ? Colors.grey[100] : Colors.white,
+                                    color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
+                                    border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Column(
@@ -977,10 +977,11 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Stock: $stock',
+                                        'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                                         style: TextStyle(
-                                          color: isOutOfStock ? Colors.red : Colors.grey[600],
+                                          color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
                                           fontSize: 10,
+                                          fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                                         ),
                                       ),
                                     ],

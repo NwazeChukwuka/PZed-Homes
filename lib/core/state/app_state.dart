@@ -220,8 +220,7 @@ class PermissionManager {
           AppRole.manager,
           AppRole.supervisor,
           AppRole.kitchen_staff,
-          AppRole.vip_bartender,
-          AppRole.outside_bartender,
+          AppRole.vip_bartender, // VIP bartenders can assist with kitchen sales (closest to kitchen)
           AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
         ].contains(userRole);
       

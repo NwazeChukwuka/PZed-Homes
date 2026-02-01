@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -32,8 +33,15 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _searchController = TextEditingController();
-  // final _supabase = Supabase.instance.client; // Disabled for mock-only presentation
+  SupabaseClient? get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
   final DataService _dataService = DataService();
+  RealtimeChannel? _realtimeChannel;
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _filteredBookings = [];
@@ -78,6 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _loadData();
     _searchController.addListener(_filterBookings);
+    _setupRealtimeSubscriptions();
     // Set default focus by role and sync clock-in status
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = Provider.of<AuthService>(context, listen: false);
@@ -96,9 +105,126 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _setupRealtimeSubscriptions() {
+    if (_supabase == null) return;
+    
+    try {
+      _realtimeChannel = _supabase!.channel('dashboard_updates')
+        // Listen for new bookings
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'bookings',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh all data when new booking is created
+            }
+          },
+        )
+        // Listen for booking updates
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'bookings',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh when booking status changes
+            }
+          },
+        )
+        // Listen for new department sales
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'department_sales',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh sales data when new sale is recorded
+            }
+          },
+        )
+        // Listen for department sales updates
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'department_sales',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh when sales are updated
+            }
+          },
+        )
+        // Listen for bar sales (inventory_items sales via stock_transactions)
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'stock_transactions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'transaction_type',
+            value: 'Sale',
+          ),
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh when bar sales are made
+            }
+          },
+        )
+        // Listen for mini mart sales
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'mini_mart_sales',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh when mini mart sales are made
+            }
+          },
+        )
+        // Listen for kitchen sales
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'kitchen_sales',
+          callback: (payload) {
+            if (mounted) {
+              _loadData(); // Refresh when kitchen sales are made
+            }
+          },
+        )
+        .subscribe();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to setup real-time subscriptions: $e');
+      }
+    }
+  }
+
+  bool _hasLoadedOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh data when navigating to this screen (only after initial load)
+    // This ensures dashboard shows latest data when user navigates back to it
+    if (_hasLoadedOnce && !_isLoading) {
+      // Use a small delay to avoid refreshing during initial build
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          _loadData();
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
+    // Clean up real-time subscriptions
+    if (_realtimeChannel != null) {
+      _realtimeChannel!.unsubscribe();
+      _supabase?.removeChannel(_realtimeChannel!);
+    }
     super.dispose();
   }
 
@@ -171,6 +297,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Mini Mart': sum(miniMartSales),
             'Kitchen': sum(kitchenSales),
           };
+          _hasLoadedOnce = true; // Mark that initial load is complete
         });
       }
     } catch (e) {
@@ -340,22 +467,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: Colors.grey[50],
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth > 1200) {
-                  return _buildDesktopLayout(context);
-                } else if (constraints.maxWidth > 800) {
-                  return _buildTabletLayout(context);
-                } else {
-                  return _buildMobileLayout(context);
-                }
-              },
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth > 1200) {
+                    return _buildDesktopLayout(context);
+                  } else if (constraints.maxWidth > 800) {
+                    return _buildTabletLayout(context);
+                  } else {
+                    return _buildMobileLayout(context);
+                  }
+                },
+              ),
             ),
     );
   }
 
   Widget _buildDesktopLayout(BuildContext context) {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(24),
       child: AppAnimations.staggeredList(
         children: [
@@ -417,6 +548,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildTabletLayout(BuildContext context) {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,6 +581,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildMobileLayout(BuildContext context) {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -89,10 +89,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
     final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
+    final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
     
-    // Owner/Manager/Receptionist can view dispatches without assuming role
+    // Owner/Manager/Receptionist/VIP Bartender can view dispatches without assuming role
     // But need to assume role for full functionality
-    final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager || isReceptionist;
+    final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager || isReceptionist || isVipBartender;
 
     if (!canAccess) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -590,7 +591,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           bookingId: _selectedBookingId,
         );
         ErrorHandler.showSuccessMessage(context, 'Kitchen sale recorded successfully!');
+        // Reload stock and locations to refresh the food list with updated stock levels
         await _loadStockAndLocations();
+        // Force UI rebuild to show updated stock
+        if (mounted) {
+          setState(() {});
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1356,9 +1362,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
         final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
         final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
+        final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
         
-        // Show full functionality if kitchen staff, assumed kitchen staff, or receptionist
-        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist;
+        // Show full functionality if kitchen staff, assumed kitchen staff, receptionist, or VIP bartender
+        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
         final destinations = _departments;
 
         return Scaffold(

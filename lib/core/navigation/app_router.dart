@@ -20,6 +20,7 @@ import 'package:pzed_homes/presentation/screens/hr_screen.dart';
 import 'package:pzed_homes/presentation/screens/finance_screen.dart';
 import 'package:pzed_homes/presentation/screens/kitchen_dispatch_screen.dart';
 import 'package:pzed_homes/presentation/screens/daily_stock_count_screen.dart';
+import 'package:pzed_homes/presentation/screens/stock_count_approval_screen.dart';
 import 'package:pzed_homes/presentation/screens/maintenance_screen.dart';
 import 'package:pzed_homes/presentation/screens/pos_screen.dart';
 import 'package:pzed_homes/presentation/screens/reporting_screen.dart';
@@ -274,6 +275,11 @@ class AppRouter {
             path: '/stock',
             name: 'stock',
             builder: (context, state) => const DailyStockCountScreen(),
+          ),
+          GoRoute(
+            path: '/stock/approval',
+            name: 'stock-approval',
+            builder: (context, state) => const StockCountApprovalScreen(),
           ),
           GoRoute(
             path: '/maintenance',
@@ -537,6 +543,10 @@ class AppRouter {
                location.startsWith('/profile');
       
       case AppRole.vip_bartender:
+        return location.startsWith('/communications') ||
+               location.startsWith('/profile') ||
+               location.startsWith('/inventory') ||
+               location.startsWith('/kitchen'); // VIP bartenders can assist with kitchen sales
       case AppRole.outside_bartender:
         return location.startsWith('/communications') ||
                location.startsWith('/profile') ||

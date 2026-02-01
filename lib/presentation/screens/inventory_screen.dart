@@ -54,6 +54,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   final _approvedByController = TextEditingController(); // For credit sales
   String _paymentMethod = 'cash';
   List<String> _missingStockItems = [];
+  final Set<String> _dismissedWarnings = {}; // Track dismissed warnings
   final Map<String, Map<String, int>> _stockByLocation = {};
 
   // Search controller
@@ -112,7 +113,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:96","message":"Tab controller update","data":{"isBartender":isBartender,"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name,"tabCount":isBartender?3:2},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"O"})}\n', mode: FileMode.append); } catch (_) {}
     // #endregion
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
-    _tabController = TabController(length: tabCount, vsync: this);
+    // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
+    final initialIndex = isBartender ? 2 : 0;
+    _tabController = TabController(length: tabCount, initialIndex: initialIndex, vsync: this);
   }
 
   bool _isBartenderRole(AppRole role) {
@@ -252,7 +255,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         final expectedTabCount = isBartender ? 3 : 2;
         if (_tabController.length != expectedTabCount) {
           _tabController.dispose();
-          _tabController = TabController(length: expectedTabCount, vsync: this);
+          // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
+          final initialIndex = isBartender ? 2 : 0;
+          _tabController = TabController(length: expectedTabCount, initialIndex: initialIndex, vsync: this);
         }
 
         return Scaffold(
@@ -279,6 +284,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ? AppRole.outside_bartender
                     : AppRole.vip_bartender,
               ),
+              // Show approval button for management roles
+              if (showAddItemButton)
+                IconButton(
+                  icon: const Icon(Icons.approval),
+                  tooltip: 'Stock Count Approvals',
+                  onPressed: () => context.push('/stock/approval'),
+                ),
               if (showAddItemButton)
                 IconButton(
                   icon: const Icon(Icons.add),
@@ -621,30 +633,48 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
               // Bar selection for management
               _buildBarSelectionForSales(),
-              if (_missingStockItems.isNotEmpty)
+              if (_missingStockItems.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Card(
                     color: Colors.orange[50],
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Column(
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Missing stock linkage',
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Missing stock linkage',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Some items are not linked to stock items, sales will be blocked for them.',
+                                  style: TextStyle(color: Colors.orange[800], fontSize: 12),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _missingStockItems.take(5).join(', ') +
+                                      (_missingStockItems.length > 5 ? '...' : ''),
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Some items are not linked to stock items, sales will be blocked for them.',
-                            style: TextStyle(color: Colors.orange[800], fontSize: 12),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _missingStockItems.take(5).join(', ') +
-                                (_missingStockItems.length > 5 ? '...' : ''),
-                            style: const TextStyle(fontSize: 12),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            color: Colors.orange[800],
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () {
+                              setState(() {
+                                _dismissedWarnings.add('missing_stock_linkage');
+                              });
+                            },
                           ),
                         ],
                       ),
@@ -796,11 +826,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: isOutOfStock ? null : () => _addItemToSale(item),
+        onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: isOutOfStock ? Colors.grey[100] : Colors.white,
+            color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
+            border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -841,10 +872,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
               const SizedBox(height: 2),
               Text(
-                'Stock: $stock',
+                'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                 style: TextStyle(
-                  color: isOutOfStock ? Colors.red : Colors.grey[600],
+                  color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
                   fontSize: 10,
+                  fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
             ],
@@ -1297,12 +1329,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         final priceInNaira = saleItem['price'] as double;
         final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
 
-        // CRITICAL: Validate stock availability before processing sale
+        // Check stock availability for warning (non-blocking)
+        // Sales are allowed even with zero/negative stock to accommodate delayed stock updates
         final currentStock = _getCurrentStockForBar(item, barKey ?? 'vip_bar');
-        if (currentStock < quantity) {
-          throw Exception(
-            'Insufficient stock for ${item['name']}. Available: $currentStock ${item['unit'] ?? 'units'}, Requested: $quantity'
-          );
+        if (currentStock < quantity && mounted) {
+          // Show warning but don't block the sale
+          debugPrint('Warning: Low stock for ${item['name']}. Available: $currentStock, Requested: $quantity. Sale will proceed and may result in negative stock.');
         }
 
         // Record stock transaction for location-based stock tracking
