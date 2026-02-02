@@ -22,6 +22,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   }
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, int> _previousCounts = {};
+  final List<Map<String, dynamic>> _customItems = []; // Custom items not in database
 
   String? _selectedLocationId;
   List<Map<String, dynamic>> _locations = [];
@@ -30,11 +31,36 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   bool _isLoading = false;
   bool _isLoadingData = true;
   String _countType = 'Opening';
+  bool _isManagement = false;
 
   @override
   void initState() {
     super.initState();
+    _checkIfManagement();
     _loadData();
+  }
+
+  void _checkIfManagement() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    if (user == null) return;
+
+    final roles = <AppRole>{
+      ...user.roles,
+      if (authService.isRoleAssumed && authService.assumedRole != null)
+        authService.assumedRole!,
+    };
+
+    _isManagement = roles.contains(AppRole.owner) ||
+        roles.contains(AppRole.manager) ||
+        roles.contains(AppRole.supervisor);
+    
+    // If management, redirect to approval screen
+    if (_isManagement && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacementNamed('/stock/approval');
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -83,14 +109,15 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         authService.assumedRole!,
     };
 
+    // Management should NOT be able to record stock counts - they only review
+    // Storekeeper can record counts for Store location
     final isManagement = roles.contains(AppRole.owner) ||
         roles.contains(AppRole.manager) ||
-        roles.contains(AppRole.supervisor) ||
-        roles.contains(AppRole.storekeeper);
+        roles.contains(AppRole.supervisor);
 
     if (isManagement) {
       _allowedLocationNames = [];
-      return locations;
+      return []; // Return empty - management should not see recording screen
     }
 
     final allowed = <String>{};
@@ -309,6 +336,18 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
       await _supabase.from('stock_count_items').insert(itemsToInsert);
 
+      // Insert custom items if any
+      if (_customItems.isNotEmpty) {
+        final customItemsToInsert = _customItems.map((item) => <String, dynamic>{
+          'stock_count_id': countId,
+          'item_name': item['name'],
+          'quantity': item['quantity'],
+          'unit': item['unit'] ?? 'units',
+          'notes': item['notes'],
+        }).toList();
+        await _supabase.from('stock_count_custom_items').insert(customItemsToInsert);
+      }
+
       if (mounted) {
         ErrorHandler.showSuccessMessage(
           context,
@@ -318,6 +357,9 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
       // Clear controllers and reload data
       _controllers.forEach((key, value) => value.clear());
+      setState(() {
+        _customItems.clear();
+      });
       await _loadData();
     } catch (e) {
       if (mounted) {
@@ -331,6 +373,106 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showAddCustomItemDialog() {
+    final nameController = TextEditingController();
+    final quantityController = TextEditingController();
+    final unitController = TextEditingController(text: 'units');
+    final notesController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Custom Item'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Item Name *',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: quantityController,
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity *',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: unitController,
+                      decoration: const InputDecoration(
+                        labelText: 'Unit',
+                        border: OutlineInputBorder(),
+                        hintText: 'units',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(),
+                  hintText: 'Additional details about this item',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              final quantityStr = quantityController.text.trim();
+              final quantity = int.tryParse(quantityStr) ?? 0;
+
+              if (name.isEmpty) {
+                ErrorHandler.showWarningMessage(context, 'Please enter item name');
+                return;
+              }
+              if (quantity <= 0) {
+                ErrorHandler.showWarningMessage(context, 'Please enter a valid quantity');
+                return;
+              }
+
+              setState(() {
+                _customItems.add({
+                  'name': name,
+                  'quantity': quantity,
+                  'unit': unitController.text.trim().isEmpty ? 'units' : unitController.text.trim(),
+                  'notes': notesController.text.trim(),
+                });
+              });
+
+              Navigator.pop(context);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -399,55 +541,119 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
                 // Stock Items List
                 Expanded(
-                  child: ListView.builder(
+                  child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    itemCount: _stockItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _stockItems[index];
-                      final itemId = item['id'] as String;
-                      final unit = item['unit'] as String? ?? 'units';
-                      final currentStock = _previousCounts[itemId] ?? 0;
+                    children: [
+                      // Existing stock items
+                      ..._stockItems.map((item) {
+                        final itemId = item['id'] as String;
+                        final unit = item['unit'] as String? ?? 'units';
+                        final currentStock = _previousCounts[itemId] ?? 0;
 
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['name'] as String,
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      Text(
+                                        'Current: $currentStock $unit',
+                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 120,
+                                  child: TextFormField(
+                                    controller: _controllers[itemId],
+                                    textAlign: TextAlign.center,
+                                    decoration: InputDecoration(
+                                      hintText: 'Count',
+                                      border: const OutlineInputBorder(),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                                      suffixText: unit,
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+
+                      // Custom Items Section
+                      const SizedBox(height: 16),
+                      Card(
+                        color: Colors.blue.shade50,
                         child: Padding(
                           padding: const EdgeInsets.all(12.0),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item['name'] as String,
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    Text(
-                                      'Current: $currentStock $unit',
-                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(
-                                width: 120,
-                                child: TextFormField(
-                                  controller: _controllers[itemId],
-                                  textAlign: TextAlign.center,
-                                  decoration: InputDecoration(
-                                    hintText: 'Count',
-                                    border: const OutlineInputBorder(),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                                    suffixText: unit,
+                              Row(
+                                children: [
+                                  const Icon(Icons.add_circle_outline, color: Colors.blue),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Custom Items (Not in Database)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                   ),
-                                  keyboardType: TextInputType.number,
-                                ),
+                                  const Spacer(),
+                                  IconButton(
+                                    icon: const Icon(Icons.add, color: Colors.blue),
+                                    onPressed: _showAddCustomItemDialog,
+                                    tooltip: 'Add Custom Item',
+                                  ),
+                                ],
                               ),
+                              if (_customItems.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Text(
+                                    'No custom items added. Tap + to add items you see that are not in the database.',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  ),
+                                )
+                              else
+                                ..._customItems.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final customItem = entry.value;
+                                  return Card(
+                                    margin: const EdgeInsets.symmetric(vertical: 4.0),
+                                    child: ListTile(
+                                      title: Text(
+                                        customItem['name'] as String,
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      subtitle: Text(
+                                        'Quantity: ${customItem['quantity']} ${customItem['unit'] ?? 'units'}',
+                                      ),
+                                      trailing: IconButton(
+                                        icon: const Icon(Icons.delete, color: Colors.red),
+                                        onPressed: () {
+                                          setState(() {
+                                            _customItems.removeAt(index);
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
                             ],
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
 

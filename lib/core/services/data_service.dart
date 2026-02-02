@@ -435,7 +435,7 @@ class DataService {
         'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
         'quantity': transaction['quantity'], // Required: positive or negative
         'notes': transaction['notes'], // Optional
-        'shift_id': transaction['shift_id'], // Optional bartender shift link
+        // shift_id removed - bartender_shifts table no longer exists
       });
     });
   }

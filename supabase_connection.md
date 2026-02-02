@@ -24,11 +24,34 @@ DROP FUNCTION IF EXISTS public.calculate_stock_level(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.check_out_guest(UUID);
 DROP FUNCTION IF EXISTS public.check_in_guest(UUID);
 DROP FUNCTION IF EXISTS public.assign_room_to_booking(UUID, UUID);
-DROP FUNCTION IF EXISTS public.get_available_room_types(text, text);
+DROP FUNCTION IF EXISTS public.get_available_room_types() CASCADE;
+DROP FUNCTION IF EXISTS public.get_available_room_types(text, text) CASCADE;
+-- Drop all versions of create_booking_with_availability_check (handles overloads)
+DO $$ 
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT oid::regprocedure 
+        FROM pg_proc 
+        WHERE proname = 'create_booking_with_availability_check' 
+        AND pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.oid::regprocedure || ' CASCADE';
+    END LOOP;
+END $$;
+DROP FUNCTION IF EXISTS public.get_guest_booking_status(TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.cleanup_guest_lookup_attempts() CASCADE;
+DROP FUNCTION IF EXISTS public.confirm_guest_booking(UUID, INT8, TEXT, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.approve_direct_supply(uuid, text, text) CASCADE;
+DROP FUNCTION IF EXISTS public.approve_stock_count(UUID, UUID, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.handle_debt_payment() CASCADE;
+DROP FUNCTION IF EXISTS public.log_room_status_change() CASCADE;
+DROP FUNCTION IF EXISTS public.notify_direct_supply_request() CASCADE;
 DROP FUNCTION IF EXISTS public.confirm_purchase_order(uuid, uuid);
 DROP FUNCTION IF EXISTS public.perform_stock_transfer(uuid, uuid, uuid, int, uuid);
 DROP FUNCTION IF EXISTS public.create_stock_transfer(uuid, uuid, uuid, int, uuid, uuid, text);
-DROP FUNCTION IF EXISTS public.has_delegated_permission(TEXT);
+DROP FUNCTION IF EXISTS public.has_delegated_permission(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.update_updated_at_column() CASCADE;
 DROP FUNCTION IF EXISTS public.create_public_profile_for_new_user() CASCADE;
 DROP FUNCTION IF EXISTS public.create_staff_profile(TEXT, TEXT, TEXT, TEXT, TEXT);
@@ -75,6 +98,7 @@ BEGIN
         EXECUTE 'DROP POLICY IF EXISTS "Staff can insert posts" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Users can view their own notifications" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Users can update their own notifications" ON public.' || quote_ident(r.tablename);
+        EXECUTE 'DROP POLICY IF EXISTS "Active authorized view logs" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Authorized view logs" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Public read" ON public.' || quote_ident(r.tablename);
         EXECUTE 'DROP POLICY IF EXISTS "Admin write" ON public.' || quote_ident(r.tablename);
@@ -86,6 +110,7 @@ DROP TABLE IF EXISTS public.kitchen_orders CASCADE;
 DROP TABLE IF EXISTS public.kitchen_sales CASCADE;
 DROP TABLE IF EXISTS public.booking_charges CASCADE;
 DROP TABLE IF EXISTS public.bookings CASCADE;
+DROP TABLE IF EXISTS public.guest_lookup_attempts CASCADE;
 DROP TABLE IF EXISTS public.smartlock_logs CASCADE;
 DROP TABLE IF EXISTS public.access_delegations CASCADE;
 DROP TABLE IF EXISTS public.notifications CASCADE;
@@ -97,7 +122,9 @@ DROP TABLE IF EXISTS public.assets CASCADE;
 DROP TABLE IF EXISTS public.income_records CASCADE;
 DROP TABLE IF EXISTS public.payroll_records CASCADE;
 DROP TABLE IF EXISTS public.cash_deposits CASCADE;
+DROP TABLE IF EXISTS public.debt_payments CASCADE;
 DROP TABLE IF EXISTS public.debts CASCADE;
+DROP TABLE IF EXISTS public.finance_audit_logs CASCADE;
 DROP TABLE IF EXISTS public.mini_mart_sales CASCADE;
 DROP TABLE IF EXISTS public.mini_mart_items CASCADE;
 DROP TABLE IF EXISTS public.department_sales CASCADE;
@@ -105,13 +132,19 @@ DROP TABLE IF EXISTS public.bartender_shifts CASCADE;
 DROP TABLE IF EXISTS public.staff_role_assignments CASCADE;
 DROP TABLE IF EXISTS public.expenses CASCADE;
 DROP TABLE IF EXISTS public.purchase_order_items CASCADE;
+DROP TABLE IF EXISTS public.purchase_budgets CASCADE;
 DROP TABLE IF EXISTS public.purchase_orders CASCADE;
 DROP TABLE IF EXISTS public.department_transfers CASCADE;
 DROP TABLE IF EXISTS public.stock_transfers CASCADE;
+DROP TABLE IF EXISTS public.direct_supply_requests CASCADE;
+DROP TABLE IF EXISTS public.stock_count_custom_items CASCADE;
+DROP TABLE IF EXISTS public.stock_count_items CASCADE;
+DROP TABLE IF EXISTS public.pending_stock_counts CASCADE;
 DROP TABLE IF EXISTS public.stock_transactions CASCADE;
 DROP TABLE IF EXISTS public.inventory_items CASCADE;
 DROP TABLE IF EXISTS public.stock_items CASCADE;
 DROP TABLE IF EXISTS public.menu_items CASCADE;
+DROP TABLE IF EXISTS public.room_status_logs CASCADE;
 DROP TABLE IF EXISTS public.rooms CASCADE;
 DROP TABLE IF EXISTS public.room_types CASCADE;
 DROP TABLE IF EXISTS public.gallery_media CASCADE;
@@ -120,6 +153,8 @@ DROP TABLE IF EXISTS public.categories CASCADE;
 DROP TABLE IF EXISTS public.expense_categories CASCADE;
 DROP TABLE IF EXISTS public.departments CASCADE;
 DROP TABLE IF EXISTS public.locations CASCADE;
+DROP TABLE IF EXISTS public.positions CASCADE;
+DROP TABLE IF EXISTS public.suppliers CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
 
 -- ==============================================
@@ -278,7 +313,7 @@ CREATE TABLE public.departments (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE public.positions (
+CREATE TABLE IF NOT EXISTS public.positions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT UNIQUE NOT NULL,
     description TEXT,
@@ -510,34 +545,6 @@ CREATE TABLE public.inventory_items (
 ALTER TABLE public.stock_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory_items ENABLE ROW LEVEL SECURITY;
 
--- Policies
--- Stock items are visible to management/store staff and to departments that hold stock at their location
-CREATE POLICY "Active staff view stock items" ON public.stock_items FOR SELECT USING (
-  is_user_active(auth.uid())
-  AND (
-    user_has_role(auth.uid(), 'owner')
-    OR user_has_role(auth.uid(), 'manager')
-    OR user_has_role(auth.uid(), 'supervisor')
-    OR user_has_role(auth.uid(), 'storekeeper')
-    OR user_has_role(auth.uid(), 'purchaser')
-    OR user_has_role(auth.uid(), 'accountant')
-    OR EXISTS (
-      SELECT 1
-      FROM public.stock_transactions st
-      JOIN public.locations l ON l.id = st.location_id
-      WHERE st.stock_item_id = stock_items.id
-      AND (
-        (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
-        OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
-        OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
-        OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
-        OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
-        OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
-      )
-    )
-  )
-);
-
 -- Management can manage stock items; purchasers can create new ones
 CREATE POLICY "Management can manage stock items" ON public.stock_items FOR ALL USING (
   is_user_active(auth.uid())
@@ -703,7 +710,6 @@ CREATE TABLE public.stock_transactions (
     staff_name TEXT,
     transaction_type TEXT NOT NULL, -- 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage', 'Adjustment', 'Direct_Supply'
     quantity INT NOT NULL, -- Positive or Negative
-    shift_id UUID REFERENCES public.bartender_shifts(id),
     notes TEXT
 );
 
@@ -757,6 +763,34 @@ CREATE POLICY "Active staff can insert stock transactions" ON public.stock_trans
     )
   )
 );
+
+-- Stock items policy (must be after stock_transactions is created since it references it)
+CREATE POLICY "Active staff view stock items" ON public.stock_items FOR SELECT USING (
+  is_user_active(auth.uid())
+  AND (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'supervisor')
+    OR user_has_role(auth.uid(), 'storekeeper')
+    OR user_has_role(auth.uid(), 'purchaser')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR EXISTS (
+      SELECT 1
+      FROM public.stock_transactions st
+      JOIN public.locations l ON l.id = st.location_id
+      WHERE st.stock_item_id = stock_items.id
+      AND (
+        (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+        OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
+        OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
+        OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
+        OR (l.name = 'Housekeeping' AND (user_has_role(auth.uid(), 'housekeeper') OR user_has_role(auth.uid(), 'cleaner')))
+        OR (l.name = 'Laundry' AND user_has_role(auth.uid(), 'laundry_attendant'))
+      )
+    )
+  )
+);
+
 -- ==============================================
 -- 8.1. DIRECT SUPPLY REQUESTS (Bartender -> Management Approval)
 -- ==============================================
@@ -1453,132 +1487,6 @@ CREATE TABLE public.debts (
 );
 
 -- ==============================================
--- 10.5. FINANCE AUDIT LOGS
--- ==============================================
-CREATE TABLE public.finance_audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    actor_name TEXT,
-    action TEXT NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
-    table_name TEXT NOT NULL,
-    record_id UUID,
-    before_data JSONB,
-    after_data JSONB
-);
-
-ALTER TABLE public.finance_audit_logs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Active admin finance access audit logs" ON public.finance_audit_logs FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
-  )
-);
-
-CREATE OR REPLACE FUNCTION public.log_finance_change()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  INSERT INTO public.finance_audit_logs (
-    actor_id,
-    action,
-    table_name,
-    record_id,
-    before_data,
-    after_data
-  )
-  VALUES (
-    auth.uid(),
-    TG_OP,
-    TG_TABLE_NAME,
-    COALESCE((CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END), NULL),
-    (CASE WHEN TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE NULL END),
-    (CASE WHEN TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN to_jsonb(NEW) ELSE NULL END)
-  );
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_finance_audit_expenses ON public.expenses;
-CREATE TRIGGER trg_finance_audit_expenses
-AFTER INSERT OR UPDATE OR DELETE ON public.expenses
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-DROP TRIGGER IF EXISTS trg_finance_audit_income ON public.income_records;
-CREATE TRIGGER trg_finance_audit_income
-AFTER INSERT OR UPDATE OR DELETE ON public.income_records
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-DROP TRIGGER IF EXISTS trg_finance_audit_payroll ON public.payroll_records;
-CREATE TRIGGER trg_finance_audit_payroll
-AFTER INSERT OR UPDATE OR DELETE ON public.payroll_records
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-DROP TRIGGER IF EXISTS trg_finance_audit_cash_deposits ON public.cash_deposits;
-CREATE TRIGGER trg_finance_audit_cash_deposits
-AFTER INSERT OR UPDATE OR DELETE ON public.cash_deposits
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-DROP TRIGGER IF EXISTS trg_finance_audit_debts ON public.debts;
-CREATE TRIGGER trg_finance_audit_debts
-AFTER INSERT OR UPDATE OR DELETE ON public.debts
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-DROP TRIGGER IF EXISTS trg_finance_audit_debt_payments ON public.debt_payments;
-CREATE TRIGGER trg_finance_audit_debt_payments
-AFTER INSERT OR UPDATE OR DELETE ON public.debt_payments
-FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
-
-ALTER TABLE public.debts ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Active admin finance access debts" ON public.debts FOR ALL 
-USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
-  )
-);
-
--- Allow sales staff to create debts for their own credit sales
-CREATE POLICY "Staff can insert debts" ON public.debts FOR INSERT
-WITH CHECK (
-  is_user_active(auth.uid())
-  AND sold_by = auth.uid()
-  AND (
-    user_has_role(auth.uid(), 'receptionist')
-    OR user_has_role(auth.uid(), 'kitchen_staff')
-    OR user_has_role(auth.uid(), 'vip_bartender')
-    OR user_has_role(auth.uid(), 'outside_bartender')
-    -- legacy bartender role removed
-    OR user_has_role(auth.uid(), 'manager')
-    OR user_has_role(auth.uid(), 'owner')
-    OR user_has_role(auth.uid(), 'accountant')
-  )
-);
-
--- Allow staff who created debt to update it
-CREATE POLICY "Staff can update own debts" ON public.debts FOR UPDATE
-USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (
-      debts.sold_by = auth.uid() -- Staff who created the debt
-      OR (p.roles && ARRAY['manager', 'owner', 'accountant']) -- Or accountant/manager/owner
-    )
-  )
-);
-
--- ==============================================
 -- 10.4.1. DEBT PAYMENTS
 -- ==============================================
 CREATE TABLE public.debt_payments (
@@ -1712,6 +1620,132 @@ AFTER INSERT ON public.debt_payments
 FOR EACH ROW EXECUTE FUNCTION public.handle_debt_payment();
 
 -- ==============================================
+-- 10.5. FINANCE AUDIT LOGS
+-- ==============================================
+CREATE TABLE public.finance_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    actor_name TEXT,
+    action TEXT NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
+    table_name TEXT NOT NULL,
+    record_id UUID,
+    before_data JSONB,
+    after_data JSONB
+);
+
+ALTER TABLE public.finance_audit_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Active admin finance access audit logs" ON public.finance_audit_logs FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+CREATE OR REPLACE FUNCTION public.log_finance_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.finance_audit_logs (
+    actor_id,
+    action,
+    table_name,
+    record_id,
+    before_data,
+    after_data
+  )
+  VALUES (
+    auth.uid(),
+    TG_OP,
+    TG_TABLE_NAME,
+    COALESCE((CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END), NULL),
+    (CASE WHEN TG_OP = 'UPDATE' OR TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE NULL END),
+    (CASE WHEN TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN to_jsonb(NEW) ELSE NULL END)
+  );
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_finance_audit_expenses ON public.expenses;
+CREATE TRIGGER trg_finance_audit_expenses
+AFTER INSERT OR UPDATE OR DELETE ON public.expenses
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_income ON public.income_records;
+CREATE TRIGGER trg_finance_audit_income
+AFTER INSERT OR UPDATE OR DELETE ON public.income_records
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_payroll ON public.payroll_records;
+CREATE TRIGGER trg_finance_audit_payroll
+AFTER INSERT OR UPDATE OR DELETE ON public.payroll_records
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_cash_deposits ON public.cash_deposits;
+CREATE TRIGGER trg_finance_audit_cash_deposits
+AFTER INSERT OR UPDATE OR DELETE ON public.cash_deposits
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_debts ON public.debts;
+CREATE TRIGGER trg_finance_audit_debts
+AFTER INSERT OR UPDATE OR DELETE ON public.debts
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_debt_payments ON public.debt_payments;
+CREATE TRIGGER trg_finance_audit_debt_payments
+AFTER INSERT OR UPDATE OR DELETE ON public.debt_payments
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+ALTER TABLE public.debts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Active admin finance access debts" ON public.debts FOR ALL 
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+  )
+);
+
+-- Allow sales staff to create debts for their own credit sales
+CREATE POLICY "Staff can insert debts" ON public.debts FOR INSERT
+WITH CHECK (
+  is_user_active(auth.uid())
+  AND sold_by = auth.uid()
+  AND (
+    user_has_role(auth.uid(), 'receptionist')
+    OR user_has_role(auth.uid(), 'kitchen_staff')
+    OR user_has_role(auth.uid(), 'vip_bartender')
+    OR user_has_role(auth.uid(), 'outside_bartender')
+    -- legacy bartender role removed
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'accountant')
+  )
+);
+
+-- Allow staff who created debt to update it
+CREATE POLICY "Staff can update own debts" ON public.debts FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      debts.sold_by = auth.uid() -- Staff who created the debt
+      OR (p.roles && ARRAY['manager', 'owner', 'accountant']) -- Or accountant/manager/owner
+    )
+  )
+);
+
+-- ==============================================
 -- 10.5. MINI MART ITEMS (Reception Subdepartment)
 -- ==============================================
 CREATE TABLE public.mini_mart_items (
@@ -1819,7 +1853,7 @@ USING (
       'manager' = ANY(p.roles) OR 
       'owner' = ANY(p.roles) OR 
       'accountant' = ANY(p.roles) OR
-      (department = 'restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
+      (department = 'restaurant' AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles))) OR
       (department = 'vip_bar' AND ('vip_bartender' = ANY(p.roles))) OR
       (department = 'outside_bar' AND ('outside_bartender' = ANY(p.roles))) OR
       (department = 'mini_mart' AND 'receptionist' = ANY(p.roles)) OR
@@ -1857,7 +1891,7 @@ CREATE POLICY "Department staff can insert sales" ON public.department_sales FOR
     user_has_role(auth.uid(), 'manager')
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
-    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender')))
     OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
     OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
     OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -1866,7 +1900,7 @@ CREATE POLICY "Department staff can insert sales" ON public.department_sales FOR
     OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
     OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
     OR (
-      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender'))
       AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
     )
   )
@@ -1878,7 +1912,7 @@ CREATE POLICY "Department staff can update sales" ON public.department_sales FOR
     user_has_role(auth.uid(), 'manager')
     OR user_has_role(auth.uid(), 'owner')
     OR user_has_role(auth.uid(), 'accountant')
-    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+    OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender')))
     OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
     OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
     OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -1887,7 +1921,7 @@ CREATE POLICY "Department staff can update sales" ON public.department_sales FOR
     OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
     OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
     OR (
-      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+      (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender'))
       AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
     )
   )
@@ -1947,74 +1981,9 @@ USING (
 );
 
 -- ==============================================
--- 10.8. BARTENDER SHIFTS
+-- 10.8. BARTENDER SHIFTS (REMOVED - No longer needed)
 -- ==============================================
-CREATE TABLE public.bartender_shifts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    bartender_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    bartender_name TEXT,
-    bar TEXT NOT NULL CHECK (bar IN ('vip_bar', 'outside_bar')),
-    start_time TIMESTAMPTZ NOT NULL,
-    end_time TIMESTAMPTZ,
-    date DATE DEFAULT CURRENT_DATE,
-    opening_cash INT8 DEFAULT 0, -- Stored in Kobo/Cents
-    closing_cash INT8, -- Stored in Kobo/Cents
-    total_sales INT8, -- Stored in Kobo/Cents
-    opening_stock JSONB DEFAULT '[]'::jsonb,
-    transfers JSONB DEFAULT '[]'::jsonb,
-    closing_stock JSONB DEFAULT '[]'::jsonb,
-    notes TEXT,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'closed', 'cancelled')),
-    closed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    closed_by_name TEXT,
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-ALTER TABLE public.bartender_shifts ENABLE ROW LEVEL SECURITY;
-
--- Bartenders can view their own shifts, management can view all
-CREATE POLICY "Bartenders view own shifts" ON public.bartender_shifts FOR SELECT 
-USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (
-      bartender_id = auth.uid() OR
-      'vip_bartender' = ANY(p.roles) OR
-      'outside_bartender' = ANY(p.roles) OR
-      'manager' = ANY(p.roles) OR
-      'owner' = ANY(p.roles)
-    )
-  )
-);
-
-CREATE POLICY "Bartenders can insert shifts" ON public.bartender_shifts FOR INSERT WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (
-      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
-      'manager' = ANY(p.roles) OR
-      'owner' = ANY(p.roles)
-    )
-  )
-);
-
-CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDATE USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-    AND p.status = 'Active'
-    AND (
-      (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
-      'manager' = ANY(p.roles) OR
-      'owner' = ANY(p.roles)
-    )
-  )
-);
+-- Shift tracking has been removed as it was causing issues and is not required for transactions
 
 -- ==============================================
 -- 10.9. STAFF ROLE ASSIGNMENTS (For Delegation/Temporary Roles)
@@ -3037,7 +3006,7 @@ BEGIN
     RETURN v_booking_id;
 END;
 $$;
-COMMENT ON FUNCTION public.create_booking_with_availability_check IS 
+COMMENT ON FUNCTION public.create_booking_with_availability_check(UUID, TEXT, DATE, DATE, INT8, TEXT, TEXT, INT8, TEXT, TEXT, TEXT, TEXT, BOOLEAN, TEXT) IS 
 'Atomically checks room availability and creates a booking. Prevents race conditions by performing availability check and booking creation in a single transaction.';
 
 -- Guest booking lookup by payment reference + email (no login required)
@@ -3511,14 +3480,7 @@ BEGIN
     SET sold_by_name = COALESCE(sold_by_name, OLD.full_name),
         sold_by = NULL
     WHERE sold_by = OLD.id;
-    UPDATE public.bartender_shifts
-    SET bartender_name = COALESCE(bartender_name, OLD.full_name),
-        bartender_id = NULL
-    WHERE bartender_id = OLD.id;
-    UPDATE public.bartender_shifts
-    SET closed_by_name = COALESCE(closed_by_name, OLD.full_name),
-        closed_by = NULL
-    WHERE closed_by = OLD.id;
+    -- bartender_shifts table removed - no cleanup needed
 
     -- HR/attendance/communications
     UPDATE public.positions
@@ -3608,7 +3570,7 @@ CREATE TRIGGER update_debt_payments_updated_at BEFORE UPDATE ON public.debt_paym
 CREATE TRIGGER update_mini_mart_items_updated_at BEFORE UPDATE ON public.mini_mart_items FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_mini_mart_sales_updated_at BEFORE UPDATE ON public.mini_mart_sales FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_department_sales_updated_at BEFORE UPDATE ON public.department_sales FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-CREATE TRIGGER update_bartender_shifts_updated_at BEFORE UPDATE ON public.bartender_shifts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+-- bartender_shifts table removed - trigger not needed
 CREATE TRIGGER update_staff_role_assignments_updated_at BEFORE UPDATE ON public.staff_role_assignments FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 DROP TRIGGER IF EXISTS trg_cleanup_profile_references ON public.profiles;
@@ -3742,10 +3704,7 @@ CREATE INDEX IF NOT EXISTS idx_mini_mart_sales_sold_by ON public.mini_mart_sales
 CREATE INDEX IF NOT EXISTS idx_department_sales_date_dept ON public.department_sales(date, department);
 CREATE INDEX IF NOT EXISTS idx_department_sales_staff_id ON public.department_sales(staff_id);
 CREATE INDEX IF NOT EXISTS idx_department_sales_date_staff_id ON public.department_sales(date, staff_id);
-CREATE INDEX IF NOT EXISTS idx_bartender_shifts_bartender ON public.bartender_shifts(bartender_id);
-CREATE INDEX IF NOT EXISTS idx_bartender_shifts_date ON public.bartender_shifts(date);
-CREATE INDEX IF NOT EXISTS idx_bartender_shifts_status ON public.bartender_shifts(status);
-CREATE INDEX IF NOT EXISTS idx_bartender_shifts_bartender_date ON public.bartender_shifts(bartender_id, date);
+-- bartender_shifts table removed - indexes not needed
 CREATE INDEX IF NOT EXISTS idx_staff_role_assignments_staff ON public.staff_role_assignments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_staff_role_assignments_active ON public.staff_role_assignments(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON public.expenses(transaction_date);
@@ -3829,8 +3788,20 @@ CREATE TABLE IF NOT EXISTS public.stock_count_items (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Create stock_count_custom_items table (items not in database yet)
+CREATE TABLE IF NOT EXISTS public.stock_count_custom_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_count_id UUID REFERENCES public.pending_stock_counts(id) ON DELETE CASCADE NOT NULL,
+    item_name TEXT NOT NULL, -- Name of the item seen but not in database
+    quantity INT NOT NULL DEFAULT 0,
+    unit TEXT DEFAULT 'units', -- Unit of measurement
+    notes TEXT, -- Additional notes about the item
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 ALTER TABLE public.pending_stock_counts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_count_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stock_count_custom_items ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for pending_stock_counts
 CREATE POLICY "Active staff view pending stock counts" ON public.pending_stock_counts FOR SELECT USING (
@@ -3856,18 +3827,16 @@ CREATE POLICY "Active staff view pending stock counts" ON public.pending_stock_c
     )
 );
 
+-- Staff can submit stock counts (management CANNOT submit - they only review)
 CREATE POLICY "Active staff can submit stock counts" ON public.pending_stock_counts FOR INSERT WITH CHECK (
     is_user_active(auth.uid())
     AND submitted_by = auth.uid()
+    AND NOT (user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'supervisor'))
     AND location_id IN (
         SELECT l.id
         FROM public.locations l
         WHERE (
-            user_has_role(auth.uid(), 'owner')
-            OR user_has_role(auth.uid(), 'manager')
-            OR user_has_role(auth.uid(), 'supervisor')
-            OR user_has_role(auth.uid(), 'storekeeper')
-            OR (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+            (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
             OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
             OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
             OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -3921,6 +3890,32 @@ CREATE POLICY "Active staff can insert stock count items" ON public.stock_count_
     AND EXISTS (
         SELECT 1 FROM public.pending_stock_counts psc
         WHERE psc.id = stock_count_items.stock_count_id
+        AND psc.submitted_by = auth.uid()
+        AND psc.status = 'pending'
+    )
+);
+
+-- RLS Policies for stock_count_custom_items
+CREATE POLICY "Active staff view custom items" ON public.stock_count_custom_items FOR SELECT USING (
+    is_user_active(auth.uid())
+    AND EXISTS (
+        SELECT 1 FROM public.pending_stock_counts psc
+        WHERE psc.id = stock_count_custom_items.stock_count_id
+        AND (
+            user_has_role(auth.uid(), 'owner')
+            OR user_has_role(auth.uid(), 'manager')
+            OR user_has_role(auth.uid(), 'supervisor')
+            OR user_has_role(auth.uid(), 'storekeeper')
+            OR psc.submitted_by = auth.uid()
+        )
+    )
+);
+
+CREATE POLICY "Active staff can insert custom items" ON public.stock_count_custom_items FOR INSERT WITH CHECK (
+    is_user_active(auth.uid())
+    AND EXISTS (
+        SELECT 1 FROM public.pending_stock_counts psc
+        WHERE psc.id = stock_count_custom_items.stock_count_id
         AND psc.submitted_by = auth.uid()
         AND psc.status = 'pending'
     )

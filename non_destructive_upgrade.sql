@@ -928,7 +928,6 @@ BEGIN
         (con.conrelid::regclass = 'public.debt_payments'::regclass AND att.attname IN ('collected_by','created_by')) OR
         (con.conrelid::regclass = 'public.mini_mart_sales'::regclass AND att.attname IN ('sold_by')) OR
         (con.conrelid::regclass = 'public.kitchen_sales'::regclass AND att.attname IN ('sold_by')) OR
-        (con.conrelid::regclass = 'public.bartender_shifts'::regclass AND att.attname IN ('bartender_id','closed_by')) OR
         (con.conrelid::regclass = 'public.positions'::regclass AND att.attname IN ('created_by')) OR
         (con.conrelid::regclass = 'public.attendance_records'::regclass AND att.attname IN ('profile_id')) OR
         (con.conrelid::regclass = 'public.posts'::regclass AND att.attname IN ('author_profile_id')) OR
@@ -982,9 +981,6 @@ BEGIN
     ADD COLUMN IF NOT EXISTS created_by_name TEXT;
   ALTER TABLE public.mini_mart_sales ADD COLUMN IF NOT EXISTS sold_by_name TEXT;
   ALTER TABLE public.kitchen_sales ADD COLUMN IF NOT EXISTS sold_by_name TEXT;
-  ALTER TABLE public.bartender_shifts
-    ADD COLUMN IF NOT EXISTS bartender_name TEXT,
-    ADD COLUMN IF NOT EXISTS closed_by_name TEXT;
   ALTER TABLE public.positions ADD COLUMN IF NOT EXISTS created_by_name TEXT;
   ALTER TABLE public.attendance_records ADD COLUMN IF NOT EXISTS profile_name TEXT;
   ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_name TEXT;
@@ -1049,9 +1045,6 @@ BEGIN
     ADD CONSTRAINT mini_mart_sales_sold_by_fkey FOREIGN KEY (sold_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
   ALTER TABLE public.kitchen_sales
     ADD CONSTRAINT kitchen_sales_sold_by_fkey FOREIGN KEY (sold_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
-  ALTER TABLE public.bartender_shifts
-    ADD CONSTRAINT bartender_shifts_bartender_id_fkey FOREIGN KEY (bartender_id) REFERENCES public.profiles(id) ON DELETE SET NULL,
-    ADD CONSTRAINT bartender_shifts_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
   ALTER TABLE public.positions
     ADD CONSTRAINT positions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
   ALTER TABLE public.attendance_records
@@ -1919,47 +1912,6 @@ EXCEPTION
     NULL;
 END $$;
 
--- 6f) Bartender shifts add bar + stock fields
-DO $$
-BEGIN
-  ALTER TABLE public.bartender_shifts
-    ADD COLUMN IF NOT EXISTS bar TEXT,
-    ADD COLUMN IF NOT EXISTS opening_stock JSONB DEFAULT '[]'::jsonb,
-    ADD COLUMN IF NOT EXISTS transfers JSONB DEFAULT '[]'::jsonb,
-    ADD COLUMN IF NOT EXISTS closing_stock JSONB DEFAULT '[]'::jsonb;
-
-  UPDATE public.bartender_shifts
-  SET bar = 'vip_bar'
-  WHERE bar IS NULL;
-
-  ALTER TABLE public.bartender_shifts
-    ALTER COLUMN bar SET DEFAULT 'vip_bar';
-EXCEPTION
-  WHEN OTHERS THEN
-    NULL;
-END $$;
-
-DO $$
-BEGIN
-  ALTER TABLE public.bartender_shifts
-    ALTER COLUMN bar SET NOT NULL;
-  ALTER TABLE public.bartender_shifts
-    ADD CONSTRAINT bartender_shifts_bar_check
-    CHECK (bar IN ('vip_bar', 'outside_bar'));
-EXCEPTION
-  WHEN OTHERS THEN
-    NULL;
-END $$;
-
--- 6g) Stock transactions shift link
-DO $$
-BEGIN
-  ALTER TABLE public.stock_transactions
-    ADD COLUMN IF NOT EXISTS shift_id UUID REFERENCES public.bartender_shifts(id);
-EXCEPTION
-  WHEN OTHERS THEN
-    NULL;
-END $$;
 
 -- 6g.1) Direct supply transaction type note (no schema change)
 
@@ -1977,7 +1929,7 @@ BEGIN
         'manager' = ANY(p.roles) OR 
         'owner' = ANY(p.roles) OR 
         'accountant' = ANY(p.roles) OR
-        (department = 'restaurant' AND 'kitchen_staff' = ANY(p.roles)) OR
+        (department = 'restaurant' AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles))) OR
         (department = 'vip_bar' AND ('vip_bartender' = ANY(p.roles))) OR
         (department = 'outside_bar' AND ('outside_bartender' = ANY(p.roles))) OR
         (department = 'mini_mart' AND 'receptionist' = ANY(p.roles)) OR
@@ -2005,7 +1957,7 @@ BEGIN
       user_has_role(auth.uid(), 'manager')
       OR user_has_role(auth.uid(), 'owner')
       OR user_has_role(auth.uid(), 'accountant')
-      OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+      OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender')))
       OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
       OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
       OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -2014,7 +1966,7 @@ BEGIN
       OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
       OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
       OR (
-        (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+        (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender'))
         AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
       )
     )
@@ -2026,7 +1978,7 @@ BEGIN
       user_has_role(auth.uid(), 'manager')
       OR user_has_role(auth.uid(), 'owner')
       OR user_has_role(auth.uid(), 'accountant')
-      OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist')))
+      OR (department = 'restaurant' AND (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender')))
       OR (department = 'vip_bar' AND user_has_role(auth.uid(), 'vip_bartender'))
       OR (department = 'outside_bar' AND user_has_role(auth.uid(), 'outside_bartender'))
       OR (department = 'mini_mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -2035,7 +1987,7 @@ BEGIN
       OR (department = 'storekeeping' AND user_has_role(auth.uid(), 'storekeeper'))
       OR (department = 'purchasing' AND user_has_role(auth.uid(), 'purchaser'))
       OR (
-        (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist'))
+        (user_has_role(auth.uid(), 'kitchen_staff') OR user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'vip_bartender'))
         AND department IN ('vip_bar', 'outside_bar', 'mini_mart', 'reception', 'restaurant')
       )
     )
@@ -2105,58 +2057,6 @@ EXCEPTION
     NULL;
 END $$;
 
--- 8) Bartender shifts policies (VIP/Outside roles)
-DO $$
-BEGIN
-  DROP POLICY IF EXISTS "Bartenders view own shifts" ON public.bartender_shifts;
-  DROP POLICY IF EXISTS "Bartenders can insert shifts" ON public.bartender_shifts;
-  DROP POLICY IF EXISTS "Bartenders can update shifts" ON public.bartender_shifts;
-
-  CREATE POLICY "Bartenders view own shifts" ON public.bartender_shifts FOR SELECT 
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid()
-      AND p.status = 'Active'
-      AND (
-        bartender_id = auth.uid() OR
-        'vip_bartender' = ANY(p.roles) OR
-        'outside_bartender' = ANY(p.roles) OR
-        'manager' = ANY(p.roles) OR
-        'owner' = ANY(p.roles)
-      )
-    )
-  );
-
-  CREATE POLICY "Bartenders can insert shifts" ON public.bartender_shifts FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid()
-      AND p.status = 'Active'
-      AND (
-        (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
-        'manager' = ANY(p.roles) OR
-        'owner' = ANY(p.roles)
-      )
-    )
-  );
-
-  CREATE POLICY "Bartenders can update shifts" ON public.bartender_shifts FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid()
-      AND p.status = 'Active'
-      AND (
-        (bartender_id = auth.uid() AND ('vip_bartender' = ANY(p.roles) OR 'outside_bartender' = ANY(p.roles))) OR
-        'manager' = ANY(p.roles) OR
-        'owner' = ANY(p.roles)
-      )
-    )
-  );
-EXCEPTION
-  WHEN OTHERS THEN
-    NULL;
-END $$;
 
 -- 8.5) Purchase orders policies + confirm function
 DO $$
@@ -2393,6 +2293,71 @@ DROP TRIGGER IF EXISTS trg_finance_audit_debts ON public.debts;
 CREATE TRIGGER trg_finance_audit_debts
 AFTER INSERT OR UPDATE OR DELETE ON public.debts
 FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+-- Create debt_payments table if it doesn't exist
+DO $$
+BEGIN
+  CREATE TABLE IF NOT EXISTS public.debt_payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    debt_id UUID REFERENCES public.debts(id) ON DELETE CASCADE NOT NULL,
+    amount INT8 NOT NULL, -- Payment amount in Kobo/Cents
+    payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'transfer', 'card', 'other')),
+    payment_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    collected_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Staff who collected the payment
+    collected_by_name TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Staff who recorded the payment
+    created_by_name TEXT,
+    notes TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+  );
+
+  ALTER TABLE public.debt_payments ENABLE ROW LEVEL SECURITY;
+
+  -- RLS Policies for debt_payments
+  DROP POLICY IF EXISTS "Active admin finance access debt payments" ON public.debt_payments;
+  CREATE POLICY "Active admin finance access debt payments" ON public.debt_payments FOR ALL 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND (p.roles && ARRAY['manager', 'owner', 'accountant'])
+    )
+  );
+
+  DROP POLICY IF EXISTS "Staff can record payments for own debts" ON public.debt_payments;
+  CREATE POLICY "Staff can record payments for own debts" ON public.debt_payments FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND (
+        EXISTS (
+          SELECT 1 FROM public.debts d
+          WHERE d.id = debt_payments.debt_id
+          AND d.sold_by = auth.uid()
+        )
+        OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+      )
+    )
+  );
+
+  DROP POLICY IF EXISTS "Accountant can record payments" ON public.debt_payments;
+  CREATE POLICY "Accountant can record payments" ON public.debt_payments FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND ('accountant' = ANY(p.roles) OR 'manager' = ANY(p.roles) OR 'owner' = ANY(p.roles))
+    )
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
 
 DROP TRIGGER IF EXISTS trg_finance_audit_debt_payments ON public.debt_payments;
 CREATE TRIGGER trg_finance_audit_debt_payments
@@ -2644,6 +2609,17 @@ CREATE TABLE IF NOT EXISTS public.stock_count_items (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Create stock_count_custom_items table (items not in database yet)
+CREATE TABLE IF NOT EXISTS public.stock_count_custom_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_count_id UUID REFERENCES public.pending_stock_counts(id) ON DELETE CASCADE NOT NULL,
+    item_name TEXT NOT NULL, -- Name of the item seen but not in database
+    quantity INT NOT NULL DEFAULT 0,
+    unit TEXT DEFAULT 'units', -- Unit of measurement
+    notes TEXT, -- Additional notes about the item
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Enable RLS
 ALTER TABLE public.pending_stock_counts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_count_items ENABLE ROW LEVEL SECURITY;
@@ -2680,22 +2656,19 @@ EXCEPTION
     NULL;
 END $$;
 
--- All active staff can insert pending counts for their locations
+-- Staff can submit stock counts (management CANNOT submit - they only review)
 DO $$
 BEGIN
   DROP POLICY IF EXISTS "Active staff can submit stock counts" ON public.pending_stock_counts;
   CREATE POLICY "Active staff can submit stock counts" ON public.pending_stock_counts FOR INSERT WITH CHECK (
       is_user_active(auth.uid())
       AND submitted_by = auth.uid()
+      AND NOT (user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'supervisor'))
       AND location_id IN (
           SELECT l.id
           FROM public.locations l
           WHERE (
-              user_has_role(auth.uid(), 'owner')
-              OR user_has_role(auth.uid(), 'manager')
-              OR user_has_role(auth.uid(), 'supervisor')
-              OR user_has_role(auth.uid(), 'storekeeper')
-              OR (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
+              (l.name = 'VIP Bar' AND user_has_role(auth.uid(), 'vip_bartender'))
               OR (l.name = 'Outside Bar' AND user_has_role(auth.uid(), 'outside_bartender'))
               OR (l.name = 'Kitchen' AND user_has_role(auth.uid(), 'kitchen_staff'))
               OR (l.name = 'Mini Mart' AND user_has_role(auth.uid(), 'receptionist'))
@@ -2771,6 +2744,46 @@ BEGIN
       AND EXISTS (
           SELECT 1 FROM public.pending_stock_counts psc
           WHERE psc.id = stock_count_items.stock_count_id
+          AND psc.submitted_by = auth.uid()
+          AND psc.status = 'pending'
+      )
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- RLS Policies for stock_count_custom_items
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Active staff view custom items" ON public.stock_count_custom_items;
+  CREATE POLICY "Active staff view custom items" ON public.stock_count_custom_items FOR SELECT USING (
+      is_user_active(auth.uid())
+      AND EXISTS (
+          SELECT 1 FROM public.pending_stock_counts psc
+          WHERE psc.id = stock_count_custom_items.stock_count_id
+          AND (
+              user_has_role(auth.uid(), 'owner')
+              OR user_has_role(auth.uid(), 'manager')
+              OR user_has_role(auth.uid(), 'supervisor')
+              OR user_has_role(auth.uid(), 'storekeeper')
+              OR psc.submitted_by = auth.uid()
+          )
+      )
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Active staff can insert custom items" ON public.stock_count_custom_items;
+  CREATE POLICY "Active staff can insert custom items" ON public.stock_count_custom_items FOR INSERT WITH CHECK (
+      is_user_active(auth.uid())
+      AND EXISTS (
+          SELECT 1 FROM public.pending_stock_counts psc
+          WHERE psc.id = stock_count_custom_items.stock_count_id
           AND psc.submitted_by = auth.uid()
           AND psc.status = 'pending'
       )

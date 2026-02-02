@@ -1297,27 +1297,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         throw Exception('Failed to get location ID for $locationName');
       }
 
-      // Get active bartender shift for optional tracking (not required for transactions)
-      String? activeShiftId;
-      try {
-        final today = DateTime.now().toIso8601String().split('T')[0];
-        final shiftResponse = await supabase
-            .from('bartender_shifts')
-            .select('id')
-            .eq('bartender_id', userId)
-            .eq('status', 'active')
-            .eq('bar', barKey ?? 'vip_bar')
-            .eq('date', today)
-            .maybeSingle();
-        activeShiftId = shiftResponse?['id'] as String?;
-      } catch (e) {
-        // Shift lookup failed, continue without shift tracking
-        if (kDebugMode) {
-          debugPrint('Warning: Could not find active shift: $e');
-        }
-      }
-      // Note: No shift is required to make transactions - shift tracking is optional
-
       // Process each item sale
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
@@ -1377,7 +1356,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   'transaction_type': 'Sale',
                   'quantity': -quantity, // Negative for sale
                   'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
-                  'shift_id': activeShiftId,
                 });
             
             // Stock ledger is the source of truth; no direct inventory_items update
@@ -1461,30 +1439,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 });
           }
 
-          // Update active bartender shift total_sales if shift exists (paid only)
-          // This allows real-time tracking of paid sales per shift
-          if (activeShiftId != null) {
-            try {
-              final currentShift = await supabase
-                  .from('bartender_shifts')
-                  .select('total_sales')
-                  .eq('id', activeShiftId)
-                  .single();
-              
-              final currentTotalSales = (currentShift['total_sales'] as int? ?? 0);
-              await supabase
-                  .from('bartender_shifts')
-                  .update({
-                    'total_sales': currentTotalSales + saleTotalInKobo,
-                  })
-                  .eq('id', activeShiftId);
-            } catch (e) {
-              // Log error but don't fail the sale
-              if (kDebugMode) {
-                debugPrint('Warning: Could not update shift total_sales: $e');
-              }
-            }
-          }
         } catch (e) {
           // Log error but don't fail the sale
           if (kDebugMode) {
