@@ -921,10 +921,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                       : GridView.builder(
                           padding: const EdgeInsets.all(16),
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 0.8,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
+                            crossAxisCount: 4,
+                            childAspectRatio: 0.75,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
                           ),
                           itemCount: _filteredItems.length,
                           itemBuilder: (context, index) {
@@ -937,7 +937,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                               child: InkWell(
                                 onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
                                 child: Container(
-                                  padding: const EdgeInsets.all(8),
+                                  padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
                                     color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
                                     border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
@@ -953,26 +953,26 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                             color: Colors.grey[200],
                                             borderRadius: BorderRadius.circular(4),
                                           ),
-                                          child: const Icon(Icons.inventory, size: 32),
+                                          child: const Icon(Icons.inventory, size: 26),
                                         ),
                                       ),
-                                      const SizedBox(height: 8),
+                                      const SizedBox(height: 6),
                                       Text(
                                         item['name']?.toString() ?? 'Unknown',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w500,
-                                          fontSize: 12,
+                                          fontSize: 11,
                                         ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 3),
                                       Text(
                                         '₦${NumberFormat('#,##0.00').format(item['price'])}',
                                         style: TextStyle(
                                           color: Colors.green[700],
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 11,
+                                          fontSize: 10,
                                         ),
                                       ),
                                       const SizedBox(height: 2),
@@ -980,7 +980,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                         'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                                         style: TextStyle(
                                           color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
-                                          fontSize: 10,
+                                          fontSize: 9,
                                           fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                                         ),
                                       ),

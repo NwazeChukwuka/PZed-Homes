@@ -3936,6 +3936,8 @@ DECLARE
     count_record RECORD;
     count_item RECORD;
     adjustment_quantity INT;
+    location_name TEXT;
+    mini_mart_item_id UUID;
 BEGIN
     -- Get the pending count record
     SELECT * INTO count_record
@@ -3945,6 +3947,11 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Stock count not found or already processed';
     END IF;
+    
+    -- Get location name
+    SELECT name INTO location_name
+    FROM public.locations
+    WHERE id = count_record.location_id;
     
     -- Update the count status to approved
     UPDATE public.pending_stock_counts
@@ -3962,8 +3969,28 @@ BEGIN
         -- Calculate the adjustment needed (counted - system)
         adjustment_quantity := count_item.counted_quantity - count_item.system_quantity;
         
-        -- Only create transaction if there's a difference
+        -- Only process if there's a difference
         IF adjustment_quantity != 0 THEN
+            -- For Mini Mart location, also update mini_mart_items.stock_quantity
+            IF location_name = 'Mini Mart' THEN
+                -- Find corresponding mini_mart_item by matching stock_item name
+                SELECT id INTO mini_mart_item_id
+                FROM public.mini_mart_items
+                WHERE name = (
+                    SELECT name FROM public.stock_items WHERE id = count_item.stock_item_id
+                )
+                LIMIT 1;
+                
+                IF mini_mart_item_id IS NOT NULL THEN
+                    -- Update mini_mart_items.stock_quantity directly
+                    UPDATE public.mini_mart_items
+                    SET stock_quantity = count_item.counted_quantity,
+                        updated_at = now()
+                    WHERE id = mini_mart_item_id;
+                END IF;
+            END IF;
+            
+            -- Create stock_transaction for ledger-based locations (bars, kitchen, etc.)
             INSERT INTO public.stock_transactions (
                 stock_item_id,
                 location_id,

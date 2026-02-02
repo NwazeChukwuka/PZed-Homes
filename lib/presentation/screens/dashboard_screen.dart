@@ -265,7 +265,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         endDate: today,
       );
       final kitchenSales = await _dataService.getDepartmentSales(
-        department: 'kitchen',
+        department: 'restaurant',
         startDate: today,
         endDate: today,
       );

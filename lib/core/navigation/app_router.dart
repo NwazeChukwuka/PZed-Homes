@@ -546,11 +546,13 @@ class AppRouter {
         return location.startsWith('/communications') ||
                location.startsWith('/profile') ||
                location.startsWith('/inventory') ||
-               location.startsWith('/kitchen'); // VIP bartenders can assist with kitchen sales
+               location.startsWith('/kitchen') || // VIP bartenders can assist with kitchen sales
+               location.startsWith('/stock'); // VIP bartenders can do daily stock counts
       case AppRole.outside_bartender:
         return location.startsWith('/communications') ||
                location.startsWith('/profile') ||
-               location.startsWith('/inventory');
+               location.startsWith('/inventory') ||
+               location.startsWith('/stock'); // Outside bartenders can do daily stock counts
       case AppRole.bartender:
         return location.startsWith('/communications') ||
                location.startsWith('/profile');

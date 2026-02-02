@@ -284,6 +284,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ? AppRole.outside_bartender
                     : AppRole.vip_bartender,
               ),
+              // Show daily stock count button for bartenders
+              if (isBartender)
+                IconButton(
+                  icon: const Icon(Icons.inventory_2),
+                  tooltip: 'Daily Stock Count',
+                  onPressed: () => context.push('/stock'),
+                ),
               // Show approval button for management roles
               if (showAddItemButton)
                 IconButton(
@@ -712,10 +719,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.7,
+                        crossAxisCount: 4,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.65,
                       ),
                       itemCount: filteredItems.length,
                       itemBuilder: (context, index) {
@@ -747,13 +754,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isBartenderAssumed = authService.isRoleAssumed &&
         authService.assumedRole != null &&
         _isBartenderRole(authService.assumedRole!);
-    final hasFixedBarRole = (user?.roles.contains(AppRole.vip_bartender) ?? false) ||
-        (user?.roles.contains(AppRole.outside_bartender) ?? false);
 
-    if (!isManagement && !hasFixedBarRole) {
+    // Only show bar selection dropdown for management when they've assumed a bartender role
+    // Actual bartenders (VIP/Outside) don't need this - they're already restricted to their bar
+    if (!isManagement || !isBartenderAssumed) {
       return const SizedBox.shrink();
     }
-    if (isManagement && !isBartenderAssumed) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -828,7 +834,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       child: InkWell(
         onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
         child: Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
             border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
@@ -841,33 +847,29 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: _getCategoryColor(item['category']),
+                    color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Icon(
-                    _getCategoryIcon(item['category']),
-                    size: 32,
-                    color: Colors.white,
-                  ),
+                  child: const Icon(Icons.inventory, size: 26),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 item['name']?.toString() ?? 'Unknown',
                 style: const TextStyle(
                   fontWeight: FontWeight.w500,
-                  fontSize: 12,
+                  fontSize: 11,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
                 '₦${NumberFormat('#,##0.00').format(price)}',
                 style: TextStyle(
                   color: Colors.green[700],
                   fontWeight: FontWeight.bold,
-                  fontSize: 11,
+                  fontSize: 10,
                 ),
               ),
               const SizedBox(height: 2),
@@ -875,7 +877,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                 style: TextStyle(
                   color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
@@ -1013,27 +1015,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           
                         const SizedBox(height: 16),
           
-          // Customer info and payment
-          TextField(
-            controller: _customerNameController,
-            decoration: const InputDecoration(
-              labelText: 'Customer Name',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          
-          const SizedBox(height: 8),
-          
-          TextField(
-            controller: _customerPhoneController,
-            decoration: const InputDecoration(
-              labelText: 'Customer Phone',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          
-          const SizedBox(height: 8),
-          
+          // Payment method (always visible)
           DropdownButtonFormField<String>(
             value: _paymentMethod,
             decoration: const InputDecoration(
@@ -1049,13 +1031,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             onChanged: (value) => setState(() => _paymentMethod = value!),
           ),
           
-          // Show warning and fields for credit payment
+          // Show customer info fields only for credit payment
           if (_paymentMethod == 'credit')
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const SizedBox(height: 16),
                 Container(
-                  margin: const EdgeInsets.only(top: 8, bottom: 12),
+                  margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.orange[50],
@@ -1075,6 +1058,22 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ],
                   ),
                 ),
+                TextField(
+                  controller: _customerNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer Name *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _customerPhoneController,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer Phone *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _approvedByController,
                   decoration: const InputDecoration(

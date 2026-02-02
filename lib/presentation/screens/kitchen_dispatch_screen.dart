@@ -40,6 +40,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   final _saleQuantityController = TextEditingController();
   final _saleUnitPriceController = TextEditingController();
   final _saleCustomNameController = TextEditingController();
+  int? _selectedSaleQuantity = 1; // Default quantity for kitchen sales
 
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _locations = [];
@@ -118,7 +119,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     try {
       final menuItems = await _dataService.getMenuItems();
       final stockResponse = menuItems
-          .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'kitchen')
+          .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'restaurant')
           .toList();
       final locResponse = await _dataService.getLocations();
       final deptResponse = await _dataService.getDepartments();
@@ -469,7 +470,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
-      final quantity = int.parse(_saleQuantityController.text.trim());
+      final quantity = _selectedSaleQuantity ?? 1;
       final unitPriceNaira = double.tryParse(_saleUnitPriceController.text.trim()) ?? 0;
       final totalInKobo = PaymentService.nairaToKobo(unitPriceNaira) * quantity;
 
@@ -576,6 +577,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       _saleCustomNameController.clear();
       setState(() {
         _selectedSaleItemId = null;
+        _selectedSaleQuantity = 1; // Reset to default quantity
         _isCustomSale = false;
         _selectedBookingId = null;
         _chargeToRoom = false;
@@ -1842,18 +1844,26 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: TextFormField(
-                                          controller: _saleQuantityController,
+                                        child: DropdownButtonFormField<int>(
+                                          value: _selectedSaleQuantity,
                                           decoration: const InputDecoration(
                                             labelText: 'Quantity',
                                             border: OutlineInputBorder(),
                                             prefixIcon: Icon(Icons.numbers),
                                           ),
-                                          keyboardType: TextInputType.number,
+                                          items: List.generate(20, (index) => index + 1)
+                                              .map((qty) => DropdownMenuItem(
+                                                    value: qty,
+                                                    child: Text('$qty'),
+                                                  ))
+                                              .toList(),
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _selectedSaleQuantity = val;
+                                            });
+                                          },
                                           validator: (val) {
-                                            if (val == null || val.isEmpty) return 'Enter quantity';
-                                            final qty = int.tryParse(val);
-                                            if (qty == null || qty <= 0) return 'Enter valid quantity';
+                                            if (val == null || val <= 0) return 'Select quantity';
                                             return null;
                                           },
                                         ),

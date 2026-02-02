@@ -133,34 +133,53 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     if (locationName.isEmpty) return;
 
     try {
-      final stockLevels = await _supabase
-          .from('stock_levels')
-          .select('id, name, current_stock, location_name')
-          .eq('location_name', locationName);
+      List<Map<String, dynamic>> merged = [];
+      
+      // Mini Mart uses mini_mart_items table, not stock_levels
+      if (locationName.toLowerCase() == 'mini mart') {
+        final miniMartItems = await _supabase
+            .from('mini_mart_items')
+            .select('id, name, stock_quantity, unit');
+        
+        merged = (miniMartItems as List).map((item) {
+          return {
+            'id': item['id'],
+            'name': item['name'],
+            'unit': item['unit'] ?? 'units',
+            'current_stock': item['stock_quantity'] ?? 0,
+          };
+        }).toList();
+      } else {
+        // Other locations use stock_levels view
+        final stockLevels = await _supabase
+            .from('stock_levels')
+            .select('id, name, current_stock, location_name')
+            .eq('location_name', locationName);
 
-      final levelList = List<Map<String, dynamic>>.from(stockLevels);
-      final itemIds = levelList.map((e) => e['id']).toList();
+        final levelList = List<Map<String, dynamic>>.from(stockLevels);
+        final itemIds = levelList.map((e) => e['id']).toList();
 
-      List<Map<String, dynamic>> stockItems = [];
-      if (itemIds.isNotEmpty) {
-        final itemsResponse = await _supabase
-            .from('stock_items')
-            .select('id, name, unit')
-            .inFilter('id', itemIds);
-        stockItems = List<Map<String, dynamic>>.from(itemsResponse);
+        List<Map<String, dynamic>> stockItems = [];
+        if (itemIds.isNotEmpty) {
+          final itemsResponse = await _supabase
+              .from('stock_items')
+              .select('id, name, unit')
+              .inFilter('id', itemIds);
+          stockItems = List<Map<String, dynamic>>.from(itemsResponse);
+        }
+
+        final byId = {for (final i in stockItems) i['id']: i};
+        merged = levelList.map((level) {
+          final id = level['id'];
+          final base = byId[id] ?? {};
+          return {
+            'id': level['id'],
+            'name': level['name'],
+            'unit': base['unit'] ?? 'units',
+            'current_stock': level['current_stock'] ?? 0,
+          };
+        }).toList();
       }
-
-      final byId = {for (final i in stockItems) i['id']: i};
-      final merged = levelList.map((level) {
-        final id = level['id'];
-        final base = byId[id] ?? {};
-        return {
-          'id': level['id'],
-          'name': level['name'],
-          'unit': base['unit'] ?? 'units',
-          'current_stock': level['current_stock'] ?? 0,
-        };
-      }).toList();
 
       setState(() {
         _stockItems = merged;
@@ -198,6 +217,13 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
+      final location = _locations.firstWhere(
+        (loc) => loc['id'] == _selectedLocationId,
+        orElse: () => <String, dynamic>{},
+      );
+      final locationName = (location['name'] ?? '').toString();
+      final isMiniMart = locationName.toLowerCase() == 'mini mart';
+      
       final List<Map<String, dynamic>> countItems = [];
 
       // Collect all items with counts (even if same as system quantity)
@@ -209,9 +235,38 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
           final countedQuantity = int.tryParse(qtyString) ?? 0;
           final systemQuantity = _previousCounts[itemId] ?? 0;
           
+          // For Mini Mart items, we need to find or create corresponding stock_item
+          String stockItemId = itemId;
+          if (isMiniMart) {
+            // Check if stock_item exists for this mini_mart_item
+            final existingStockItem = await _supabase
+                .from('stock_items')
+                .select('id')
+                .eq('name', item['name'] as String)
+                .maybeSingle();
+            
+            if (existingStockItem != null) {
+              stockItemId = existingStockItem['id'] as String;
+            } else {
+              // Create corresponding stock_item for mini_mart_item
+              final newStockItem = await _supabase
+                  .from('stock_items')
+                  .insert({
+                    'name': item['name'],
+                    'description': 'Mini Mart item',
+                    'category': 'Mini Mart',
+                    'unit': item['unit'] ?? 'units',
+                    'min_stock': 5,
+                  })
+                  .select('id')
+                  .single();
+              stockItemId = newStockItem['id'] as String;
+            }
+          }
+          
           // Include all items that were counted (even if no change)
           countItems.add({
-            'stock_item_id': itemId,
+            'stock_item_id': stockItemId,
             'counted_quantity': countedQuantity,
             'system_quantity': systemQuantity,
           });
