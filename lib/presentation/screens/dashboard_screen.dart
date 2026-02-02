@@ -205,16 +205,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Refresh data when navigating to this screen (only after initial load)
-    // This ensures dashboard shows latest data when user navigates back to it
-    if (_hasLoadedOnce && !_isLoading) {
-      // Use a small delay to avoid refreshing during initial build
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) {
-          _loadData();
-        }
-      });
-    }
+    // Removed automatic refresh to prevent flickering
+    // Real-time subscriptions handle updates, and pull-to-refresh is available
   }
 
   @override
@@ -248,26 +240,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final payroll = await _dataService.getPayrollRecords();
       final deposits = await _dataService.getCashDeposits();
       final checkedInGuests = await _dataService.getCheckedInGuests();
-      final today = DateTime.now();
+      // Use time range filter for department sales
+      final timeRange = _currentRange();
       final vipSales = await _dataService.getDepartmentSales(
         department: 'vip_bar',
-        startDate: today,
-        endDate: today,
+        startDate: timeRange.start,
+        endDate: timeRange.end,
       );
       final outsideSales = await _dataService.getDepartmentSales(
         department: 'outside_bar',
-        startDate: today,
-        endDate: today,
+        startDate: timeRange.start,
+        endDate: timeRange.end,
       );
       final miniMartSales = await _dataService.getDepartmentSales(
         department: 'mini_mart',
-        startDate: today,
-        endDate: today,
+        startDate: timeRange.start,
+        endDate: timeRange.end,
       );
       final kitchenSales = await _dataService.getDepartmentSales(
         department: 'restaurant',
-        startDate: today,
-        endDate: today,
+        startDate: timeRange.start,
+        endDate: timeRange.end,
       );
       final pendingSupplies = canApproveSupplies
           ? await _dataService.getDirectSupplyRequests(status: 'pending')
@@ -1020,6 +1013,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<Widget> _buildMetricCardsList(BuildContext context) {
+    // Calculate revenue based on selected time range
+    final inRangeIncome = _incomeRecords.where((e) {
+      final d = _parseTimestamp(e['date']);
+      return d != null && _isInRange(d);
+    }).toList();
+    final revenue = inRangeIncome.fold<num>(0, (sum, e) => sum + (e['amount'] as num));
+    
     return [
       _buildMetricCard(
           context,
@@ -1044,17 +1044,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         _buildMetricCard(
           context,
-          'Total Revenue',
-          '₦${_formatKobo((_stats['total_revenue'] ?? 0) as num)}',
+          'Revenue',
+          '₦${_formatKobo(revenue)}',
           Icons.attach_money,
           Colors.green[700]!, // Green for better readability
-        ),
-        _buildMetricCard(
-          context,
-          'Guests Checked-in',
-          '${_checkedInGuests.length}',
-          Icons.people,
-          Colors.green[700]!,
         ),
     ];
   }
@@ -2091,32 +2084,129 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Department Stock Levels',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Department Stock Overview',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    // Navigate to inventory screen for detailed view
+                    context.go('/inventory');
+                  },
+                  icon: const Icon(Icons.visibility, size: 16),
+                  label: const Text('View Details'),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            ...grouped.entries.map((entry) {
-              final location = entry.key;
-              final items = entry.value;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(location, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    ...items.take(6).map((item) {
-                      final name = item['name']?.toString() ?? 'Unknown';
-                      final qty = item['current_stock']?.toString() ?? '0';
-                      return Text('• $name: $qty');
-                    }),
-                    if (items.length > 6)
-                      Text('+ ${items.length - 6} more', style: const TextStyle(color: Colors.grey)),
-                  ],
-                ),
-              );
-            }).toList(),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: grouped.entries.map((entry) {
+                final location = entry.key;
+                final items = entry.value;
+                
+                // Calculate aggregates
+                final totalItems = items.length;
+                final lowStockItems = items.where((item) {
+                  final stock = (item['current_stock'] as num?) ?? 0;
+                  return stock < 20; // Low stock threshold
+                }).length;
+                final outOfStockItems = items.where((item) {
+                  final stock = (item['current_stock'] as num?) ?? 0;
+                  return stock <= 0;
+                }).length;
+                final totalStockValue = items.fold<num>(0, (sum, item) {
+                  final stock = (item['current_stock'] as num?) ?? 0;
+                  final price = (item['price'] as num?) ?? 0;
+                  return sum + (stock * price);
+                });
+                
+                return Container(
+                  width: 280,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        location,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Total Items',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  '$totalItems',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Low Stock',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  '$lowStockItems',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: lowStockItems > 0 ? Colors.orange[700] : Colors.green[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (outOfStockItems > 0) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '$outOfStockItems out of stock',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
           ],
         ),
       ),

@@ -274,6 +274,28 @@ class AppRouter {
           GoRoute(
             path: '/stock',
             name: 'stock',
+            redirect: (context, state) {
+              final authService = Provider.of<AuthService>(context, listen: false);
+              final user = authService.currentUser;
+              if (user == null) return '/dashboard';
+              
+              final roles = <AppRole>{
+                ...user.roles,
+                if (authService.isRoleAssumed && authService.assumedRole != null)
+                  authService.assumedRole!,
+              };
+              
+              // Management should only see approval screen, not recording screen
+              final isManagement = roles.contains(AppRole.owner) ||
+                  roles.contains(AppRole.manager) ||
+                  roles.contains(AppRole.supervisor);
+              
+              if (isManagement) {
+                return '/stock/approval';
+              }
+              
+              return null; // Allow access to recording screen
+            },
             builder: (context, state) => const DailyStockCountScreen(),
           ),
           GoRoute(

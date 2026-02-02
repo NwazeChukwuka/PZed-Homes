@@ -483,6 +483,18 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Double safety: If management somehow reaches this screen, redirect immediately
+    if (_isManagement) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/stock/approval');
+        }
+      });
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Daily Stock Count'),
