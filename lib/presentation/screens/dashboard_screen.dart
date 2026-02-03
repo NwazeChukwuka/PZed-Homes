@@ -556,10 +556,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 12),
           _buildTimeRangeToolbar(context),
           const SizedBox(height: 24),
-          AppAnimations.staggeredGrid(
-            children: _buildMetricCardsList(context),
-            crossAxisCount: 4,
-          ),
+          _buildMetricCards(context),
           const SizedBox(height: 24),
           _buildDepartmentSalesQuickCards(context),
           const SizedBox(height: 24),
@@ -1063,6 +1060,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // Helper function to determine crossAxisCount based on screen width
+  int _getCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) {
+      return 2; // Mobile: 2 cards per row
+    } else if (width < 1200) {
+      return 3; // Tablet: 3 cards per row
+    } else {
+      return 4; // Desktop: 4 cards per row
+    }
+  }
+
   List<Widget> _buildMetricCardsList(BuildContext context) {
     return [
       _buildMetricCard(
@@ -1076,14 +1085,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDepartmentSalesQuickCards(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: _deptSalesTotals.entries.map((e) {
+    final crossAxisCount = _getCrossAxisCount(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final padding = screenWidth < 600 ? 16.0 : 24.0;
+    final spacing = 12.0;
+    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+    
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: cardWidth / 120, // Adjust height based on card width
+      ),
+      itemCount: _deptSalesTotals.length,
+      itemBuilder: (context, index) {
+        final entry = _deptSalesTotals.entries.elementAt(index);
         return AppAnimations.animatedCard(
           child: Container(
-            width: isMobile ? double.infinity : 220,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -1098,6 +1119,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
@@ -1113,25 +1135,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  '₦${_formatKobo(e.value)}',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF0A0A0A),
-                      ),
+                Flexible(
+                  child: Text(
+                    '₦${_formatKobo(entry.value)}',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF0A0A0A),
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  e.key,
+                  entry.key,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF666666),
                       ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
         );
-      }).toList(),
+      },
     );
   }
 
@@ -1196,18 +1224,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildMetricCards(BuildContext context) {
-    return Wrap(
-      spacing: 16,
-      runSpacing: 16,
-      children: _buildMetricCardsList(context),
+    final crossAxisCount = _getCrossAxisCount(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final padding = screenWidth < 600 ? 16.0 : 24.0;
+    final spacing = 16.0;
+    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+    final metricCards = _buildMetricCardsList(context);
+    
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: cardWidth / 140, // Adjust height based on card width
+      ),
+      itemCount: metricCards.length,
+      itemBuilder: (context, index) => metricCards[index],
     );
   }
 
   Widget _buildMetricCard(BuildContext context, String title, String value, IconData icon, Color color) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
     return AppAnimations.animatedCard(
       child: Container(
-        width: isMobile ? double.infinity : 200,
         padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -2323,14 +2363,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _inlineCards(BuildContext context, List<(String, String, IconData)> items) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: items.map((it) {
-        final (title, value, icon) = it;
+    final crossAxisCount = _getCrossAxisCount(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final padding = screenWidth < 600 ? 16.0 : 24.0;
+    final spacing = 12.0;
+    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+    
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: cardWidth / 120, // Adjust height based on card width
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final (title, value, icon) = items[index];
         return Container(
-          width: isMobile ? double.infinity : 220,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -2345,6 +2396,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
@@ -2360,16 +2412,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A)),
+              Flexible(
+                child: Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               const SizedBox(height: 4),
-              Text(title, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF666666))),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF666666)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         );
-      }).toList(),
+      },
     );
   }
 
