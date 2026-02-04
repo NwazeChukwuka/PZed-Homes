@@ -84,6 +84,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'Reception': 0,
   };
   
+  // Previous period data for trend calculation
+  Map<String, num> _previousDeptSalesTotals = {
+    'VIP Bar': 0,
+    'Outside Bar': 0,
+    'Mini Mart': 0,
+    'Kitchen': 0,
+    'Reception': 0,
+  };
+  num _previousIncome = 0;
+  num _previousExpenses = 0;
+  num _previousProfit = 0;
+  int _previousCheckedInCount = 0;
+  
   // Pagination state
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
@@ -275,7 +288,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       final checkedInGuests = await _dataService.getCheckedInGuests();
       
-      // Load department sales in parallel for faster loading
+      // Calculate previous period range for trend comparison
+      DateTimeRange getPreviousRange(DateTimeRange current) {
+        final duration = current.end.difference(current.start);
+        return DateTimeRange(
+          start: current.start.subtract(duration),
+          end: current.start.subtract(const Duration(milliseconds: 1)),
+        );
+      }
+      final previousRange = getPreviousRange(timeRange);
+      
+      // Load department sales in parallel for faster loading (current and previous period)
       // Also load stock transactions as fallback for bars (since they record sales there)
       final salesFuture = Future.wait([
         _dataService.getDepartmentSales(
@@ -304,6 +327,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
           endDate: timeRange.end,
         ),
       ]);
+      
+      // Load previous period sales for trend calculation
+      final previousSalesFuture = Future.wait([
+        _dataService.getDepartmentSales(
+          department: 'vip_bar',
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'outside_bar',
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'mini_mart',
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'restaurant',
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'reception',
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+      ]);
+      
+      // Load previous period financial data
+      final previousIncomeRecords = await _dataService.getIncomeRecords(
+        startDate: previousRange.start,
+        endDate: previousRange.end,
+      );
+      final previousExpensesList = await _dataService.getExpenses(
+        startDate: previousRange.start,
+        endDate: previousRange.end,
+        status: 'Approved',
+      );
+      final previousPurchaseOrders = await _dataService.getPurchaseOrders(
+        startDate: previousRange.start,
+        endDate: previousRange.end,
+      );
+      final previousMaintenanceOrders = await _dataService.getMaintenanceWorkOrders(
+        startDate: previousRange.start,
+        endDate: previousRange.end,
+      );
+      final previousBookings = await _dataService.getBookings();
       
       // Also load stock transactions for bars (fallback if department_sales is empty)
       final stockTransactionsFuture = _dataService.getStockTransactions();
@@ -344,11 +416,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final kitchenSales = salesResults[3];
       final receptionSales = salesResults[4];
       
+      // Wait for previous period sales data
+      final previousSalesResults = await previousSalesFuture;
+      final previousVipSales = previousSalesResults[0];
+      final previousOutsideSales = previousSalesResults[1];
+      final previousMiniMartSales = previousSalesResults[2];
+      final previousKitchenSales = previousSalesResults[3];
+      final previousReceptionSales = previousSalesResults[4];
+      
       // Also get stock transactions for bars (fallback aggregation)
       final stockTransactions = await stockTransactionsFuture;
       
       // Calculate checked-in count
       final checkedInCount = checkedInGuests.length;
+      
+      // Calculate previous period checked-in count
+      final previousCheckedInCount = previousBookings.where((b) {
+        final checkIn = _parseTimestamp(b['check_in_date']);
+        if (checkIn == null) return false;
+        // Check if check-in falls within previous range
+        return (checkIn.isAfter(previousRange.start) || checkIn.isAtSameMomentAs(previousRange.start)) 
+            && (checkIn.isBefore(previousRange.end) || checkIn.isAtSameMomentAs(previousRange.end));
+      }).length;
       
       // Load pending supplies if needed (non-blocking)
       final pendingSupplies = canApproveSupplies
@@ -367,34 +456,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
           orElse: () => <String, dynamic>{},
         );
         
-        // Calculate department sales totals (using total_sales field from department_sales table)
-        num sumDeptSales(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+        // Filter department sales by business day logic
+        // Since department_sales.date is calendar date, we need to filter by created_at/updated_at
+        // to determine which records actually fall within the business day range
+        List<Map<String, dynamic>> filterByBusinessDay(List<Map<String, dynamic>> sales) {
+          return sales.where((sale) {
+            // Try to use created_at first (most accurate)
+            final createdAt = _parseTimestamp(sale['created_at']);
+            if (createdAt != null && _isInRange(createdAt)) {
+              return true;
+            }
+            // Fallback to updated_at
+            final updatedAt = _parseTimestamp(sale['updated_at']);
+            if (updatedAt != null && _isInRange(updatedAt)) {
+              return true;
+            }
+            // If no timestamp available, use date field as fallback
+            // This is less accurate but better than nothing
+            final saleDate = _parseTimestamp(sale['date']);
+            if (saleDate != null) {
+              // Check if the calendar date falls within the business day range
+              // This is approximate - assumes sales happen during business hours
+              return _isInRange(saleDate);
+            }
+            return false;
+          }).toList();
+        }
         
-        // Aggregate from stock_transactions for bars if department_sales is empty or low
-        num aggregateFromStockTransactions(String locationId, List<Map<String, dynamic>> transactions) {
-          if (locationId.isEmpty) return 0;
-          return transactions.where((t) {
-            final tLocationId = t['location_id']?.toString();
-            final tType = t['transaction_type']?.toString();
-            final tCreated = _parseTimestamp(t['created_at']);
-            return tLocationId == locationId && 
-                   tType == 'Sale' && 
-                   tCreated != null && 
-                   _isInRange(tCreated);
-          }).fold<num>(0, (sum, t) {
-            // Calculate sale amount from stock transaction
-            // We need to get item price - but we don't have it in stock_transactions
-            // So we'll rely on department_sales primarily
-            return sum;
-          });
+        // Helper to filter sales by previous business day range
+        List<Map<String, dynamic>> filterByPreviousBusinessDay(List<Map<String, dynamic>> sales) {
+          return sales.where((sale) {
+            final createdAt = _parseTimestamp(sale['created_at']);
+            if (createdAt != null) {
+              return (createdAt.isAfter(previousRange.start) || createdAt.isAtSameMomentAs(previousRange.start)) 
+                  && (createdAt.isBefore(previousRange.end) || createdAt.isAtSameMomentAs(previousRange.end));
+            }
+            final updatedAt = _parseTimestamp(sale['updated_at']);
+            if (updatedAt != null) {
+              return (updatedAt.isAfter(previousRange.start) || updatedAt.isAtSameMomentAs(previousRange.start)) 
+                  && (updatedAt.isBefore(previousRange.end) || updatedAt.isAtSameMomentAs(previousRange.end));
+            }
+            final saleDate = _parseTimestamp(sale['date']);
+            if (saleDate != null) {
+              return (saleDate.isAfter(previousRange.start) || saleDate.isAtSameMomentAs(previousRange.start)) 
+                  && (saleDate.isBefore(previousRange.end) || saleDate.isAtSameMomentAs(previousRange.end));
+            }
+            return false;
+          }).toList();
+        }
+        
+        // Calculate department sales totals (using total_sales field from department_sales table)
+        num sumDeptSales(List<Map<String, dynamic>> list) {
+          final filtered = filterByBusinessDay(list);
+          return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+        }
+        
+        num sumPreviousDeptSales(List<Map<String, dynamic>> list) {
+          final filtered = filterByPreviousBusinessDay(list);
+          return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
         }
         
         final vipBarTotal = sumDeptSales(vipSales);
         final outsideBarTotal = sumDeptSales(outsideSales);
+        final miniMartTotal = sumDeptSales(miniMartSales);
+        final kitchenTotal = sumDeptSales(kitchenSales);
+        final receptionTotal = sumDeptSales(receptionSales);
         
-        // If department_sales is zero but we have stock transactions, try to estimate
-        // (Note: stock_transactions don't have price, so we can't calculate exact sales)
-        // For now, trust department_sales - if it's zero, sales might not have been recorded properly
+        // Calculate previous period totals
+        final previousVipBarTotal = sumPreviousDeptSales(previousVipSales);
+        final previousOutsideBarTotal = sumPreviousDeptSales(previousOutsideSales);
+        final previousMiniMartTotal = sumPreviousDeptSales(previousMiniMartSales);
+        final previousKitchenTotal = sumPreviousDeptSales(previousKitchenSales);
+        final previousReceptionTotal = sumPreviousDeptSales(previousReceptionSales);
+        
+        // Calculate previous period income
+        num previousIncomeFromRecords = previousIncomeRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+        num previousIncomeFromBookings = previousBookings.where((b) {
+          final checkIn = _parseTimestamp(b['check_in_date']);
+          if (checkIn == null) return false;
+          return (checkIn.isAfter(previousRange.start) || checkIn.isAtSameMomentAs(previousRange.start)) 
+              && (checkIn.isBefore(previousRange.end) || checkIn.isAtSameMomentAs(previousRange.end));
+        }).fold<num>(0, (s, b) => s + ((b['paid_amount'] as num?) ?? 0));
+        num previousIncomeFromDeptSales = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
+        final previousIncome = previousIncomeFromRecords + previousIncomeFromBookings + previousIncomeFromDeptSales;
+        
+        // Calculate previous period expenses
+        num previousExpensesFromTable = previousExpensesList.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+        num previousExpensesFromPurchases = previousPurchaseOrders.where((po) {
+          final created = _parseTimestamp(po['created_at']);
+          if (created == null) return false;
+          return (created.isAfter(previousRange.start) || created.isAtSameMomentAs(previousRange.start)) 
+              && (created.isBefore(previousRange.end) || created.isAtSameMomentAs(previousRange.end));
+        }).fold<num>(0, (sum, po) {
+          final items = po['purchase_order_items'] as List?;
+          if (items != null && items.isNotEmpty) {
+            final itemsTotal = items.fold<num>(0, (itemSum, item) {
+              final qty = (item['quantity'] as num?) ?? 0;
+              final unitPrice = (item['unit_price'] as num?) ?? 0;
+              return itemSum + (qty * unitPrice);
+            });
+            return sum + itemsTotal;
+          }
+          return sum + ((po['total_cost'] as num?) ?? 0);
+        });
+        num previousExpensesFromMaintenance = previousMaintenanceOrders.where((mo) {
+          final created = _parseTimestamp(mo['created_at']);
+          if (created == null) return false;
+          return (created.isAfter(previousRange.start) || created.isAtSameMomentAs(previousRange.start)) 
+              && (created.isBefore(previousRange.end) || created.isAtSameMomentAs(previousRange.end))
+              && (mo['status'] == 'Completed');
+        }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
+        final previousExpenses = previousExpensesFromTable + previousExpensesFromPurchases + previousExpensesFromMaintenance;
+        final previousProfit = previousIncome - previousExpenses;
         
         setState(() {
           _bookings = bookings;
@@ -403,29 +576,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _isLoadingAttendance = false;
           
-          // Ensure all department keys are present with numeric values (never null)
+          // Store current period totals
           _deptSalesTotals = {
-            'VIP Bar': vipBarTotal ?? 0,
-            'Outside Bar': outsideBarTotal ?? 0,
-            'Mini Mart': (sumDeptSales(miniMartSales) ?? 0),
-            'Kitchen': (sumDeptSales(kitchenSales) ?? 0),
-            'Reception': (sumDeptSales(receptionSales) ?? 0),
+            'VIP Bar': vipBarTotal,
+            'Outside Bar': outsideBarTotal,
+            'Mini Mart': miniMartTotal,
+            'Kitchen': kitchenTotal,
+            'Reception': receptionTotal,
           };
+          
+          // Store previous period totals for trend calculation
+          _previousDeptSalesTotals = {
+            'VIP Bar': previousVipBarTotal,
+            'Outside Bar': previousOutsideBarTotal,
+            'Mini Mart': previousMiniMartTotal,
+            'Kitchen': previousKitchenTotal,
+            'Reception': previousReceptionTotal,
+          };
+          _previousIncome = previousIncome;
+          _previousExpenses = previousExpenses;
+          _previousProfit = previousProfit;
+          _previousCheckedInCount = previousCheckedInCount;
           
           // Debug: Log if totals are zero
           if (kDebugMode) {
-            print('Dashboard Sales Totals:');
-            print('VIP Bar: ${vipBarTotal} (${vipSales.length} records)');
-            print('Outside Bar: ${outsideBarTotal} (${outsideSales.length} records)');
-            print('Mini Mart: ${sumDeptSales(miniMartSales)} (${miniMartSales.length} records)');
-            print('Kitchen: ${sumDeptSales(kitchenSales)} (${kitchenSales.length} records)');
-            print('Reception: ${sumDeptSales(receptionSales)} (${receptionSales.length} records)');
-            print('Date Range: ${timeRange.start.toIso8601String().split('T')[0]} to ${timeRange.end.toIso8601String().split('T')[0]}');
+            print('Dashboard Sales Totals (Current):');
+            print('VIP Bar: $vipBarTotal (${vipSales.length} records, filtered: ${filterByBusinessDay(vipSales).length})');
+            print('Outside Bar: $outsideBarTotal (${outsideSales.length} records, filtered: ${filterByBusinessDay(outsideSales).length})');
+            print('Mini Mart: $miniMartTotal (${miniMartSales.length} records, filtered: ${filterByBusinessDay(miniMartSales).length})');
+            print('Kitchen: $kitchenTotal (${kitchenSales.length} records, filtered: ${filterByBusinessDay(kitchenSales).length})');
+            print('Reception: $receptionTotal (${receptionSales.length} records, filtered: ${filterByBusinessDay(receptionSales).length})');
+            print('Date Range: ${timeRange.start.toIso8601String()} to ${timeRange.end.toIso8601String()}');
+            print('Previous Range: ${previousRange.start.toIso8601String()} to ${previousRange.end.toIso8601String()}');
             if (vipSales.isNotEmpty) {
               print('Sample VIP Bar record: ${vipSales.first}');
-            }
-            if (outsideSales.isNotEmpty) {
-              print('Sample Outside Bar record: ${outsideSales.first}');
             }
           }
           
@@ -1201,76 +1385,94 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Profit
     final allCards = <Widget>[
       // 1. Checked In
-      _buildCard(
+      _buildKPICard(
         context,
         'Checked In',
-        '${_stats['checked_in_count'] ?? 0}',
+        _stats['checked_in_count'] ?? 0,
+        _previousCheckedInCount,
         Icons.login,
         Colors.green[700]!,
+        false,
       ),
       // 2. Reception
-      _buildCard(
+      _buildKPICard(
         context,
         'Reception',
-        '₦${_formatKobo((_deptSalesTotals['Reception'] as num?) ?? 0)}',
+        (_deptSalesTotals['Reception'] as num?) ?? 0,
+        (_previousDeptSalesTotals['Reception'] as num?) ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
+        true,
       ),
       // 3. VIP Bar
-      _buildCard(
+      _buildKPICard(
         context,
         'VIP Bar',
-        '₦${_formatKobo((_deptSalesTotals['VIP Bar'] as num?) ?? 0)}',
+        (_deptSalesTotals['VIP Bar'] as num?) ?? 0,
+        (_previousDeptSalesTotals['VIP Bar'] as num?) ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
+        true,
       ),
       // 4. Outside Bar
-      _buildCard(
+      _buildKPICard(
         context,
         'Outside Bar',
-        '₦${_formatKobo((_deptSalesTotals['Outside Bar'] as num?) ?? 0)}',
+        (_deptSalesTotals['Outside Bar'] as num?) ?? 0,
+        (_previousDeptSalesTotals['Outside Bar'] as num?) ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
+        true,
       ),
       // 5. Kitchen
-      _buildCard(
+      _buildKPICard(
         context,
         'Kitchen',
-        '₦${_formatKobo((_deptSalesTotals['Kitchen'] as num?) ?? 0)}',
+        (_deptSalesTotals['Kitchen'] as num?) ?? 0,
+        (_previousDeptSalesTotals['Kitchen'] as num?) ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
+        true,
       ),
       // 6. Mini Mart
-      _buildCard(
+      _buildKPICard(
         context,
         'Mini Mart',
-        '₦${_formatKobo((_deptSalesTotals['Mini Mart'] as num?) ?? 0)}',
+        (_deptSalesTotals['Mini Mart'] as num?) ?? 0,
+        (_previousDeptSalesTotals['Mini Mart'] as num?) ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
+        true,
       ),
       // 7. Income
-      _buildCard(
+      _buildKPICard(
         context,
         'Income',
-        '₦${_formatKobo(income)}',
+        income,
+        _previousIncome,
         Icons.trending_up,
         Colors.green[700]!,
+        true,
       ),
-      // 8. Expenses
-      _buildCard(
+      // 8. Expenses (trend is inverted - lower is better, so we invert the trend)
+      _buildKPICardWithInvertedTrend(
         context,
         'Expenses',
-        '₦${_formatKobo(expenses)}',
+        expenses,
+        _previousExpenses,
         Icons.trending_down,
-        Colors.green[700]!,
+        Colors.orange[700]!,
+        true,
       ),
       // 9. Profit
-      _buildCard(
+      _buildKPICard(
         context,
         'Net Profit',
-        '₦${_formatKobo(profit)}',
+        profit,
+        _previousProfit,
         Icons.account_balance,
-        Colors.green[700]!,
+        Colors.blue[700]!,
+        true,
       ),
     ];
     
@@ -1288,11 +1490,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
-  // Unified card builder for all card types
-  Widget _buildCard(BuildContext context, String title, String value, IconData icon, Color color) {
+  // Calculate trend percentage change
+  double _calculateTrend(num current, num previous) {
+    if (previous == 0) {
+      return current > 0 ? 100.0 : 0.0;
+    }
+    return ((current - previous) / previous) * 100;
+  }
+  
+  // KPI card builder with inverted trend (for expenses where lower is better)
+  Widget _buildKPICardWithInvertedTrend(
+    BuildContext context,
+    String title,
+    num currentValue,
+    num previousValue,
+    IconData icon,
+    Color color,
+    bool isCurrency,
+  ) {
+    // Invert trend: if expenses decreased, that's positive
+    final rawTrend = _calculateTrend(currentValue, previousValue);
+    final trend = -rawTrend; // Invert: decrease in expenses is positive
+    final isPositive = trend >= 0;
+    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
+    final trendIcon = isPositive ? Icons.trending_down : Icons.trending_up; // Inverted icons
+    
+    final displayValue = isCurrency
+        ? '₦${_formatKobo(currentValue)}'
+        : '${currentValue.toInt()}';
+    
+    final trendText = trend.abs() < 0.01
+        ? 'No change'
+        : '${isPositive ? '' : '+'}${rawTrend.toStringAsFixed(1)}%'; // Show actual change (decrease is positive)
+    
     return AppAnimations.animatedCard(
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -1309,35 +1542,160 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: color, size: 18),
+                  child: Icon(icon, color: color, size: 24),
                 ),
-                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: trendColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(trendIcon, color: trendColor, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        trendText,
+                        style: TextStyle(
+                          color: trendColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            Flexible(
-              child: Text(
-                value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF0A0A0A),
-                    ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+            const SizedBox(height: 16),
+            Text(
+              displayValue,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF0A0A0A),
+                    fontSize: 28,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
               title,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF666666),
+                    fontSize: 14,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Unified KPI card builder with trend indicators
+  Widget _buildKPICard(
+    BuildContext context,
+    String title,
+    num currentValue,
+    num previousValue,
+    IconData icon,
+    Color color,
+    bool isCurrency,
+  ) {
+    final trend = _calculateTrend(currentValue, previousValue);
+    final isPositive = trend >= 0;
+    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
+    final trendIcon = isPositive ? Icons.trending_up : Icons.trending_down;
+    
+    final displayValue = isCurrency
+        ? '₦${_formatKobo(currentValue)}'
+        : '${currentValue.toInt()}';
+    
+    final trendText = trend.abs() < 0.01
+        ? 'No change'
+        : '${isPositive ? '+' : ''}${trend.toStringAsFixed(1)}%';
+    
+    return AppAnimations.animatedCard(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: trendColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(trendIcon, color: trendColor, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        trendText,
+                        style: TextStyle(
+                          color: trendColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              displayValue,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF0A0A0A),
+                    fontSize: 28,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF666666),
+                    fontSize: 14,
                   ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

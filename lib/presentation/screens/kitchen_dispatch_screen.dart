@@ -68,6 +68,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   DateTimeRange? _dispatchFilterRange;
   String _dispatchFilterDepartment = 'all';
   String _dispatchFilterStaffId = 'all';
+  String _historyFilterType = 'all'; // 'all', 'Sale', 'Dispatch'
+  DateTimeRange? _historyFilterRange;
+  String _historyFilterStaffId = 'all';
   late TabController _tabController;
 
   @override
@@ -2115,26 +2118,54 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     // Combine sales history and dispatch history
     final allTransactions = <Map<String, dynamic>>[];
     
-    // Add sales with type
+    // Add sales with type and staff info
     for (var sale in _salesHistory) {
       allTransactions.add({
         ...sale,
         'transaction_type': 'Sale',
         'timestamp': sale['created_at'] ?? sale['sale_date'],
+        'staff_name': (sale['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown Staff',
       });
     }
     
-    // Add dispatches with type
+    // Add dispatches with type and staff info
     for (var dispatch in _dispatchHistory) {
       allTransactions.add({
         ...dispatch,
         'transaction_type': 'Dispatch',
         'timestamp': dispatch['created_at'],
+        'staff_name': (dispatch['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown Staff',
       });
     }
     
+    // Apply filters
+    List<Map<String, dynamic>> filteredTransactions = allTransactions;
+    
+    // Filter by type
+    if (_historyFilterType != 'all') {
+      filteredTransactions = filteredTransactions.where((t) => t['transaction_type'] == _historyFilterType).toList();
+    }
+    
+    // Filter by staff
+    if (_historyFilterStaffId != 'all') {
+      filteredTransactions = filteredTransactions.where((t) {
+        final staffId = t['sold_by'] ?? t['dispatched_by_id'];
+        return staffId?.toString() == _historyFilterStaffId;
+      }).toList();
+    }
+    
+    // Filter by date range
+    if (_historyFilterRange != null) {
+      filteredTransactions = filteredTransactions.where((t) {
+        final timestamp = _parseTimestamp(t['timestamp']);
+        if (timestamp == null) return false;
+        return (timestamp.isAfter(_historyFilterRange!.start) || timestamp.isAtSameMomentAs(_historyFilterRange!.start))
+            && (timestamp.isBefore(_historyFilterRange!.end) || timestamp.isAtSameMomentAs(_historyFilterRange!.end));
+      }).toList();
+    }
+    
     // Sort by timestamp (most recent first)
-    allTransactions.sort((a, b) {
+    filteredTransactions.sort((a, b) {
       final aTime = _parseTimestamp(a['timestamp']);
       final bTime = _parseTimestamp(b['timestamp']);
       if (aTime == null && bTime == null) return 0;
@@ -2143,40 +2174,132 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       return bTime.compareTo(aTime);
     });
     
+    // Get unique staff for filter dropdown
+    final uniqueStaff = allTransactions
+        .map((t) => {
+              'id': t['sold_by'] ?? t['dispatched_by_id'],
+              'name': t['staff_name'],
+            })
+        .where((s) => s['id'] != null)
+        .toSet()
+        .toList();
+    
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Transaction History',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  const Text(
+                    'Transaction History',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${filteredTransactions.length} transactions',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
               ),
-              const Spacer(),
-              Text(
-                '${allTransactions.length} transactions',
-                style: TextStyle(color: Colors.grey[600]),
+              const SizedBox(height: 16),
+              // Filters
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _historyFilterType,
+                      decoration: const InputDecoration(
+                        labelText: 'Type',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'all', child: Text('All')),
+                        DropdownMenuItem(value: 'Sale', child: Text('Sales')),
+                        DropdownMenuItem(value: 'Dispatch', child: Text('Dispatches')),
+                      ],
+                      onChanged: (val) => setState(() => _historyFilterType = val ?? 'all'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _historyFilterStaffId,
+                      decoration: const InputDecoration(
+                        labelText: 'Staff',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('All Staff')),
+                        ...uniqueStaff.map((s) => DropdownMenuItem(
+                              value: s['id']?.toString(),
+                              child: Text(s['name']?.toString() ?? 'Unknown'),
+                            )),
+                      ],
+                      onChanged: (val) => setState(() => _historyFilterStaffId = val ?? 'all'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final now = DateTime.now();
+                        final picked = await showDateRangePicker(
+                          context: context,
+                          firstDate: DateTime(now.year - 2),
+                          lastDate: DateTime(now.year + 1),
+                          initialDateRange: _historyFilterRange,
+                        );
+                        if (picked != null) {
+                          setState(() => _historyFilterRange = picked);
+                        }
+                      },
+                      icon: const Icon(Icons.date_range, size: 18),
+                      label: Text(
+                        _historyFilterRange == null
+                            ? 'Date range'
+                            : '${DateFormat('MMM dd').format(_historyFilterRange!.start)} - ${DateFormat('MMM dd').format(_historyFilterRange!.end)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              if (_historyFilterRange != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => setState(() => _historyFilterRange = null),
+                      child: const Text('Clear date filter'),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
         Expanded(
-          child: allTransactions.isEmpty
+          child: filteredTransactions.isEmpty
               ? ErrorHandler.buildEmptyWidget(
                   context,
                   message: 'No transactions found',
                 )
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  itemCount: allTransactions.length,
+                  itemCount: filteredTransactions.length,
                   itemBuilder: (context, index) {
-                    final transaction = allTransactions[index];
+                    final transaction = filteredTransactions[index];
                     final isSale = transaction['transaction_type'] == 'Sale';
                     final timestamp = transaction['timestamp']?.toString() ?? '';
                     final time = timestamp.isNotEmpty
-                        ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(timestamp))
+                        ? DateFormat('MMM dd, yyyy HH:mm').format(_parseTimestamp(timestamp)!)
                         : 'Unknown time';
+                    final staffName = transaction['staff_name'] ?? 'Unknown Staff';
                     
                     if (isSale) {
                       final itemName = transaction['item_name'] ??
@@ -2187,6 +2310,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       final paymentMethod = transaction['payment_method'] ?? 'cash';
                       final booking = transaction['bookings'] as Map<String, dynamic>?;
                       final bookingGuest = booking?['guest_name'] as String?;
+                      final roomNumber = booking?['rooms']?['room_number'] as String?;
                       
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 4),
@@ -2196,23 +2320,35 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Payment: $paymentMethod'),
-                              if (bookingGuest != null) Text('Guest: $bookingGuest'),
+                              Text('Staff: $staffName'),
+                              Text('Payment: ${paymentMethod.toUpperCase()}'),
+                              if (bookingGuest != null) 
+                                Text('Guest: $bookingGuest${roomNumber != null ? ' (Room $roomNumber)' : ''}'),
                               Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                             ],
                           ),
-                          trailing: Text(
-                            '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ],
                           ),
                         ),
                       );
                     } else {
                       // Dispatch
-                      final itemName = transaction['menu_items']?['name'] ?? 'Item';
+                      final itemName = (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ?? 'Item';
                       final qty = transaction['quantity'] ?? 0;
                       final destination = transaction['destination_department'] ?? 'Unknown';
                       final status = transaction['status'] ?? 'Pending';
+                      final booking = transaction['bookings'] as Map<String, dynamic>?;
+                      final bookingGuest = booking?['guest_name'] as String?;
+                      final roomNumber = booking?['rooms']?['room_number'] as String?;
+                      final totalAmount = transaction['total_amount'] as int? ?? 0;
                       
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 4),
@@ -2222,14 +2358,29 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('To: $destination'),
+                              Text('Staff: $staffName'),
+                              Text('To: ${_formatDepartmentName(destination)}'),
                               Text('Status: $status'),
+                              if (bookingGuest != null)
+                                Text('Guest: $bookingGuest${roomNumber != null ? ' (Room $roomNumber)' : ''}'),
                               Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                             ],
                           ),
-                          trailing: Icon(
-                            status == 'Completed' ? Icons.check_circle : Icons.pending,
-                            color: status == 'Completed' ? Colors.green : Colors.orange,
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (totalAmount > 0)
+                                Text(
+                                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalAmount))}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              Icon(
+                                status == 'Completed' ? Icons.check_circle : Icons.pending,
+                                color: status == 'Completed' ? Colors.green : Colors.orange,
+                                size: 20,
+                              ),
+                            ],
                           ),
                         ),
                       );

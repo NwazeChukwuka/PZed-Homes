@@ -419,6 +419,7 @@ CREATE TABLE public.rooms (
     type_id UUID REFERENCES public.room_types(id),
     type TEXT NOT NULL, -- 'Standard', 'Deluxe', etc. (denormalized for quick access)
     status TEXT DEFAULT 'Vacant' CHECK (status IN ('Vacant', 'Occupied', 'Dirty', 'Cleaning', 'Maintenance')),
+    priority TEXT DEFAULT 'Low' CHECK (priority IN ('Low', 'Medium', 'High', 'Urgent')),
     floor INTEGER,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -537,6 +538,7 @@ CREATE TABLE public.inventory_items (
     unit TEXT DEFAULT 'units', -- 'bottles', 'packs', 'kg', etc.
     department TEXT DEFAULT 'both', -- 'vip_bar', 'outside_bar', or 'both'
     location_id UUID REFERENCES public.locations(id),
+    stock_item_id UUID REFERENCES public.stock_items(id), -- Link to stock_items for proper stock tracking
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );

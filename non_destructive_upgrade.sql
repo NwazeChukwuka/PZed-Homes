@@ -1318,6 +1318,29 @@ BEGIN
   EXECUTE FUNCTION public.log_room_status_change();
 END $$;
 
+-- Add priority column to rooms table if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+    AND table_name = 'rooms'
+    AND column_name = 'priority'
+  ) THEN
+    ALTER TABLE public.rooms
+    ADD COLUMN priority TEXT DEFAULT 'Low' CHECK (priority IN ('Low', 'Medium', 'High', 'Urgent'));
+    
+    -- Set initial priority based on status
+    UPDATE public.rooms
+    SET priority = CASE
+      WHEN status = 'Dirty' THEN 'High'
+      WHEN status = 'Cleaning' THEN 'Medium'
+      WHEN status = 'Maintenance' THEN 'High'
+      ELSE 'Low'
+    END;
+  END IF;
+END $$;
+
 -- 5) Stock transfers + function
 CREATE TABLE IF NOT EXISTS public.stock_transfers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -203,11 +203,15 @@ class DataService {
     });
   }
 
-  Future<void> updateRoomStatus(String roomId, String newStatus) async {
+  Future<void> updateRoomStatus(String roomId, String newStatus, {String? priority}) async {
     await _retryOperation(() async {
+      final updates = <String, dynamic>{'status': newStatus};
+      if (priority != null) {
+        updates['priority'] = priority;
+      }
       await _supabase
           .from('rooms')
-          .update({'status': newStatus})
+          .update(updates)
           .eq('id', roomId);
     });
   }
@@ -1106,10 +1110,21 @@ class DataService {
       if (department != null && department.isNotEmpty) {
         query = query.eq('department', department);
       }
-      if (startDate != null) {
+      
+      // Account for 5 AM business day boundary
+      // Since department_sales.date is stored as calendar date, we need to query
+      // for all calendar dates that could contain transactions within the business day range
+      if (startDate != null && endDate != null) {
+        // Get calendar dates that span the business day range
+        // Business day can span two calendar dates (e.g., 5 AM Jan 14 to 4:59 AM Jan 15)
+        final startCalendarDate = startDate.toIso8601String().split('T')[0];
+        final endCalendarDate = endDate.toIso8601String().split('T')[0];
+        
+        // Query for all dates in the range (inclusive)
+        query = query.gte('date', startCalendarDate).lte('date', endCalendarDate);
+      } else if (startDate != null) {
         query = query.gte('date', startDate.toIso8601String().split('T')[0]);
-      }
-      if (endDate != null) {
+      } else if (endDate != null) {
         query = query.lte('date', endDate.toIso8601String().split('T')[0]);
       }
       
