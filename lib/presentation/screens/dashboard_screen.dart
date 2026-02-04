@@ -1483,7 +1483,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisCount: crossAxisCount,
         crossAxisSpacing: spacing,
         mainAxisSpacing: spacing,
-        childAspectRatio: cardWidth / 120, // Adjust height based on card width
+        childAspectRatio: cardWidth / 140, // Fixed height of 140px for consistency
       ),
       itemCount: allCards.length,
       itemBuilder: (context, index) => allCards[index],
@@ -1496,6 +1496,131 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return current > 0 ? 100.0 : 0.0;
     }
     return ((current - previous) / previous) * 100;
+  }
+  
+  // Unified KPI card builder with stable layout
+  Widget _buildKPICard(
+    BuildContext context,
+    String title,
+    num currentValue,
+    num previousValue,
+    IconData icon,
+    Color color,
+    bool isCurrency,
+  ) {
+    final trend = _calculateTrend(currentValue, previousValue);
+    final isPositive = trend >= 0;
+    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
+    final trendIcon = isPositive ? Icons.trending_up : Icons.trending_down;
+    
+    final displayValue = isCurrency
+        ? '₦${_formatKobo(currentValue)}'
+        : '${currentValue.toInt()}';
+    
+    final trendText = trend.abs() < 0.01
+        ? 'No change'
+        : '${isPositive ? '+' : ''}${trend.toStringAsFixed(1)}%';
+    
+    return AppAnimations.animatedCard(
+      child: Container(
+        height: 140, // Fixed height for consistency
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Top row: Icon (left) and Trend badge (right)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Icon container (top-left)
+                Container(
+                  width: 40,
+                  height: 40,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                // Trend badge (top-right)
+                if (previousValue != 0 || currentValue != 0)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: trendColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(trendIcon, color: trendColor, size: 12),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(
+                              trendText,
+                              style: TextStyle(
+                                color: trendColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const Spacer(),
+            // Primary KPI value (large font, single line)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                displayValue,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0A0A0A),
+                      fontSize: 24,
+                      height: 1.2,
+                    ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Card label (small, muted text)
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF666666),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
   
   // KPI card builder with inverted trend (for expenses where lower is better)
@@ -1525,7 +1650,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     
     return AppAnimations.animatedCard(
       child: Container(
-        padding: const EdgeInsets.all(20),
+        height: 140, // Fixed height for consistency
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -1539,163 +1665,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisSize: MainAxisSize.min,
           children: [
+            // Top row: Icon (left) and Trend badge (right)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Icon container (top-left)
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 40,
+                  height: 40,
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: color, size: 24),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: trendColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(trendIcon, color: trendColor, size: 14),
-                      const SizedBox(width: 4),
-                      Text(
-                        trendText,
-                        style: TextStyle(
-                          color: trendColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
+                // Trend badge (top-right)
+                if (previousValue != 0 || currentValue != 0)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: trendColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(trendIcon, color: trendColor, size: 12),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(
+                              trendText,
+                              style: TextStyle(
+                                color: trendColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              displayValue,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF0A0A0A),
-                    fontSize: 28,
-                  ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const Spacer(),
+            // Primary KPI value (large font, single line)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                displayValue,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0A0A0A),
+                      fontSize: 24,
+                      height: 1.2,
+                    ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF666666),
-                    fontSize: 14,
-                  ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  // Unified KPI card builder with trend indicators
-  Widget _buildKPICard(
-    BuildContext context,
-    String title,
-    num currentValue,
-    num previousValue,
-    IconData icon,
-    Color color,
-    bool isCurrency,
-  ) {
-    final trend = _calculateTrend(currentValue, previousValue);
-    final isPositive = trend >= 0;
-    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
-    final trendIcon = isPositive ? Icons.trending_up : Icons.trending_down;
-    
-    final displayValue = isCurrency
-        ? '₦${_formatKobo(currentValue)}'
-        : '${currentValue.toInt()}';
-    
-    final trendText = trend.abs() < 0.01
-        ? 'No change'
-        : '${isPositive ? '+' : ''}${trend.toStringAsFixed(1)}%';
-    
-    return AppAnimations.animatedCard(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: color, size: 24),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: trendColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(trendIcon, color: trendColor, size: 14),
-                      const SizedBox(width: 4),
-                      Text(
-                        trendText,
-                        style: TextStyle(
-                          color: trendColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              displayValue,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF0A0A0A),
-                    fontSize: 28,
-                  ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+            // Card label (small, muted text)
             Text(
               title,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: const Color(0xFF666666),
-                    fontSize: 14,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

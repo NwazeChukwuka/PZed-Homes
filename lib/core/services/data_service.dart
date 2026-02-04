@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DataService {
@@ -54,11 +55,29 @@ class DataService {
   }
 
   // Bookings
+  // Auto-update expired bookings (runs before fetching bookings to ensure accuracy)
+  Future<void> updateExpiredBookings() async {
+    await _retryOperation(() async {
+      try {
+        await _supabase.rpc('auto_update_expired_bookings');
+      } catch (e) {
+        // Silently fail - function might not exist yet or pg_cron might not be available
+        // This is not critical for the app to function
+        if (kDebugMode) {
+          print('Note: auto_update_expired_bookings not available: $e');
+        }
+      }
+    });
+  }
+
   Future<List<Map<String, dynamic>>> getBookings({
     DateTime? startDate,
     DateTime? endDate,
-    int limit = 200,
+    int limit = 1000,
   }) async {
+    // Auto-update expired bookings before fetching to ensure accurate status
+    await updateExpiredBookings();
+    
     return await _retryOperation(() async {
       // Explicitly select columns to avoid any issues with non-existent columns
       var query = _supabase
@@ -375,7 +394,7 @@ class DataService {
     String? staffId,
     DateTime? startDate,
     DateTime? endDate,
-    int limit = 100,
+    int limit = 1000,
   }) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -1018,13 +1037,28 @@ class DataService {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getMiniMartSales() async {
+  Future<List<Map<String, dynamic>>> getMiniMartSales({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? staffId,
+    int limit = 1000,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('mini_mart_sales')
-          .select('*, mini_mart_items(name, price), profiles!sold_by(full_name)')
-          .order('sale_date', ascending: false)
-          .limit(50);
+          .select('*, mini_mart_items(name, price), profiles!sold_by(full_name)');
+
+      if (startDate != null) {
+        query = query.gte('sale_date', startDate.toIso8601String().split('T')[0]);
+      }
+      if (endDate != null) {
+        query = query.lte('sale_date', endDate.toIso8601String().split('T')[0]);
+      }
+      if (staffId != null && staffId != 'all') {
+        query = query.eq('sold_by', staffId);
+      }
+
+      final response = await query.order('sale_date', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -1191,13 +1225,36 @@ class DataService {
   }
 
   // Department Transfers (Kitchen Dispatch)
-  Future<List<Map<String, dynamic>>> getDepartmentTransfers() async {
+  Future<List<Map<String, dynamic>>> getDepartmentTransfers({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? staffId,
+    String? destinationDepartment,
+    String? paymentStatus,
+    int limit = 1000,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('department_transfers')
-          .select('*, menu_items(name), profiles!dispatched_by_id(full_name), bookings(id, guest_name, rooms(room_number))')
-          .order('created_at', ascending: false)
-          .limit(50);
+          .select('*, menu_items(name), dispatched_by_profile:profiles!dispatched_by_id(full_name), bookings(id, guest_name, rooms(room_number))');
+
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      if (staffId != null && staffId != 'all') {
+        query = query.eq('dispatched_by_id', staffId);
+      }
+      if (destinationDepartment != null && destinationDepartment != 'all') {
+        query = query.eq('destination_department', destinationDepartment);
+      }
+      if (paymentStatus != null && paymentStatus != 'all') {
+        query = query.eq('payment_status', paymentStatus);
+      }
+
+      final response = await query.order('created_at', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -1223,13 +1280,32 @@ class DataService {
   }
 
   // Kitchen Sales (dedicated history)
-  Future<List<Map<String, dynamic>>> getKitchenSalesHistory() async {
+  Future<List<Map<String, dynamic>>> getKitchenSalesHistory({
+    DateTime? startDate,
+    DateTime? endDate,
+    String? staffId,
+    String? paymentMethod,
+    int limit = 1000,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('kitchen_sales')
-          .select('*, menu_items(name), profiles!sold_by(full_name), bookings(id, guest_name)')
-          .order('created_at', ascending: false)
-          .limit(100);
+          .select('*, menu_items(name), sold_by_profile:profiles!sold_by(full_name), bookings(id, guest_name, rooms(room_number))');
+
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      if (staffId != null && staffId != 'all') {
+        query = query.eq('sold_by', staffId);
+      }
+      if (paymentMethod != null && paymentMethod != 'all') {
+        query = query.eq('payment_method', paymentMethod);
+      }
+
+      final response = await query.order('created_at', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }

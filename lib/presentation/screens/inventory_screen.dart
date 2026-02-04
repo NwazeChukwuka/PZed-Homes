@@ -11,6 +11,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -223,8 +224,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Future<void> _loadTransactions() async {
     try {
-      // Increase limit to show more transaction history (500 instead of default 100)
-      final transactions = await _dataService.getStockTransactions(limit: 500);
+      // Increase limit to show more transaction history (1000 records)
+      final transactions = await _dataService.getStockTransactions(limit: 1000);
         setState(() {
         _allTransactions = transactions;
         _updateCurrentPageTransactions();
@@ -358,7 +359,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               }
               final filteredItems = _filterItemsByBar(items);
 
-              return ListView.builder(
+              return ScrollableListViewWithArrows(
                 itemCount: filteredItems.length,
                 itemBuilder: (context, index) {
                   final item = filteredItems[index];
@@ -544,7 +545,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           ),
         ),
         Expanded(
-          child: ListView.builder(
+          child: ScrollableListViewWithArrows(
             itemCount: _currentPageTransactions.length,
             itemBuilder: (context, index) {
               final transaction = _currentPageTransactions[index];

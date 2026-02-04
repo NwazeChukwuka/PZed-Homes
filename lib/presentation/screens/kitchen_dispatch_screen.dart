@@ -15,6 +15,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
 class KitchenDispatchScreen extends StatefulWidget {
@@ -127,8 +128,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           .toList();
       final locResponse = await _dataService.getLocations();
       final deptResponse = await _dataService.getDepartments();
-      final dispatchHistory = await _dataService.getDepartmentTransfers();
-      final salesHistory = await _dataService.getKitchenSalesHistory();
+      final dispatchHistory = await _dataService.getDepartmentTransfers(limit: 1000);
+      final salesHistory = await _dataService.getKitchenSalesHistory(limit: 1000);
       final allBookings = await _dataService.getBookings();
       if (!mounted) return;
 
@@ -2289,9 +2290,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   context,
                   message: 'No transactions found',
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              : ScrollableListViewWithArrows(
                   itemCount: filteredTransactions.length,
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   itemBuilder: (context, index) {
                     final transaction = filteredTransactions[index];
                     final isSale = transaction['transaction_type'] == 'Sale';

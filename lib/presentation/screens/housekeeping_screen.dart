@@ -5,6 +5,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -39,6 +40,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   // Booking history state
   List<Map<String, dynamic>> _bookings = [];
   DateTimeRange? _bookingFilterRange;
+  final TextEditingController _bookingSearchController = TextEditingController();
+  String _bookingSearchQuery = '';
   late TabController _tabController;
 
   bool get _isReceptionist {
@@ -130,6 +133,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
     _tabController.dispose();
     _roomsSub?.cancel();
     _refreshDebounce?.cancel();
+    _bookingSearchController.dispose();
     super.dispose();
   }
 
@@ -246,6 +250,49 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
       return DateTime.parse(timestamp.toString());
     } catch (e) {
       return null;
+    }
+  }
+
+  // Calculate correct booking status based on check-out date (12:00 PM rule)
+  String _calculateBookingStatus(Map<String, dynamic> booking) {
+    final dbStatus = booking['status']?.toString().toLowerCase() ?? 'unknown';
+    
+    // If already checked out or cancelled, return as is
+    if (dbStatus == 'checked-out' || dbStatus == 'checked_out' || dbStatus == 'cancelled') {
+      return dbStatus == 'checked-out' || dbStatus == 'checked_out' ? 'Checked Out' : 'Cancelled';
+    }
+    
+    // Check if check-out date has passed 12:00 PM
+    final checkOut = _parseTimestamp(booking['check_out_date']);
+    if (checkOut != null) {
+      // Set check-out time to 12:00 PM on the check-out date
+      final checkOutExpiry = DateTime(
+        checkOut.year,
+        checkOut.month,
+        checkOut.day,
+        12, // 12:00 PM
+        0,
+      );
+      
+      final now = DateTime.now();
+      
+      // If current time is past 12:00 PM on check-out date, booking is expired (Checked Out)
+      if (now.isAfter(checkOutExpiry)) {
+        return 'Checked Out';
+      }
+    }
+    
+    // Return the database status for other cases
+    switch (dbStatus) {
+      case 'checked-in':
+      case 'checked_in':
+        return 'Checked In';
+      case 'pending check-in':
+      case 'pending_check_in':
+      case 'pending':
+        return 'Pending Check-In';
+      default:
+        return dbStatus.split('_').map((s) => s[0].toUpperCase() + s.substring(1)).join(' ');
     }
   }
 
@@ -509,20 +556,26 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Container(
-        height: MediaQuery.of(context).size.height - 200,
-        child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
             ),
-            child: PaginatedDataTable(
+          ],
+        ),
+        child: Scrollbar(
+          thumbVisibility: true,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.vertical,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height - 200,
+              ),
+              child: PaginatedDataTable(
               header: Container(
                 padding: const EdgeInsets.all(20),
                 child: Row(
@@ -588,10 +641,12 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
               },
               availableRowsPerPage: const [5, 10, 20, 50],
               showFirstLastButtons: true,
+              ),
             ),
           ),
         ),
-      );
+      ),
+    );
   }
   
   Widget _buildBookingHistoryTab(BuildContext context) {
@@ -609,6 +664,20 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
         
         return (bookingStart.isBefore(_bookingFilterRange!.end) || bookingStart.isAtSameMomentAs(_bookingFilterRange!.end))
             && (bookingEnd.isAfter(_bookingFilterRange!.start) || bookingEnd.isAtSameMomentAs(_bookingFilterRange!.start));
+      }).toList();
+    }
+    
+    // Filter by search query (guest name or room number)
+    final searchQuery = _bookingSearchQuery.toLowerCase().trim();
+    if (searchQuery.isNotEmpty) {
+      filteredBookings = filteredBookings.where((booking) {
+        final guestName = ((booking['profiles'] as Map<String, dynamic>?)?['full_name'] 
+            ?? booking['guest_name'] 
+            ?? 'Unknown Guest').toString().toLowerCase();
+        final roomNumber = ((booking['rooms'] as Map<String, dynamic>?)?['room_number'] 
+            ?? booking['room_id']?.toString() 
+            ?? 'N/A').toString().toLowerCase();
+        return guestName.contains(searchQuery) || roomNumber.contains(searchQuery);
       }).toList();
     }
     
@@ -643,6 +712,35 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                 ],
               ),
               const SizedBox(height: 16),
+              // Search field
+              TextField(
+                controller: _bookingSearchController,
+                decoration: InputDecoration(
+                  hintText: 'Search by guest name or room number...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _bookingSearchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _bookingSearchController.clear();
+                              _bookingSearchQuery = '';
+                            });
+                          },
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _bookingSearchQuery = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () async {
                   final now = DateTime.now();
@@ -683,9 +781,9 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                   context,
                   message: 'No bookings found',
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              : ScrollableListViewWithArrows(
                   itemCount: filteredBookings.length,
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   itemBuilder: (context, index) {
                     final booking = filteredBookings[index];
                     final guestName = (booking['profiles'] as Map<String, dynamic>?)?['full_name'] 
@@ -694,7 +792,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                     final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?['room_number'] 
                         ?? booking['room_id']?.toString() 
                         ?? 'N/A';
-                    final status = booking['status']?.toString() ?? 'Unknown';
+                    // Calculate correct status based on check-out date (12:00 PM rule)
+                    final calculatedStatus = _calculateBookingStatus(booking);
                     final checkIn = _parseTimestamp(booking['check_in_date']);
                     final checkOut = _parseTimestamp(booking['check_out_date']);
                     final checkInStr = checkIn != null 
@@ -708,8 +807,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
                         leading: Icon(
-                          _getBookingStatusIcon(status),
-                          color: _getBookingStatusColor(status),
+                          _getBookingStatusIcon(calculatedStatus),
+                          color: _getBookingStatusColor(calculatedStatus),
                         ),
                         title: Text(guestName),
                         subtitle: Column(
@@ -719,19 +818,19 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                             Text('Check-in: $checkInStr'),
                             if (checkOut != null) Text('Check-out: $checkOutStr'),
                             Text(
-                              'Status: ${status.toUpperCase()}',
+                              'Status: ${calculatedStatus.toUpperCase()}',
                               style: TextStyle(
-                                color: _getBookingStatusColor(status),
+                                color: _getBookingStatusColor(calculatedStatus),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],
                         ),
                         trailing: Chip(
-                          label: Text(status.toUpperCase()),
-                          backgroundColor: _getBookingStatusColor(status).withOpacity(0.1),
+                          label: Text(calculatedStatus.toUpperCase()),
+                          backgroundColor: _getBookingStatusColor(calculatedStatus).withOpacity(0.1),
                           labelStyle: TextStyle(
-                            color: _getBookingStatusColor(status),
+                            color: _getBookingStatusColor(calculatedStatus),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -747,10 +846,13 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   
   IconData _getBookingStatusIcon(String status) {
     switch (status.toLowerCase()) {
+      case 'checked in':
       case 'checked-in':
         return Icons.login;
+      case 'checked out':
       case 'checked-out':
         return Icons.logout;
+      case 'pending check-in':
       case 'pending':
         return Icons.pending;
       case 'cancelled':
@@ -762,10 +864,13 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   
   Color _getBookingStatusColor(String status) {
     switch (status.toLowerCase()) {
+      case 'checked in':
       case 'checked-in':
         return Colors.green[700]!;
+      case 'checked out':
       case 'checked-out':
         return Colors.blue[700]!;
+      case 'pending check-in':
       case 'pending':
         return Colors.orange[700]!;
       case 'cancelled':

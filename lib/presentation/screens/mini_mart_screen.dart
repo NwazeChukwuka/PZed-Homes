@@ -10,6 +10,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:flutter/services.dart';
 import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
@@ -83,7 +84,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       final itemsResponse = await _dataService.getMiniMartItems();
       
       // Load sales history from mock data
-      final salesResponse = await _dataService.getMiniMartSales();
+      final salesResponse = await _dataService.getMiniMartSales(limit: 1000);
 
       if (mounted) {
         final items = List<Map<String, dynamic>>.from(itemsResponse)
@@ -1270,7 +1271,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               )
             else
               Expanded(
-                child: ListView.builder(
+                child: ScrollableListViewWithArrows(
                   itemCount: _salesHistory.length,
                   itemBuilder: (context, index) {
                     final sale = _salesHistory[index];
@@ -1362,7 +1363,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               )
             else
               Expanded(
-                child: ListView.builder(
+                child: ScrollableListViewWithArrows(
                   itemCount: _miniMartItems.length,
                   itemBuilder: (context, index) {
                     final item = _miniMartItems[index];
