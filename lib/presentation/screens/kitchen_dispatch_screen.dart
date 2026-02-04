@@ -46,6 +46,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
+  Set<String> _dismissedWarnings = {};
   List<Map<String, dynamic>> _dispatchHistory = [];
   List<Map<String, dynamic>> _salesHistory = [];
   List<Map<String, dynamic>> _bookings = [];
@@ -1388,30 +1389,48 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ),
           body: Column(
             children: [
-              if (_missingStockLinks.isNotEmpty)
+              if (_missingStockLinks.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
                 Padding(
                   padding: const EdgeInsets.all(12),
                   child: Card(
                     color: Colors.orange[50],
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Column(
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Missing stock linkage',
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Missing stock linkage',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Some kitchen items are not linked to stock items. Sales/dispatch will be blocked for them.',
+                                  style: TextStyle(color: Colors.orange[800], fontSize: 12),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _missingStockLinks.take(5).join(', ') +
+                                      (_missingStockLinks.length > 5 ? '...' : ''),
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Some kitchen items are not linked to stock items. Sales/dispatch will be blocked for them.',
-                            style: TextStyle(color: Colors.orange[800], fontSize: 12),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _missingStockLinks.take(5).join(', ') +
-                                (_missingStockLinks.length > 5 ? '...' : ''),
-                            style: const TextStyle(fontSize: 12),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            color: Colors.orange[800],
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () {
+                              setState(() {
+                                _dismissedWarnings.add('missing_stock_linkage');
+                              });
+                            },
                           ),
                         ],
                       ),

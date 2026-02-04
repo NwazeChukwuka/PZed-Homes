@@ -62,6 +62,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _stockLevels = [];
   List<Map<String, dynamic>> _payrollRecords = [];
   List<Map<String, dynamic>> _cashDeposits = [];
+  List<Map<String, dynamic>> _purchaseOrders = [];
+  List<Map<String, dynamic>> _maintenanceOrders = [];
 
   // Calendar state
   DateTime _focusedDay = DateTime.now();
@@ -254,7 +256,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
           effectiveRole == AppRole.owner || effectiveRole == AppRole.manager;
 
       // Load essential data first (for immediate display)
-      final timeRange = _currentRange();
+      DateTimeRange timeRange;
+      try {
+        timeRange = _currentRange();
+        // Validate date range
+        if (timeRange.start.isAfter(timeRange.end)) {
+          throw Exception('Invalid date range: start date is after end date');
+        }
+      } catch (e) {
+        if (mounted) {
+          ErrorHandler.handleError(
+            context,
+            e,
+            customMessage: 'Invalid date range selected. Please try again.',
+          );
+        }
+        return;
+      }
       final checkedInGuests = await _dataService.getCheckedInGuests();
       
       // Load department sales in parallel for faster loading
@@ -286,12 +304,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ]);
       
-      // Load bookings (for recent bookings list)
+      // Load bookings (for recent bookings list and income calculation)
       final bookings = await _dataService.getBookings();
       
-      // Load income and expenses for financial cards
-      final income = await _dataService.getIncomeRecords();
-      final expenses = await _dataService.getExpenses();
+      // Load all income sources for financial cards
+      final incomeRecords = await _dataService.getIncomeRecords(
+        startDate: timeRange.start,
+        endDate: timeRange.end,
+      );
+      
+      // Load all expense sources for financial cards
+      final expenses = await _dataService.getExpenses(
+        startDate: timeRange.start,
+        endDate: timeRange.end,
+        status: 'Approved', // Only count approved expenses
+      );
+      
+      // Load purchase orders (expenses)
+      final purchaseOrders = await _dataService.getPurchaseOrders(
+        startDate: timeRange.start,
+        endDate: timeRange.end,
+      );
+      
+      // Load maintenance work orders (expenses)
+      final maintenanceOrders = await _dataService.getMaintenanceWorkOrders();
       
       // Wait for sales data
       final salesResults = await salesFuture;
@@ -317,8 +353,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _isLoadingAttendance = false;
           
-          // Calculate department sales totals
-          num sum(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
+          // Calculate department sales totals (using total_sales field from department_sales table)
+          num sum(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
           _deptSalesTotals = {
             'VIP Bar': sum(vipSales),
             'Outside Bar': sum(outsideSales),
@@ -333,8 +369,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           };
           
           // Store income and expenses for financial cards
-          _incomeRecords = income;
+          _incomeRecords = incomeRecords;
           _expenseRecords = expenses;
+          
+          // Store additional data for income/expense calculation
+          _bookings = bookings;
+          _purchaseOrders = purchaseOrders;
+          _maintenanceOrders = maintenanceOrders;
           
           _hasLoadedOnce = true;
         });
@@ -345,8 +386,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _isLoadingAttendance = false;
         });
+        // Show more specific error message
+        if (kDebugMode) {
+          print('Dashboard load error: $e');
+        }
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load dashboard data. Please check your date range and try again.',
+        );
       }
-      ErrorHandler.handleError(context, e);
     }
   }
 
@@ -1027,19 +1076,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
     
-    // Calculate financial metrics based on date range
-    final inRangeIncome = _incomeRecords.where((e) {
-      final d = _parseTimestamp(e['date']);
-      return d != null && _isInRange(d);
-    }).toList();
-    final inRangeExpenses = _expenseRecords.where((e) {
-      final d = _parseTimestamp(e['date']);
-      return d != null && _isInRange(d);
-    }).toList();
+    // Calculate income from all sources (already filtered by date in query)
+    // 1. Income records
+    num incomeFromRecords = _incomeRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
     
-    num sumAmount(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['amount'] as num));
-    final income = sumAmount(inRangeIncome);
-    final expenses = sumAmount(inRangeExpenses);
+    // 2. Bookings (paid amounts)
+    num incomeFromBookings = _bookings.where((b) {
+      final checkIn = _parseTimestamp(b['check_in_date']);
+      return checkIn != null && _isInRange(checkIn);
+    }).fold<num>(0, (s, b) => s + ((b['paid_amount'] as num?) ?? 0));
+    
+    // 3. Department sales (already filtered by date in query)
+    num incomeFromDeptSales = _deptSalesTotals.values.fold<num>(0, (s, v) => s + v);
+    
+    // Total income
+    final income = incomeFromRecords + incomeFromBookings + incomeFromDeptSales;
+    
+    // Calculate expenses from all sources (already filtered by date in query)
+    // 1. Expenses table
+    num expensesFromTable = _expenseRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+    
+    // 2. Purchase orders (total_cost)
+    num expensesFromPurchases = _purchaseOrders.where((po) {
+      final created = _parseTimestamp(po['created_at']);
+      return created != null && _isInRange(created);
+    }).fold<num>(0, (sum, po) {
+      // Calculate total from purchase_order_items if available
+      final items = po['purchase_order_items'] as List?;
+      if (items != null && items.isNotEmpty) {
+        final itemsTotal = items.fold<num>(0, (itemSum, item) {
+          final qty = (item['quantity'] as num?) ?? 0;
+          final unitPrice = (item['unit_price'] as num?) ?? 0;
+          return itemSum + (qty * unitPrice);
+        });
+        return sum + itemsTotal;
+      }
+      // Fallback to total_cost if available
+      return sum + ((po['total_cost'] as num?) ?? 0);
+    });
+    
+    // 3. Maintenance work orders (actual_cost, only completed ones)
+    num expensesFromMaintenance = _maintenanceOrders.where((mo) {
+      final created = _parseTimestamp(mo['created_at']);
+      return created != null && _isInRange(created) && (mo['status'] == 'Completed');
+    }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
+    
+    // Total expenses
+    final expenses = expensesFromTable + expensesFromPurchases + expensesFromMaintenance;
+    
+    // Net profit
     final profit = income - expenses;
     
     // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Profit
