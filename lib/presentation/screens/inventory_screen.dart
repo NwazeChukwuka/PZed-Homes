@@ -223,7 +223,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Future<void> _loadTransactions() async {
     try {
-      final transactions = await _dataService.getStockTransactions();
+      // Increase limit to show more transaction history (500 instead of default 100)
+      final transactions = await _dataService.getStockTransactions(limit: 500);
         setState(() {
         _allTransactions = transactions;
         _updateCurrentPageTransactions();

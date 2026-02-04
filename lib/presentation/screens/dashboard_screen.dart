@@ -403,12 +403,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _isLoadingAttendance = false;
           
+          // Ensure all department keys are present with numeric values (never null)
           _deptSalesTotals = {
-            'VIP Bar': vipBarTotal,
-            'Outside Bar': outsideBarTotal,
-            'Mini Mart': sumDeptSales(miniMartSales),
-            'Kitchen': sumDeptSales(kitchenSales),
-            'Reception': sumDeptSales(receptionSales),
+            'VIP Bar': vipBarTotal ?? 0,
+            'Outside Bar': outsideBarTotal ?? 0,
+            'Mini Mart': (sumDeptSales(miniMartSales) ?? 0),
+            'Kitchen': (sumDeptSales(kitchenSales) ?? 0),
+            'Reception': (sumDeptSales(receptionSales) ?? 0),
           };
           
           // Debug: Log if totals are zero
@@ -537,9 +538,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Ensure value is never null and handle edge cases
     final safeValue = value ?? 0;
     final intValue = safeValue.toInt();
-    return NumberFormat('#,##0.00').format(
-      PaymentService.koboToNaira(intValue),
-    );
+    final nairaValue = PaymentService.koboToNaira(intValue);
+    // Always return a formatted string, even for zero
+    final formatted = NumberFormat('#,##0.00').format(nairaValue);
+    // Ensure we never return an empty string
+    return formatted.isEmpty ? '0.00' : formatted;
   }
 
   Future<void> _handleClockIn() async {
