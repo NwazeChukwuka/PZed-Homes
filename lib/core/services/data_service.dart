@@ -1058,7 +1058,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('menu_items')
-          .select('id, name, price, department, barcode')
+          .select('id, name, price, department, barcode, stock_item_id')
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     });
