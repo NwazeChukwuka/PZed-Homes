@@ -2880,3 +2880,27 @@ $$;
 
 -- Grant execute permission on the function
 GRANT EXECUTE ON FUNCTION public.approve_stock_count(UUID, UUID, TEXT) TO authenticated;
+
+-- ==============================================
+-- Add stock_item_id column to inventory_items for proper stock tracking
+-- ==============================================
+DO $$
+BEGIN
+  -- Add stock_item_id column if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'inventory_items' 
+    AND column_name = 'stock_item_id'
+  ) THEN
+    ALTER TABLE public.inventory_items
+    ADD COLUMN stock_item_id UUID REFERENCES public.stock_items(id);
+    
+    -- Create index for better query performance
+    CREATE INDEX IF NOT EXISTS idx_inventory_items_stock_item_id 
+    ON public.inventory_items(stock_item_id);
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;

@@ -534,8 +534,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 
   String _formatKobo(num value) {
+    // Ensure value is never null and handle edge cases
+    final safeValue = value ?? 0;
+    final intValue = safeValue.toInt();
     return NumberFormat('#,##0.00').format(
-      PaymentService.koboToNaira(value.toInt()),
+      PaymentService.koboToNaira(intValue),
     );
   }
 
@@ -1206,7 +1209,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildCard(
         context,
         'Reception',
-        '₦${_formatKobo(_deptSalesTotals['Reception'] ?? 0)}',
+        '₦${_formatKobo((_deptSalesTotals['Reception'] as num?) ?? 0)}',
         Icons.point_of_sale,
         Colors.green[700]!,
       ),
@@ -1214,7 +1217,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildCard(
         context,
         'VIP Bar',
-        '₦${_formatKobo(_deptSalesTotals['VIP Bar'] ?? 0)}',
+        '₦${_formatKobo((_deptSalesTotals['VIP Bar'] as num?) ?? 0)}',
         Icons.point_of_sale,
         Colors.green[700]!,
       ),
@@ -1222,7 +1225,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildCard(
         context,
         'Outside Bar',
-        '₦${_formatKobo(_deptSalesTotals['Outside Bar'] ?? 0)}',
+        '₦${_formatKobo((_deptSalesTotals['Outside Bar'] as num?) ?? 0)}',
         Icons.point_of_sale,
         Colors.green[700]!,
       ),
@@ -1230,7 +1233,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildCard(
         context,
         'Kitchen',
-        '₦${_formatKobo(_deptSalesTotals['Kitchen'] ?? 0)}',
+        '₦${_formatKobo((_deptSalesTotals['Kitchen'] as num?) ?? 0)}',
         Icons.point_of_sale,
         Colors.green[700]!,
       ),
@@ -1238,7 +1241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildCard(
         context,
         'Mini Mart',
-        '₦${_formatKobo(_deptSalesTotals['Mini Mart'] ?? 0)}',
+        '₦${_formatKobo((_deptSalesTotals['Mini Mart'] as num?) ?? 0)}',
         Icons.point_of_sale,
         Colors.green[700]!,
       ),
