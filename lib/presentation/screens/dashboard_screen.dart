@@ -33,6 +33,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _searchController = TextEditingController();
+  final _activitiesSearchController = TextEditingController();
   SupabaseClient? get _supabase {
     try {
       return Supabase.instance.client;
@@ -44,7 +45,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   RealtimeChannel? _realtimeChannel;
 
   List<Map<String, dynamic>> _bookings = [];
-  List<Map<String, dynamic>> _filteredBookings = [];
   Map<String, dynamic> _stats = {};
   Map<String, dynamic>? _lastAttendanceRecord;
   bool _isClockedIn = false;
@@ -84,16 +84,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   
   // Pagination state
   int _activitiesDisplayCount = 5;
-  int _bookingsDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
-  final ScrollController _bookingsScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _setupScrollListeners();
     _loadData();
-    _searchController.addListener(_filterBookings);
+    _activitiesSearchController.addListener(_filterActivities);
     _setupRealtimeSubscriptions();
     // Set default focus by role and sync clock-in status
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,17 +124,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
     
-    _bookingsScrollController.addListener(() {
-      if (_bookingsScrollController.position.pixels >=
-          _bookingsScrollController.position.maxScrollExtent * 0.9) {
-        // Load 5 more bookings when scrolled to 90% of the list
-        if (_bookingsDisplayCount < _filteredBookings.length) {
-          setState(() {
-            _bookingsDisplayCount = (_bookingsDisplayCount + 5).clamp(5, _filteredBookings.length);
-          });
-        }
-      }
-    });
+    // Bookings scroll listener removed - Recent Bookings section removed
   }
 
   void _setupRealtimeSubscriptions() {
@@ -246,8 +234,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _activitiesSearchController.dispose();
     _activitiesScrollController.dispose();
-    _bookingsScrollController.dispose();
     // Clean up real-time subscriptions
     if (_realtimeChannel != null) {
       _realtimeChannel!.unsubscribe();
@@ -301,6 +289,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Load bookings (for recent bookings list)
       final bookings = await _dataService.getBookings();
       
+      // Load income and expenses for financial cards
+      final income = await _dataService.getIncomeRecords();
+      final expenses = await _dataService.getExpenses();
+      
       // Wait for sales data
       final salesResults = await salesFuture;
       final vipSales = salesResults[0];
@@ -320,7 +312,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _bookings = bookings;
-          _filteredBookings = _bookings;
           _checkedInGuests = checkedInGuests;
           _pendingDirectSupplies = pendingSupplies;
           _isLoading = false;
@@ -340,6 +331,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _stats = {
             'checked_in_count': checkedInCount,
           };
+          
+          // Store income and expenses for financial cards
+          _incomeRecords = income;
+          _expenseRecords = expenses;
           
           _hasLoadedOnce = true;
         });
@@ -365,19 +360,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
   }
 
-  List<Map<String, dynamic>> _getSortedBookings() {
-    // Sort bookings by creation time (most recent first)
-    final sorted = List<Map<String, dynamic>>.from(_filteredBookings)
-      ..sort((a, b) {
-        final aTime = a['created_at'] != null ? DateTime.tryParse(a['created_at'].toString()) : null;
-        final bTime = b['created_at'] != null ? DateTime.tryParse(b['created_at'].toString()) : null;
-        if (aTime == null && bTime == null) return 0;
-        if (aTime == null) return 1;
-        if (bTime == null) return -1;
-        return bTime.compareTo(aTime); // Most recent first
-      });
-    return sorted;
-  }
 
   String _normalizeBookingStatus(String? raw) {
     if (raw == null) return '';
@@ -430,20 +412,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _filterBookings() {
-    final query = _searchController.text.toLowerCase();
-    if (mounted) {
-      setState(() {
-        _filteredBookings = _bookings.where((booking) {
-          final guestName = (booking['profiles'] as Map<String, dynamic>?)?
-              ['full_name']?.toString().toLowerCase() ?? '';
-          final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?
-              ['room_number']?.toString().toLowerCase() ?? '';
-          return guestName.contains(query) || roomNumber.contains(query);
-        }).toList();
-      });
-    }
+  void _filterActivities() {
+    setState(() {
+      // Trigger rebuild to apply search filter
+    });
   }
+
 
   String _formatKobo(num value) {
     return NumberFormat('#,##0.00').format(
@@ -556,9 +530,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 12),
           _buildTimeRangeToolbar(context),
           const SizedBox(height: 24),
-          _buildMetricCards(context),
-          const SizedBox(height: 24),
-          _buildDepartmentSalesQuickCards(context),
+          _buildAllCards(context),
           const SizedBox(height: 24),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 24),
@@ -568,27 +540,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             animation: const AlwaysStoppedAnimation(1.0),
           ),
           const SizedBox(height: 24),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 1,
-                child: AppAnimations.slideTransition(
-                  child: _buildRecentActivities(context),
-                  animation: AlwaysStoppedAnimation(1.0),
-                  direction: SlideDirection.right,
-                ),
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                flex: 1,
-                child: AppAnimations.slideTransition(
-                  child: _buildBookingsTable(context),
-                  animation: AlwaysStoppedAnimation(1.0),
-                  direction: SlideDirection.left,
-                ),
-              ),
-            ],
+          AppAnimations.slideTransition(
+            child: _buildRecentActivities(context),
+            animation: AlwaysStoppedAnimation(1.0),
+            direction: SlideDirection.right,
           ),
         ],
       ),
@@ -608,17 +563,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
           _buildTimeRangeToolbar(context),
           const SizedBox(height: 16),
-          _buildMetricCards(context),
-          const SizedBox(height: 16),
-          _buildDepartmentSalesQuickCards(context),
+          _buildAllCards(context),
           const SizedBox(height: 16),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 16),
           _buildCalendarLauncher(context),
           const SizedBox(height: 16),
           _buildRecentActivities(context),
-          const SizedBox(height: 16),
-          _buildBookingsTable(context),
         ],
       ),
     );
@@ -637,17 +588,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
           _buildTimeRangeToolbar(context),
           const SizedBox(height: 16),
-          _buildMetricCards(context),
-          const SizedBox(height: 16),
-          _buildDepartmentSalesQuickCards(context),
+          _buildAllCards(context),
           const SizedBox(height: 16),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 16),
           _buildCalendarLauncher(context),
           const SizedBox(height: 16),
           _buildRecentActivities(context),
-          const SizedBox(height: 16),
-          _buildBookingsTable(context),
         ],
       ),
     );
@@ -1072,16 +1019,177 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  List<Widget> _buildMetricCardsList(BuildContext context) {
-    return [
-      _buildMetricCard(
+  // Unified method to build all cards in specified order
+  Widget _buildAllCards(BuildContext context) {
+    final crossAxisCount = _getCrossAxisCount(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final padding = screenWidth < 600 ? 16.0 : 24.0;
+    final spacing = 12.0;
+    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+    
+    // Calculate financial metrics based on date range
+    final inRangeIncome = _incomeRecords.where((e) {
+      final d = _parseTimestamp(e['date']);
+      return d != null && _isInRange(d);
+    }).toList();
+    final inRangeExpenses = _expenseRecords.where((e) {
+      final d = _parseTimestamp(e['date']);
+      return d != null && _isInRange(d);
+    }).toList();
+    
+    num sumAmount(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + (e['amount'] as num));
+    final income = sumAmount(inRangeIncome);
+    final expenses = sumAmount(inRangeExpenses);
+    final profit = income - expenses;
+    
+    // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Profit
+    final allCards = <Widget>[
+      // 1. Checked In
+      _buildCard(
         context,
         'Checked In',
         '${_stats['checked_in_count'] ?? 0}',
         Icons.login,
-        Colors.green[700]!, // Green for better readability
+        Colors.green[700]!,
+      ),
+      // 2. Reception
+      _buildCard(
+        context,
+        'Reception',
+        '₦${_formatKobo(_deptSalesTotals['Reception'] ?? 0)}',
+        Icons.point_of_sale,
+        Colors.green[700]!,
+      ),
+      // 3. VIP Bar
+      _buildCard(
+        context,
+        'VIP Bar',
+        '₦${_formatKobo(_deptSalesTotals['VIP Bar'] ?? 0)}',
+        Icons.point_of_sale,
+        Colors.green[700]!,
+      ),
+      // 4. Outside Bar
+      _buildCard(
+        context,
+        'Outside Bar',
+        '₦${_formatKobo(_deptSalesTotals['Outside Bar'] ?? 0)}',
+        Icons.point_of_sale,
+        Colors.green[700]!,
+      ),
+      // 5. Kitchen
+      _buildCard(
+        context,
+        'Kitchen',
+        '₦${_formatKobo(_deptSalesTotals['Kitchen'] ?? 0)}',
+        Icons.point_of_sale,
+        Colors.green[700]!,
+      ),
+      // 6. Mini Mart
+      _buildCard(
+        context,
+        'Mini Mart',
+        '₦${_formatKobo(_deptSalesTotals['Mini Mart'] ?? 0)}',
+        Icons.point_of_sale,
+        Colors.green[700]!,
+      ),
+      // 7. Income
+      _buildCard(
+        context,
+        'Income',
+        '₦${_formatKobo(income)}',
+        Icons.trending_up,
+        Colors.green[700]!,
+      ),
+      // 8. Expenses
+      _buildCard(
+        context,
+        'Expenses',
+        '₦${_formatKobo(expenses)}',
+        Icons.trending_down,
+        Colors.green[700]!,
+      ),
+      // 9. Profit
+      _buildCard(
+        context,
+        'Net Profit',
+        '₦${_formatKobo(profit)}',
+        Icons.account_balance,
+        Colors.green[700]!,
       ),
     ];
+    
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: cardWidth / 120, // Adjust height based on card width
+      ),
+      itemCount: allCards.length,
+      itemBuilder: (context, index) => allCards[index],
+    );
+  }
+  
+  // Unified card builder for all card types
+  Widget _buildCard(BuildContext context, String title, String value, IconData icon, Color color) {
+    return AppAnimations.animatedCard(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
+                const Spacer(),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: Text(
+                value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0A0A0A),
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF666666),
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildDepartmentSalesQuickCards(BuildContext context) {
@@ -1223,27 +1331,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildMetricCards(BuildContext context) {
-    final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final padding = screenWidth < 600 ? 16.0 : 24.0;
-    final spacing = 16.0;
-    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
-    final metricCards = _buildMetricCardsList(context);
-    
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: cardWidth / 140, // Adjust height based on card width
-      ),
-      itemCount: metricCards.length,
-      itemBuilder: (context, index) => metricCards[index],
-    );
-  }
 
   Widget _buildMetricCard(BuildContext context, String title, String value, IconData icon, Color color) {
     return AppAnimations.animatedCard(
@@ -1492,7 +1579,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return bTime.compareTo(aTime); // Most recent first
       });
     
-    final displayedActivities = sortedActivities.take(_activitiesDisplayCount).toList();
+    // Filter activities based on search query
+    final searchQuery = _activitiesSearchController.text.toLowerCase();
+    final filteredActivities = searchQuery.isEmpty
+        ? sortedActivities
+        : sortedActivities.where((guest) {
+            // Extract room number
+            final roomNumber = (guest['rooms']?['room_number'] as String? ?? 
+                               guest['room_number'] as String? ?? 
+                               '').toLowerCase();
+            
+            // Extract guest name
+            String guestName = '';
+            if (guest['profiles'] != null) {
+              if (guest['profiles'] is Map) {
+                guestName = (guest['profiles']['full_name'] as String? ?? 
+                           guest['profiles']['guest_profile_id']?['full_name'] as String? ??
+                           '').toLowerCase();
+              }
+            } else {
+              guestName = (guest['guest_name'] as String? ?? '').toLowerCase();
+            }
+            
+            return guestName.contains(searchQuery) || roomNumber.contains(searchQuery);
+          }).toList();
+    
+    final displayedActivities = filteredActivities.take(_activitiesDisplayCount).toList();
     
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1510,15 +1622,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Recent Activities',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.green[800],
-            ),
+          Row(
+            children: [
+              Text(
+                'Recent Activities',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: MediaQuery.of(context).size.width < 600 ? 200 : 300,
+                child: TextField(
+                  controller: _activitiesSearchController,
+                  onChanged: (_) => setState(() {}), // Refresh on search
+                  decoration: InputDecoration(
+                    hintText: 'Search by guest name or room...',
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          if (sortedActivities.isEmpty)
+          if (filteredActivities.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16.0),
               child: Text('No recent activities'),
@@ -1601,150 +1734,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildBookingsTable(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Text(
-                  'Recent Bookings',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800], // Green for headers on white background
-                  ),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 300,
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Search by guest name or room...',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_filteredBookings.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(40),
-              child: Center(
-                child: Column(
-                  children: [
-                    Image.asset(
-                      'assets/images/PZED logo.png',
-                      height: 64,
-                      width: 64,
-                      fit: BoxFit.contain,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No bookings found',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 400),
-              child: SingleChildScrollView(
-                controller: _bookingsScrollController,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Guest Name')),
-                    DataColumn(label: Text('Room')),
-                    DataColumn(label: Text('Status')),
-                    DataColumn(label: Text('Check-in')),
-                    DataColumn(label: Text('Check-out')),
-                    DataColumn(label: Text('Actions')),
-                  ],
-                  rows: _getSortedBookings().take(_bookingsDisplayCount).map((booking) {
-                    final guestName = (booking['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown';
-                    final room = booking['rooms'] as Map<String, dynamic>?;
-                    final roomNumber = room?['room_number']?.toString() ?? 
-                                      booking['requested_room_type']?.toString() ?? 
-                                      'Not Assigned';
-                    final statusRaw = booking['status'] as String? ?? 'Unknown';
-                    final normalized = _normalizeBookingStatus(statusRaw);
-                    final status = normalized.isEmpty
-                        ? 'Unknown'
-                        : normalized.replaceAll('-', ' ').toUpperCase().substring(0, 1) +
-                            normalized.replaceAll('-', ' ').substring(1);
-                    final checkIn = booking['check_in_date'] != null 
-                        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(booking['check_in_date']))
-                        : 'N/A';
-                    final checkOut = booking['check_out_date'] != null 
-                        ? DateFormat('MMM dd, yyyy').format(DateTime.parse(booking['check_out_date']))
-                        : 'N/A';
-
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(guestName)),
-                        DataCell(Text(roomNumber)),
-                        DataCell(
-                          Chip(
-                            label: Text(status),
-                            backgroundColor: _getStatusColor(statusRaw).withOpacity(0.1),
-                            labelStyle: TextStyle(color: _getStatusColor(statusRaw)),
-                          ),
-                        ),
-                        DataCell(Text(checkIn)),
-                        DataCell(Text(checkOut)),
-                        DataCell(
-                          IconButton(
-                            icon: const Icon(Icons.visibility),
-                            onPressed: () {
-                              // Convert booking map to Booking object and navigate
-                              try {
-                                final bookingObj = Booking.fromMap(booking);
-                                context.push('/booking/details', extra: bookingObj);
-                              } catch (e) {
-                                if (mounted) {
-                                  ErrorHandler.handleError(
-                                    context,
-                                    e,
-                                    customMessage: 'Failed to open booking. Please try again.',
-                                  );
-                                }
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildAttendanceCard() {
     // Clock-in/clock-out functionality removed - return empty widget
