@@ -196,7 +196,7 @@ class PermissionManager {
           AppRole.vip_bartender,
           AppRole.outside_bartender,
           AppRole.kitchen_staff,
-          AppRole.receptionist, // Receptionists can record kitchen/restaurant sales
+          // Receptionists removed - they don't work with bars, use Kitchen screen for restaurant sales
         ].contains(userRole);
       
       case 'finance':

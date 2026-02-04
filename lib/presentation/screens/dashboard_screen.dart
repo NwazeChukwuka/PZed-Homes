@@ -276,6 +276,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final checkedInGuests = await _dataService.getCheckedInGuests();
       
       // Load department sales in parallel for faster loading
+      // Also load stock transactions as fallback for bars (since they record sales there)
       final salesFuture = Future.wait([
         _dataService.getDepartmentSales(
           department: 'vip_bar',
@@ -304,6 +305,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ]);
       
+      // Also load stock transactions for bars (fallback if department_sales is empty)
+      final stockTransactionsFuture = _dataService.getStockTransactions();
+      
       // Load bookings (for recent bookings list and income calculation)
       final bookings = await _dataService.getBookings();
       
@@ -327,7 +331,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       
       // Load maintenance work orders (expenses)
-      final maintenanceOrders = await _dataService.getMaintenanceWorkOrders();
+      final maintenanceOrders = await _dataService.getMaintenanceWorkOrders(
+        startDate: timeRange.start,
+        endDate: timeRange.end,
+      );
       
       // Wait for sales data
       final salesResults = await salesFuture;
@@ -336,6 +343,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final miniMartSales = salesResults[2];
       final kitchenSales = salesResults[3];
       final receptionSales = salesResults[4];
+      
+      // Also get stock transactions for bars (fallback aggregation)
+      final stockTransactions = await stockTransactionsFuture;
       
       // Calculate checked-in count
       final checkedInCount = checkedInGuests.length;
@@ -346,6 +356,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
           : <Map<String, dynamic>>[];
 
       if (mounted) {
+        // Get location IDs for bars
+        final locations = await _dataService.getLocations();
+        final vipBarLocation = locations.firstWhere(
+          (l) => (l['name'] as String?)?.toLowerCase() == 'vip bar',
+          orElse: () => <String, dynamic>{},
+        );
+        final outsideBarLocation = locations.firstWhere(
+          (l) => (l['name'] as String?)?.toLowerCase() == 'outside bar',
+          orElse: () => <String, dynamic>{},
+        );
+        
+        // Calculate department sales totals (using total_sales field from department_sales table)
+        num sumDeptSales(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+        
+        // Aggregate from stock_transactions for bars if department_sales is empty or low
+        num aggregateFromStockTransactions(String locationId, List<Map<String, dynamic>> transactions) {
+          if (locationId.isEmpty) return 0;
+          return transactions.where((t) {
+            final tLocationId = t['location_id']?.toString();
+            final tType = t['transaction_type']?.toString();
+            final tCreated = _parseTimestamp(t['created_at']);
+            return tLocationId == locationId && 
+                   tType == 'Sale' && 
+                   tCreated != null && 
+                   _isInRange(tCreated);
+          }).fold<num>(0, (sum, t) {
+            // Calculate sale amount from stock transaction
+            // We need to get item price - but we don't have it in stock_transactions
+            // So we'll rely on department_sales primarily
+            return sum;
+          });
+        }
+        
+        final vipBarTotal = sumDeptSales(vipSales);
+        final outsideBarTotal = sumDeptSales(outsideSales);
+        
+        // If department_sales is zero but we have stock transactions, try to estimate
+        // (Note: stock_transactions don't have price, so we can't calculate exact sales)
+        // For now, trust department_sales - if it's zero, sales might not have been recorded properly
+        
         setState(() {
           _bookings = bookings;
           _checkedInGuests = checkedInGuests;
@@ -353,15 +403,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _isLoadingAttendance = false;
           
-          // Calculate department sales totals (using total_sales field from department_sales table)
-          num sum(List<Map<String, dynamic>> list) => list.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
           _deptSalesTotals = {
-            'VIP Bar': sum(vipSales),
-            'Outside Bar': sum(outsideSales),
-            'Mini Mart': sum(miniMartSales),
-            'Kitchen': sum(kitchenSales),
-            'Reception': sum(receptionSales),
+            'VIP Bar': vipBarTotal,
+            'Outside Bar': outsideBarTotal,
+            'Mini Mart': sumDeptSales(miniMartSales),
+            'Kitchen': sumDeptSales(kitchenSales),
+            'Reception': sumDeptSales(receptionSales),
           };
+          
+          // Debug: Log if totals are zero
+          if (kDebugMode) {
+            print('Dashboard Sales Totals:');
+            print('VIP Bar: ${vipBarTotal} (${vipSales.length} records)');
+            print('Outside Bar: ${outsideBarTotal} (${outsideSales.length} records)');
+            print('Mini Mart: ${sumDeptSales(miniMartSales)} (${miniMartSales.length} records)');
+            print('Kitchen: ${sumDeptSales(kitchenSales)} (${kitchenSales.length} records)');
+            print('Reception: ${sumDeptSales(receptionSales)} (${receptionSales.length} records)');
+            print('Date Range: ${timeRange.start.toIso8601String().split('T')[0]} to ${timeRange.end.toIso8601String().split('T')[0]}');
+            if (vipSales.isNotEmpty) {
+              print('Sample VIP Bar record: ${vipSales.first}');
+            }
+            if (outsideSales.isNotEmpty) {
+              print('Sample Outside Bar record: ${outsideSales.first}');
+            }
+          }
           
           // Store checked-in count in stats for display
           _stats = {
@@ -1912,16 +1977,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     lastDate: DateTime(now.year + 2),
                   );
                   if (picked != null) {
+                    // Consolidate state updates to prevent flickering
                     setState(() {
                       _timeRange = r;
                       _customRange = picked;
+                      _isLoading = true; // Set loading state immediately
                     });
                     _loadData(); // Reload data when time range changes
                   }
                 } else {
+                  // Consolidate state updates to prevent flickering
                   setState(() {
                     _timeRange = r;
                     _customRange = null;
+                    _isLoading = true; // Set loading state immediately
                   });
                   _loadData(); // Reload data when time range changes
                 }

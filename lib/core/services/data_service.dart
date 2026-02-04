@@ -366,13 +366,39 @@ class DataService {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getStockTransactions() async {
+  Future<List<Map<String, dynamic>>> getStockTransactions({
+    String? locationId,
+    String? staffId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 100,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('stock_transactions')
-          .select()
+          .select('''
+            *,
+            stock_items(name, unit),
+            locations(name),
+            profiles!staff_profile_id(full_name)
+          ''');
+      
+      if (locationId != null) {
+        query = query.eq('location_id', locationId);
+      }
+      if (staffId != null) {
+        query = query.eq('staff_profile_id', staffId);
+      }
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      
+      final response = await query
           .order('created_at', ascending: false)
-          .limit(100);
+          .limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -1211,13 +1237,26 @@ class DataService {
   }
 
   // Maintenance Work Orders
-  Future<List<Map<String, dynamic>>> getMaintenanceWorkOrders() async {
+  Future<List<Map<String, dynamic>>> getMaintenanceWorkOrders({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 200,
+  }) async {
     return await _retryOperation(() async {
-      final response = await _supabase
+      var query = _supabase
           .from('maintenance_work_orders')
-          .select('*, assets(name), reported_by:profiles!reported_by_id(full_name), assigned_to:profiles!assigned_to(full_name)')
+          .select('*, assets(name), reported_by:profiles!reported_by_id(full_name), assigned_to:profiles!assigned_to(full_name)');
+      
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+      
+      final response = await query
           .order('created_at', ascending: false)
-          .limit(100);
+          .limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }

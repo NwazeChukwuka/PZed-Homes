@@ -73,7 +73,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -1444,6 +1444,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   tabs: const [
                     Tab(text: 'Dispatch', icon: Icon(Icons.send)),
                     Tab(text: 'Sales', icon: Icon(Icons.point_of_sale)),
+                    Tab(text: 'History', icon: Icon(Icons.history)),
                   ],
                 ),
               Expanded(
@@ -2097,6 +2098,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               ),
                             ],
                           ),
+                          // History tab - shows all transactions (sales + dispatch + restock)
+                          _buildHistoryTab(),
                         ],
                       )
                     : _buildReadOnlyDispatchList(),
@@ -2106,6 +2109,145 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
       },
     );
+  }
+  
+  Widget _buildHistoryTab() {
+    // Combine sales history and dispatch history
+    final allTransactions = <Map<String, dynamic>>[];
+    
+    // Add sales with type
+    for (var sale in _salesHistory) {
+      allTransactions.add({
+        ...sale,
+        'transaction_type': 'Sale',
+        'timestamp': sale['created_at'] ?? sale['sale_date'],
+      });
+    }
+    
+    // Add dispatches with type
+    for (var dispatch in _dispatchHistory) {
+      allTransactions.add({
+        ...dispatch,
+        'transaction_type': 'Dispatch',
+        'timestamp': dispatch['created_at'],
+      });
+    }
+    
+    // Sort by timestamp (most recent first)
+    allTransactions.sort((a, b) {
+      final aTime = _parseTimestamp(a['timestamp']);
+      final bTime = _parseTimestamp(b['timestamp']);
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+    
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              const Text(
+                'Transaction History',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              Text(
+                '${allTransactions.length} transactions',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: allTransactions.isEmpty
+              ? ErrorHandler.buildEmptyWidget(
+                  context,
+                  message: 'No transactions found',
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  itemCount: allTransactions.length,
+                  itemBuilder: (context, index) {
+                    final transaction = allTransactions[index];
+                    final isSale = transaction['transaction_type'] == 'Sale';
+                    final timestamp = transaction['timestamp']?.toString() ?? '';
+                    final time = timestamp.isNotEmpty
+                        ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(timestamp))
+                        : 'Unknown time';
+                    
+                    if (isSale) {
+                      final itemName = transaction['item_name'] ??
+                          (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ??
+                          'Item';
+                      final qty = transaction['quantity'] ?? 0;
+                      final total = transaction['total_amount'] as int? ?? 0;
+                      final paymentMethod = transaction['payment_method'] ?? 'cash';
+                      final booking = transaction['bookings'] as Map<String, dynamic>?;
+                      final bookingGuest = booking?['guest_name'] as String?;
+                      
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          leading: const Icon(Icons.point_of_sale, color: Colors.orange),
+                          title: Text('$itemName × $qty'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Payment: $paymentMethod'),
+                              if (bookingGuest != null) Text('Guest: $bookingGuest'),
+                              Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                            ],
+                          ),
+                          trailing: Text(
+                            '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      );
+                    } else {
+                      // Dispatch
+                      final itemName = transaction['menu_items']?['name'] ?? 'Item';
+                      final qty = transaction['quantity'] ?? 0;
+                      final destination = transaction['destination_department'] ?? 'Unknown';
+                      final status = transaction['status'] ?? 'Pending';
+                      
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          leading: const Icon(Icons.send, color: Colors.blue),
+                          title: Text('$itemName × $qty'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('To: $destination'),
+                              Text('Status: $status'),
+                              Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                            ],
+                          ),
+                          trailing: Icon(
+                            status == 'Completed' ? Icons.check_circle : Icons.pending,
+                            color: status == 'Completed' ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+  
+  DateTime? _parseTimestamp(dynamic timestamp) {
+    if (timestamp == null) return null;
+    try {
+      return DateTime.parse(timestamp.toString());
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildReadOnlyDispatchList() {

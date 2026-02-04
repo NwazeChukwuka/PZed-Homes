@@ -584,33 +584,91 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final isSale = transaction['type'] == 'sale';
+    final transactionType = transaction['transaction_type']?.toString() ?? '';
+    final isSale = transactionType == 'Sale';
+    final isTransferOut = transactionType == 'Transfer_Out';
+    final isTransferIn = transactionType == 'Transfer_In';
+    final isPurchase = transactionType == 'Purchase';
+    final isWastage = transactionType == 'Wastage';
+    
+    // Get item name from joined stock_items
+    final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+    final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+    final unit = stockItem?['unit']?.toString() ?? '';
+    
+    // Get location name
+    final location = transaction['locations'] as Map<String, dynamic>?;
+    final locationName = location?['name']?.toString() ?? 'Unknown Location';
+    
+    // Get staff name
+    final profile = transaction['profiles'] as Map<String, dynamic>?;
+    final staffName = profile?['full_name']?.toString() ?? 'Unknown Staff';
+    
+    // Get quantity and timestamp
+    final quantity = transaction['quantity'] as int? ?? 0;
+    final createdAt = transaction['created_at']?.toString() ?? '';
+    final timestamp = createdAt.isNotEmpty 
+        ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(createdAt))
+        : 'Unknown time';
+    
+    // Determine icon and color based on transaction type
+    IconData icon;
+    Color color;
+    String typeLabel;
+    
+    if (isSale) {
+      icon = Icons.sell;
+      color = Colors.red[700]!;
+      typeLabel = 'SALE';
+    } else if (isTransferOut) {
+      icon = Icons.send;
+      color = Colors.orange[700]!;
+      typeLabel = 'TRANSFER OUT';
+    } else if (isTransferIn) {
+      icon = Icons.call_received;
+      color = Colors.blue[700]!;
+      typeLabel = 'TRANSFER IN';
+    } else if (isPurchase) {
+      icon = Icons.shopping_cart;
+      color = Colors.green[700]!;
+      typeLabel = 'PURCHASE';
+    } else if (isWastage) {
+      icon = Icons.delete_outline;
+      color = Colors.grey[700]!;
+      typeLabel = 'WASTAGE';
+    } else {
+      icon = Icons.inventory;
+      color = Colors.grey[700]!;
+      typeLabel = transactionType.toUpperCase();
+    }
+    
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: isSale ? Colors.red[100] : Colors.green[100],
-          child: Icon(
-            isSale ? Icons.sell : Icons.add_box,
-            color: isSale ? Colors.red[700] : Colors.green[700],
-          ),
+          backgroundColor: color.withOpacity(0.1),
+          child: Icon(icon, color: color, size: 20),
         ),
-        title: Text(transaction['customer_name'] ?? 'Unknown Customer'),
+        title: Text(itemName, style: const TextStyle(fontWeight: FontWeight.w500)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Item: ${transaction['item_id']}'),
-            Text('Quantity: ${transaction['quantity']}'),
-            Text('Unit Price: ₦${PaymentService.koboToNaira(transaction['unit_price'] as int? ?? 0).toStringAsFixed(2)}'),
-            Text('Total: ₦${PaymentService.koboToNaira(transaction['total_amount'] as int? ?? 0).toStringAsFixed(2)}'),
-            Text('Time: ${transaction['timestamp']}'),
+            const SizedBox(height: 4),
+            Text('Quantity: ${quantity.abs()} $unit'),
+            Text('Location: $locationName'),
+            Text('Staff: $staffName'),
+            if (transaction['notes'] != null && transaction['notes'].toString().isNotEmpty)
+              Text('Notes: ${transaction['notes']}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            const SizedBox(height: 2),
+            Text(timestamp, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
           ],
         ),
         trailing: Text(
-          isSale ? 'SALE' : 'STOCK IN',
+          typeLabel,
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            color: isSale ? Colors.red[700] : Colors.green[700],
+            color: color,
+            fontSize: 12,
           ),
         ),
       ),

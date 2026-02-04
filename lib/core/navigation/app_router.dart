@@ -547,7 +547,7 @@ class AppRouter {
                location.startsWith('/housekeeping') ||
                location.startsWith('/mini_mart') ||
                location.startsWith('/kitchen') ||
-               location.startsWith('/inventory') ||
+               // Removed '/inventory' - receptionists don't work with bars
                location.startsWith('/stock') ||
                location.startsWith('/booking/') ||
                location.startsWith('/profile');
