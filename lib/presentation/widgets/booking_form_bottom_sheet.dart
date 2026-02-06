@@ -35,7 +35,7 @@ class _BookingFormBottomSheetState extends State<BookingFormBottomSheet> {
     return Padding(
       // Padding to account for the keyboard
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
           left: 16,
           right: 16,
           top: 16),

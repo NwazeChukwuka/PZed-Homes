@@ -132,7 +132,10 @@ class PaymentService {
         }
       }
 
-      throw Exception('Failed to create payment link: ${response.body}');
+      if (kDebugMode) {
+        debugPrint('DEBUG: Payment API error - status: ${response.statusCode}, body: ${response.body}');
+      }
+      throw Exception('Payment request failed. Please try again.');
     } catch (e) {
       if (kDebugMode) {
         print('Payment error: $e');

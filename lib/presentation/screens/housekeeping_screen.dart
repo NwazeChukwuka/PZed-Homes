@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -31,14 +32,19 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   StreamSubscription<List<Map<String, dynamic>>>? _roomsSub;
   Timer? _refreshDebounce;
 
-  // Pagination state
+  // Room pagination state (UI pagination; rooms fetched in chunks)
   int _rowsPerPage = 10;
   int _currentPage = 0;
   List<Map<String, dynamic>> _allRooms = [];
   List<Map<String, dynamic>> _currentPageRooms = [];
-  
-  // Booking history state
+
+  // Booking history: infinite scroll, paginated load (performance: no full preload)
+  static const int _bookingsPageSize = 30;
   List<Map<String, dynamic>> _bookings = [];
+  bool _bookingsHasMore = true;
+  bool _bookingsLoadingMore = false;
+  int _bookingsOffset = 0;
+  final ScrollController _bookingsScrollController = ScrollController();
   DateTimeRange? _bookingFilterRange;
   final TextEditingController _bookingSearchController = TextEditingController();
   String _bookingSearchQuery = '';
@@ -60,20 +66,78 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
     _loadRooms();
     _loadBookings();
     _startRoomRealtime();
+    _bookingsScrollController.addListener(_onBookingsScroll);
   }
-  
+
+  void _onBookingsScroll() {
+    if (!_bookingsScrollController.hasClients) return;
+    final pos = _bookingsScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      _loadMoreBookings();
+    }
+  }
+
+  /// Loads first page of bookings (performance: small chunk, cached in DataService).
+  /// Passes date filter when set; filter changes trigger reload.
   Future<void> _loadBookings() async {
     try {
-      final bookings = await _dataService.getBookings();
+      final start = _bookingFilterRange?.start;
+      final end = _bookingFilterRange?.end;
+      final bookings = await _dataService.getBookings(
+        limit: _bookingsPageSize,
+        offset: 0,
+        startDate: start,
+        endDate: end,
+      );
+      if (!mounted) return;
       setState(() {
         _bookings = bookings;
+        _bookingsOffset = bookings.length;
+        _bookingsHasMore = bookings.length >= _bookingsPageSize;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG load booking history: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load booking history.',
+          stackTrace: stackTrace,
+        );
+      }
+    }
+  }
+
+  /// Loads next page when user scrolls near bottom (infinite scroll).
+  Future<void> _loadMoreBookings() async {
+    if (_bookingsLoadingMore || !_bookingsHasMore) return;
+    _bookingsLoadingMore = true;
+    setState(() {});
+    try {
+      final start = _bookingFilterRange?.start;
+      final end = _bookingFilterRange?.end;
+      final bookings = await _dataService.getBookings(
+        limit: _bookingsPageSize,
+        offset: _bookingsOffset,
+        startDate: start,
+        endDate: end,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bookings.addAll(bookings);
+        _bookingsOffset += bookings.length;
+        _bookingsHasMore = bookings.length >= _bookingsPageSize;
+        _bookingsLoadingMore = false;
+      });
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG load more bookings: $e\n$stackTrace');
+      if (mounted) {
+        setState(() => _bookingsLoadingMore = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to load more bookings.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -82,7 +146,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   Future<void> _loadRooms() async {
     setState(() => _isLoading = true);
     try {
-      final rooms = await _dataService.getRooms();
+      final rooms = await _dataService.getRooms(limit: 200, offset: 0);
       final adaptedRooms = rooms.map((r) {
         // Adapt keys to UI expectations
         return {
@@ -98,7 +162,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
         _isLoading = false;
       });
       _updatePagination();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadRooms: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
@@ -106,6 +171,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
           e,
           customMessage: 'Failed to load rooms. Please check your connection and try again.',
           onRetry: _loadRooms,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -130,6 +196,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
 
   @override
   void dispose() {
+    _bookingsScrollController.removeListener(_onBookingsScroll);
+    _bookingsScrollController.dispose();
     _tabController.dispose();
     _roomsSub?.cancel();
     _refreshDebounce?.cancel();
@@ -181,13 +249,15 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
           'Room status updated to $newStatus${priority != null ? ' with priority $priority' : ''}',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG update room status: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to update room status. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -248,7 +318,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
     if (timestamp == null) return null;
     try {
       return DateTime.parse(timestamp.toString());
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
       return null;
     }
   }
@@ -573,7 +644,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
             scrollDirection: Axis.vertical,
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: MediaQuery.of(context).size.height - 200,
+                minHeight: MediaQuery.sizeOf(context).height - 200,
               ),
               child: PaginatedDataTable(
               header: Container(
@@ -752,6 +823,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                   );
                   if (picked != null) {
                     setState(() => _bookingFilterRange = picked);
+                    _loadBookings(); // Reload with date filter (performance: server-side filter)
                   }
                 },
                 icon: const Icon(Icons.date_range, size: 18),
@@ -767,7 +839,10 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () => setState(() => _bookingFilterRange = null),
+                      onPressed: () {
+                        setState(() => _bookingFilterRange = null);
+                        _loadBookings(); // Reload without date filter
+                      },
                       child: const Text('Clear filter'),
                     ),
                   ),
@@ -776,15 +851,28 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
           ),
         ),
         Expanded(
-          child: filteredBookings.isEmpty
+          child: filteredBookings.isEmpty && !_bookingsLoadingMore
               ? ErrorHandler.buildEmptyWidget(
                   context,
                   message: 'No bookings found',
                 )
               : ScrollableListViewWithArrows(
-                  itemCount: filteredBookings.length,
+                  controller: _bookingsScrollController,
+                  itemCount: filteredBookings.length + (_bookingsHasMore && _bookingsLoadingMore ? 1 : 0),
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   itemBuilder: (context, index) {
+                    if (index >= filteredBookings.length) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
                     final booking = filteredBookings[index];
                     final guestName = (booking['profiles'] as Map<String, dynamic>?)?['full_name'] 
                         ?? booking['guest_name'] 

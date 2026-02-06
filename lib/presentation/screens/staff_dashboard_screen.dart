@@ -1,7 +1,7 @@
 import 'dart:typed_data';
-import 'dart:io';
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
@@ -114,7 +114,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadData: $e\n$stackTrace');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -125,6 +126,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           e,
           customMessage: 'Failed to load dashboard data. Please check your connection and try again.',
           onRetry: _loadData,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -153,8 +155,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       }
       
       return attendance;
-    } catch (e) {
-      // If error, check AuthService state
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _fetchLastAttendance: $e\n$stack');
       final authService = Provider.of<AuthService>(context, listen: false);
       if (mounted) {
         setState(() {
@@ -168,16 +170,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
   Future<void> _handleClockIn() async {
     // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:167","message":"Clock-in button clicked","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})}\n', mode: FileMode.append); } catch (_) {}
+    debugLog({"location":"staff_dashboard_screen.dart:167","message":"Clock-in button clicked","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"});
     // #endregion
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:170","message":"Before clockIn call","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"staff_dashboard_screen.dart:170","message":"Before clockIn call","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"});
       // #endregion
       await authService.clockIn();
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:172","message":"After clockIn call - success","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"staff_dashboard_screen.dart:172","message":"After clockIn call - success","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"});
       // #endregion
       if (mounted) {
         setState(() {
@@ -191,15 +193,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           'Clocked in successfully',
         );
       }
-    } catch (e) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:183","message":"Clock-in error caught","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})}\n', mode: FileMode.append); } catch (_) {}
-      // #endregion
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _handleClockIn: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to clock in. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -219,12 +220,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           'Clocked out successfully',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _handleClockOut: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to clock out. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -583,8 +586,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           if (cleanedDate.isAfter(weekAgo)) {
             roomsCleanedWeek++;
           }
-        } catch (e) {
-          // Invalid date format
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG date parse: $e\n$stack');
         }
       }
     }
@@ -625,7 +628,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       try {
         final date = DateTime.parse(timestamp);
         return date.isAfter(startDate);
-      } catch (e) {
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG filter date parse: $e\n$stack');
         return false;
       }
     }).toList();
@@ -1551,12 +1555,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   );
                   _loadData();
                 }
-              } catch (e) {
+              } catch (e, stackTrace) {
+                if (kDebugMode) debugPrint('DEBUG record payment: $e\n$stackTrace');
                 if (mounted) {
                   ErrorHandler.handleError(
                     context,
                     e,
                     customMessage: 'Failed to record payment. Please try again.',
+                    stackTrace: stackTrace,
                   );
                 }
               }
@@ -1796,9 +1802,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Summary saved to file');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG save summary: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to save summary. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save summary. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -1807,9 +1814,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     try {
       final bytes = await _buildReceptionSummaryPdf();
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print summary: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to print summary. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print summary. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -1821,9 +1829,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'reception_summary.pdf')],
         subject: 'Reception Payments Summary',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share summary: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to share summary. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share summary. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -2025,7 +2034,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     // Clock-in/clock-out functionality removed - return empty widget
     return const SizedBox.shrink();
     // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"})}\n', mode: FileMode.append); } catch (_) {}
+    debugLog({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"});
     print('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');
     // #endregion
     if (_isLoadingAttendance) return const LinearProgressIndicator();
@@ -2067,13 +2076,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           Builder(
             builder: (context) {
               // #region agent log
-              try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2061","message":"Rendering clock button","data":{"isClockedIn":_isClockedIn,"handlerExists":true},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"})}\n', mode: FileMode.append); } catch (_) {}
+              debugLog({"location":"staff_dashboard_screen.dart:2061","message":"Rendering clock button","data":{"isClockedIn":_isClockedIn,"handlerExists":true},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"});
               print('DEBUG: Rendering clock button - isClockedIn: $_isClockedIn');
               // #endregion
               return ElevatedButton(
                 onPressed: () {
                   // #region agent log
-                  try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"staff_dashboard_screen.dart:2062","message":"Button onPressed triggered","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"R"})}\n', mode: FileMode.append); } catch (_) {}
+                  debugLog({"location":"staff_dashboard_screen.dart:2062","message":"Button onPressed triggered","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"R"});
                   print('DEBUG: Button pressed! isClockedIn: $_isClockedIn');
                   // #endregion
                   if (_isClockedIn) {

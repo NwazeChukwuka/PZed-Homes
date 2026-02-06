@@ -116,6 +116,9 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
             child: Image.asset(
               item.url,
               fit: BoxFit.cover,
+              cacheWidth: 600,
+              cacheHeight: 400,
+              gaplessPlayback: true,
               errorBuilder: (context, error, stackTrace) => Container(
                 color: Colors.grey[200],
                 child: const Icon(Icons.broken_image, size: 32),

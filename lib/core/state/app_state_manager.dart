@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:pzed_homes/core/connectivity/app_connectivity.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/state/app_state.dart';
 
@@ -64,32 +66,36 @@ class AppStateManager extends ChangeNotifier {
   bool get isOnline => _connectivity?.isOnline ?? true;
   ConnectivityResult get connectionStatus => _connectivity?.connectionStatus ?? ConnectivityResult.wifi;
   
-  // Initialize the state manager
+  // Initialize the state manager - critical path first, defer non-critical work
   Future<void> initialize() async {
     if (_isInitialized) return;
     
     _setLoading(true);
     try {
-      // Initialize connectivity
       _connectivity = AppConnectivity();
-      
-      // Load user data
       await _loadUserData();
-      
-      // Load notifications
-      await _loadNotifications();
-      startRealtimeSubscriptions();
-      
-      // Initialize cache
       await _initializeCache();
-      
       _isInitialized = true;
       _setError(null);
-    } catch (e) {
-      _setError('Failed to initialize app: $e');
+      // Defer notifications and realtime - run in background after first interactive
+      _deferNonCriticalInit();
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG initialize: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
+  }
+
+  void _deferNonCriticalInit() {
+    Future.microtask(() async {
+      try {
+        await _loadNotifications();
+        startRealtimeSubscriptions();
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG deferred init: $e\n$stack');
+      }
+    });
   }
   
   // User management
@@ -113,8 +119,9 @@ class AppStateManager extends ChangeNotifier {
         _userRoles = _currentUser?.roles ?? [];
         _accessibleFeatures = _getAccessibleFeatures();
       }
-    } catch (e) {
-      _setError('Failed to load user data: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadUserData: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     }
   }
   
@@ -128,11 +135,13 @@ class AppStateManager extends ChangeNotifier {
   
   // Navigation management
   void setCurrentIndex(int index) {
+    if (_currentIndex == index) return;
     _currentIndex = index;
     notifyListeners();
   }
   
   void setCurrentRoute(String route) {
+    if (_currentRoute == route) return;
     _currentRoute = route;
     notifyListeners();
   }
@@ -144,6 +153,7 @@ class AppStateManager extends ChangeNotifier {
   }
   
   void setLanguage(String language) {
+    if (_selectedLanguage == language) return;
     _selectedLanguage = language;
     notifyListeners();
   }
@@ -160,11 +170,18 @@ class AppStateManager extends ChangeNotifier {
           .eq('user_id', _currentUser?.id ?? '')
           .order('created_at', ascending: false)
           .limit(50);
-      _notifications = List<Map<String, dynamic>>.from(response);
-      _unreadNotifications = _notifications.where((n) => !n['is_read']).length;
+      final newNotifications = List<Map<String, dynamic>>.from(response);
+      final newUnread = newNotifications.where((n) => !n['is_read']).length;
+      // Only notify when notification state actually changed
+      if (_notifications.length == newNotifications.length &&
+          _unreadNotifications == newUnread) {
+        return;
+      }
+      _notifications = newNotifications;
+      _unreadNotifications = newUnread;
       notifyListeners();
-    } catch (e) {
-      // Handle error silently for notifications
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadNotifications: $e\n$stack');
     }
   }
   
@@ -176,8 +193,9 @@ class AppStateManager extends ChangeNotifier {
           .update({'is_read': true})
           .eq('id', notificationId);
       await _loadNotifications();
-    } catch (e) {
-      _setError('Failed to mark notification as read: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG markNotificationAsRead: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     }
   }
   
@@ -189,8 +207,9 @@ class AppStateManager extends ChangeNotifier {
           .update({'is_read': true})
           .eq('user_id', _currentUser?.id ?? '');
       await _loadNotifications();
-    } catch (e) {
-      _setError('Failed to mark all notifications as read: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG markAllNotificationsAsRead: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     }
   }
   
@@ -201,6 +220,8 @@ class AppStateManager extends ChangeNotifier {
   }
   
   void setCache(String key, dynamic value) {
+    final prev = _cache[key];
+    if (identical(prev, value) || prev == value) return;
     _cache[key] = value;
     _lastCacheUpdate = DateTime.now();
     notifyListeners();
@@ -210,10 +231,11 @@ class AppStateManager extends ChangeNotifier {
     return _cache[key] as T?;
   }
   
-  void clearCache() {
+  void clearCache({bool notify = true}) {
+    if (_cache.isEmpty && _lastCacheUpdate == null) return;
     _cache.clear();
     _lastCacheUpdate = null;
-    notifyListeners();
+    if (notify) notifyListeners();
   }
   
   // Data refresh
@@ -228,8 +250,9 @@ class AppStateManager extends ChangeNotifier {
       await _loadUserData();
       await _loadNotifications();
       _setError(null);
-    } catch (e) {
-      _setError('Failed to refresh data: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG refreshData: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     } finally {
       _setLoading(false);
     }
@@ -237,6 +260,7 @@ class AppStateManager extends ChangeNotifier {
   
   // Error handling
   void _setError(String? error) {
+    if (_error == error) return;
     _error = error;
     notifyListeners();
   }
@@ -247,6 +271,7 @@ class AppStateManager extends ChangeNotifier {
   
   // Loading state
   void _setLoading(bool loading) {
+    if (_isLoading == loading) return;
     _isLoading = loading;
     notifyListeners();
   }
@@ -262,10 +287,11 @@ class AppStateManager extends ChangeNotifier {
       _accessibleFeatures = [];
       _notifications = [];
       _unreadNotifications = 0;
-      clearCache();
+      clearCache(notify: false);
       notifyListeners();
-    } catch (e) {
-      _setError('Failed to logout: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG logout: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
     }
   }
   
@@ -296,8 +322,12 @@ class AppStateManager extends ChangeNotifier {
             column: 'user_id',
             value: _currentUser?.id,
           ),
-          callback: (payload) {
-            _loadNotifications();
+          callback: (_) {
+            _loadNotifications().catchError((e, stack) {
+              if (kDebugMode) debugPrint('DEBUG realtime callback: $e\n$stack');
+              _setError(ErrorHandler.getFriendlyErrorMessage(e));
+              notifyListeners();
+            });
           },
         )
         .subscribe();

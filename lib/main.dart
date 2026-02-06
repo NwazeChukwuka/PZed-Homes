@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,14 +16,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // For web, skip orientation lock (not needed and blocks startup)
+  // Defer orientation lock - run in background so runApp is not blocked
   if (!kIsWeb) {
-    await SystemChrome.setPreferredOrientations([
+    unawaited(SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
-    ]);
+    ]));
   }
 
   // Get Supabase credentials from environment variables
@@ -46,15 +48,14 @@ Future<void> main() async {
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
       );
-    } catch (e) {
-      // Silent fail - app will work without Supabase
-      if (kDebugMode) print('Supabase init error: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG Supabase init: $e\n$stack');
     }
   }
 
   // Initialize Paystack payment service
-  PaymentService().initialize().catchError((e) {
-    if (kDebugMode) print('Paystack init error: $e');
+  PaymentService().initialize().catchError((e, stack) {
+    if (kDebugMode) debugPrint('DEBUG Paystack init: $e\n$stack');
   });
 
   // Start app immediately - don't wait for Supabase
@@ -73,34 +74,71 @@ class PzedHomesApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => AppStateManager()),
         ChangeNotifierProvider(create: (context) => AppConnectivity()),
       ],
-      child: Consumer2<AppState, AppStateManager>(
-        builder: (context, appState, stateManager, child) {
-          if (!stateManager.isInitialized && !stateManager.isLoading) {
-            stateManager.initialize();
-          }
-          return MaterialApp.router(
-            debugShowCheckedModeBanner: false,
-            title: 'P-ZED Luxury Hotels & Suites',
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-            routerConfig: AppRouter.router,
-            builder: (context, child) {
-              return Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  const Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: OfflineBanner(),
-                  ),
-                ],
-              );
-            },
-          );
-        },
+      child: const _AppStateManagerInitializer(
+        child: _ThemedMaterialApp(),
       ),
+    );
+  }
+}
+
+/// Triggers AppStateManager.initialize() once when needed.
+/// Does not listen to providers; child rebuilds only from _ThemedMaterialApp.
+class _AppStateManagerInitializer extends StatefulWidget {
+  final Widget child;
+
+  const _AppStateManagerInitializer({required this.child});
+
+  @override
+  State<_AppStateManagerInitializer> createState() =>
+      _AppStateManagerInitializerState();
+}
+
+class _AppStateManagerInitializerState extends State<_AppStateManagerInitializer> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final stateManager = context.read<AppStateManager>();
+      if (!stateManager.isInitialized && !stateManager.isLoading) {
+        stateManager.initialize();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Rebuilds only when theme (isDarkMode) or locale (language) changes.
+class _ThemedMaterialApp extends StatelessWidget {
+  const _ThemedMaterialApp();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = context.select<AppState, bool>((s) => s.isDarkMode);
+    final language = context.select<AppState, String>((s) => s.language);
+
+    return MaterialApp.router(
+      debugShowCheckedModeBanner: false,
+      title: 'P-ZED Luxury Hotels & Suites',
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      locale: Locale(language),
+      routerConfig: AppRouter.router,
+      builder: (context, child) {
+        return Stack(
+          children: [
+            child ?? const SizedBox.shrink(),
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: OfflineBanner(),
+            ),
+          ],
+        );
+      },
     );
   }
 }

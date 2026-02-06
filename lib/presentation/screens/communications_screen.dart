@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -69,8 +70,8 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
         }).toList());
         _isLoading = false;
       });
-    } catch (e) {
-      // If database fails, at least show the welcome message
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadPosts: $e\n$stack');
       setState(() {
         _posts.clear();
         _posts.add({
@@ -99,8 +100,8 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
           ..clear()
           ..addAll(profiles);
       });
-    } catch (_) {
-      // Ignore errors loading staff list
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadStaffProfiles: $e\n$stack');
     }
   }
 
@@ -226,12 +227,14 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     // Reload posts
                     await _loadPosts();
                   }
-                } catch (e) {
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG post announcement: $e\n$stackTrace');
                   if (mounted) {
                     ErrorHandler.handleError(
                       context,
                       e,
                       customMessage: 'Failed to post announcement. Please try again.',
+                      stackTrace: stackTrace,
                     );
                   }
                 }

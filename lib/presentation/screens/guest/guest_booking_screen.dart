@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -145,8 +146,9 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         _showError('Payment failed. Please try again.');
       }
 
-    } catch (e) {
-      ErrorHandler.handleError(context, e);
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _handlePayment: $e\n$stackTrace');
+      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -178,7 +180,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       final available = (match['available_count'] as num?)?.toInt() ?? 0;
       return available > 0;
     } catch (e) {
-      throw Exception('Error checking room availability: $e');
+      rethrow;
     }
   }
 
@@ -226,7 +228,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       if (errorMsg.contains('No rooms of type') || errorMsg.contains('not available')) {
         throw Exception('Sorry, no rooms of this type are available for the selected dates. Please try different dates or room type.');
       }
-      throw Exception('Error creating booking: $e');
+      rethrow;
     }
   }
 
@@ -288,7 +290,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         rethrow;
       }
     } catch (e) {
-      throw Exception('Payment processing error: ${e.toString()}');
+      rethrow;
     }
   }
 
@@ -312,7 +314,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       
       // Note: Room status remains 'Vacant' - receptionist will assign room and update status at check-in
     } catch (e) {
-      throw Exception('Error confirming booking: $e');
+      rethrow;
     }
   }
 

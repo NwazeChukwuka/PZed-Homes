@@ -5,7 +5,38 @@ import 'package:shimmer/shimmer.dart';
 
 /// Performance optimization helpers for common UI patterns
 class OptimizationHelpers {
-  /// Optimized cached network image with shimmer loading
+  /// Maximum cache dimension for full-screen images (downscale oversized assets)
+  static const int maxCacheDimension = 1200;
+
+  /// Optimized asset image with downscaling (cacheWidth/cacheHeight) to reduce memory.
+  /// Uses 2x display size for retina; caps at maxCacheDimension.
+  static Widget buildAssetImage({
+    required String assetPath,
+    double? width,
+    double? height,
+    BoxFit fit = BoxFit.contain,
+    Color? color,
+    Widget? errorWidget,
+  }) {
+    final w = width ?? 256;
+    final h = height ?? 256;
+    final cacheW = (w * 2).round().clamp(1, maxCacheDimension);
+    final cacheH = (h * 2).round().clamp(1, maxCacheDimension);
+    return Image.asset(
+      assetPath,
+      width: width,
+      height: height,
+      fit: fit,
+      color: color,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stackTrace) =>
+          errorWidget ?? _buildErrorWidget(w, h),
+    );
+  }
+
+  /// Optimized cached network image with shimmer loading and memory limits
   static Widget buildCachedImage({
     required String imageUrl,
     required double width,
@@ -24,8 +55,8 @@ class OptimizationHelpers {
         fit: fit,
         placeholder: (context, url) => placeholder ?? _buildShimmerPlaceholder(width, height),
         errorWidget: (context, url, error) => errorWidget ?? _buildErrorWidget(width, height),
-        memCacheWidth: width.round(),
-        memCacheHeight: height.round(),
+        memCacheWidth: width.round().clamp(1, maxCacheDimension),
+        memCacheHeight: height.round().clamp(1, maxCacheDimension),
       ),
     );
   }

@@ -36,11 +36,13 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   @override
   void initState() {
     super.initState();
-    _checkIfManagement();
     _loadData();
+    // Defer context-dependent check to post-frame; avoids heavy work on init thread
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkIfManagement());
   }
 
   void _checkIfManagement() {
+    if (!mounted) return;
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     if (user == null) return;
@@ -55,11 +57,8 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         roles.contains(AppRole.manager) ||
         roles.contains(AppRole.supervisor);
     
-    // If management, redirect to approval screen
     if (_isManagement && mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pushReplacementNamed('/stock/approval');
-      });
+      Navigator.of(context).pushReplacementNamed('/stock/approval');
     }
   }
 

@@ -80,10 +80,12 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> {
             BlendMode.darken,
           ),
           child: CachedNetworkImage(
-            imageUrl: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80',
+            imageUrl: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
+            memCacheWidth: 800,
+            memCacheHeight: 1200,
             placeholder: (context, url) => Container(
               color: Colors.grey[300],
               child: const Center(child: CircularProgressIndicator()),

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
 /// Global application state management
@@ -38,8 +39,10 @@ class AppState extends ChangeNotifier {
 
   // Initialize app state
   Future<void> initialize() async {
-    _isInitializing = true;
-    notifyListeners();
+    if (!_isInitializing) {
+      _isInitializing = true;
+      notifyListeners();
+    }
 
     try {
       // Load user preferences
@@ -48,17 +51,23 @@ class AppState extends ChangeNotifier {
       // Check network connectivity
       await _checkNetworkStatus();
       
-      _isInitializing = false;
-      notifyListeners();
-    } catch (e) {
-      _setError('Failed to initialize app: $e');
-      _isInitializing = false;
-      notifyListeners();
+      if (_isInitializing) {
+        _isInitializing = false;
+        notifyListeners();
+      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG initialize: $e\n$stack');
+      _setError(ErrorHandler.getFriendlyErrorMessage(e));
+      if (_isInitializing) {
+        _isInitializing = false;
+        notifyListeners();
+      }
     }
   }
 
   // Loading state management
   void setLoading(bool loading, [String? message]) {
+    if (_isLoading == loading && _loadingMessage == message) return;
     _isLoading = loading;
     _loadingMessage = message;
     notifyListeners();
@@ -66,6 +75,7 @@ class AppState extends ChangeNotifier {
 
   // Error handling
   void _setError(String error) {
+    if (_error == error && _warning == null && _success == null) return;
     _error = error;
     _warning = null;
     _success = null;
@@ -73,6 +83,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _setWarning(String warning) {
+    if (_warning == warning && _error == null && _success == null) return;
     _warning = warning;
     _error = null;
     _success = null;
@@ -80,6 +91,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _setSuccess(String success) {
+    if (_success == success && _error == null && _warning == null) return;
     _success = success;
     _error = null;
     _warning = null;
@@ -87,6 +99,7 @@ class AppState extends ChangeNotifier {
   }
 
   void clearMessages() {
+    if (_error == null && _warning == null && _success == null) return;
     _error = null;
     _warning = null;
     _success = null;
@@ -101,6 +114,7 @@ class AppState extends ChangeNotifier {
   }
 
   void setTheme(bool isDark) {
+    if (_isDarkMode == isDark) return;
     _isDarkMode = isDark;
     _saveUserPreferences();
     notifyListeners();
@@ -108,6 +122,7 @@ class AppState extends ChangeNotifier {
 
   // Language management
   void setLanguage(String language) {
+    if (_language == language) return;
     _language = language;
     _saveUserPreferences();
     notifyListeners();
@@ -115,13 +130,16 @@ class AppState extends ChangeNotifier {
 
   // Font scale management
   void setFontScale(double scale) {
-    _fontScale = scale.clamp(0.8, 1.5);
+    final clamped = scale.clamp(0.8, 1.5);
+    if (_fontScale == clamped) return;
+    _fontScale = clamped;
     _saveUserPreferences();
     notifyListeners();
   }
 
   // Network state management
   void setOnlineStatus(bool isOnline) {
+    if (_isOnline == isOnline) return;
     _isOnline = isOnline;
     if (isOnline) {
       _lastSyncTime = DateTime.now();
@@ -136,12 +154,9 @@ class AppState extends ChangeNotifier {
       _isDarkMode = prefs.getBool('isDarkMode') ?? false;
       _language = prefs.getString('language') ?? 'en';
       _fontScale = prefs.getDouble('fontScale') ?? 1.0;
-      notifyListeners();
-    } catch (e) {
-      // If loading fails, use default values
-      if (kDebugMode) {
-        print('Error loading user preferences: $e');
-      }
+      // Caller (initialize) handles notifyListeners after init completes
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadUserPreferences: $e\n$stack');
     }
   }
 
@@ -151,11 +166,8 @@ class AppState extends ChangeNotifier {
       await prefs.setBool('isDarkMode', _isDarkMode);
       await prefs.setString('language', _language);
       await prefs.setDouble('fontScale', _fontScale);
-    } catch (e) {
-      // If saving fails, log error but don't throw
-      if (kDebugMode) {
-        print('Error saving user preferences: $e');
-      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _saveUserPreferences: $e\n$stack');
     }
   }
 

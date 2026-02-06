@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:shimmer/shimmer.dart';
 
 class AppAnimations {
@@ -69,78 +68,51 @@ class AppAnimations {
     );
   }
 
-  // Staggered list animation
+  /// Plain list without stagger (avoids layout/paint overhead). Use scrollable: true for drawer/sidebar.
   static Widget staggeredList({
     required List<Widget> children,
     int duration = 300,
     int delay = 100,
+    bool scrollable = true,
   }) {
-    return AnimationLimiter(
-      child: ListView.builder(
-        itemCount: children.length,
-        itemBuilder: (context, index) {
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: Duration(milliseconds: duration),
-            child: SlideAnimation(
-              verticalOffset: 50.0,
-              child: FadeInAnimation(
-                child: children[index],
-              ),
-            ),
-          );
-        },
-      ),
+    if (scrollable) {
+      return ListView(children: children);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
     );
   }
 
-  // Staggered grid animation
+  /// Plain grid without stagger - avoids layout/paint overhead.
   static Widget staggeredGrid({
     required List<Widget> children,
     required int crossAxisCount,
     int duration = 300,
     int delay = 100,
   }) {
-    return AnimationLimiter(
-      child: GridView.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          childAspectRatio: 1.0,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-        ),
-        itemCount: children.length,
-        itemBuilder: (context, index) {
-          return AnimationConfiguration.staggeredGrid(
-            position: index,
-            duration: Duration(milliseconds: duration),
-            columnCount: crossAxisCount,
-            child: ScaleAnimation(
-              child: FadeInAnimation(
-                child: children[index],
-              ),
-            ),
-          );
-        },
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: 1.0,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
       ),
+      itemCount: children.length,
+      itemBuilder: (context, index) => children[index],
     );
   }
 
-  // Card hover animation
+  /// Lightweight wrapper - no animation overhead.
   static Widget animatedCard({
     required Widget child,
     Duration duration = const Duration(milliseconds: 200),
     double hoverScale = 1.05,
   }) {
-    return AnimatedContainer(
-      duration: duration,
-      curve: Curves.easeInOut,
-      child: MouseRegion(
-        onEnter: (_) => {},
-        onExit: (_) => {},
-        child: child,
-      ),
-    );
+    return child;
   }
 
   // Loading shimmer animation
@@ -268,12 +240,12 @@ class AnimatedPageRoute<T> extends PageRouteBuilder<T> {
 // Responsive animation controller
 class ResponsiveAnimationController {
   static bool shouldAnimate(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     return screenWidth > 600; // Only animate on larger screens
   }
 
   static Duration getAnimationDuration(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     if (screenWidth > 1200) {
       return const Duration(milliseconds: 400);
     } else if (screenWidth > 800) {

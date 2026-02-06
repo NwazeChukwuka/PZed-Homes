@@ -2,12 +2,90 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// Lightweight in-memory cache with short TTL, stale-while-revalidate, and memoization.
+class _DataServiceCache {
+  static const _ttl = Duration(seconds: 30);
+  final Map<String, _CacheEntry> _entries = {};
+  final Map<String, Future> _inFlight = {};
+  final Map<String, Set<String>> _keysByTable = {};
+
+  Future<T> getOrFetch<T>({
+    required String key,
+    required List<String> tables,
+    required Future<T> Function() fetch,
+  }) async {
+    final entry = _entries[key] as _CacheEntry<T>?;
+    final now = DateTime.now();
+
+    if (entry != null && now.difference(entry.fetchedAt) < _ttl) {
+      return entry.data;
+    }
+
+    if (entry != null) {
+      _revalidateInBackground(key, tables, fetch);
+      return entry.data;
+    }
+
+    final existing = _inFlight[key] as Future<T>?;
+    if (existing != null) return existing;
+
+    final future = fetch().then((data) {
+      _entries[key] = _CacheEntry<T>(data, DateTime.now());
+      for (final t in tables) {
+        _keysByTable.putIfAbsent(t, () => {}).add(key);
+      }
+      _inFlight.remove(key);
+      return data;
+    });
+    _inFlight[key] = future;
+    return future;
+  }
+
+  void _revalidateInBackground<T>(String key, List<String> tables, Future<T> Function() fetch) {
+    fetch().then((data) {
+      _entries[key] = _CacheEntry<T>(data, DateTime.now());
+    }).catchError((_) {});
+  }
+
+  void invalidateForTable(String table) {
+    final keys = _keysByTable[table];
+    if (keys != null) {
+      for (final k in keys) {
+        _entries.remove(k);
+      }
+      _keysByTable.remove(table);
+    }
+  }
+
+  void invalidateAll() {
+    _entries.clear();
+    _keysByTable.clear();
+  }
+}
+
+class _CacheEntry<T> {
+  final T data;
+  final DateTime fetchedAt;
+  _CacheEntry(this.data, this.fetchedAt);
+}
+
 class DataService {
   static final DataService _instance = DataService._internal();
   factory DataService() => _instance;
   DataService._internal();
 
+  final _cache = _DataServiceCache();
   SupabaseClient? _supabaseClient;
+
+  /// Invalidates cached data for the given table. Call when realtime events indicate the table changed.
+  void invalidateCacheForTable(String table) {
+    _cache.invalidateForTable(table);
+  }
+
+  /// Clears all cached data. Use sparingly (e.g. on logout).
+  void invalidateAllCache() {
+    _cache.invalidateAll();
+  }
   SupabaseClient get _supabase {
     if (_supabaseClient != null) return _supabaseClient!;
     try {
@@ -45,7 +123,8 @@ class DataService {
         if (attempts == retries - 1) rethrow;
         await Future.delayed(_retryDelay * (attempts + 1));
         attempts++;
-      } catch (e) {
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG retry attempt $attempts: $e\n$stack');
         if (attempts == retries - 1) rethrow;
         await Future.delayed(_retryDelay * (attempts + 1));
         attempts++;
@@ -60,67 +139,70 @@ class DataService {
     await _retryOperation(() async {
       try {
         await _supabase.rpc('auto_update_expired_bookings');
-      } catch (e) {
-        // Silently fail - function might not exist yet or pg_cron might not be available
-        // This is not critical for the app to function
-        if (kDebugMode) {
-          print('Note: auto_update_expired_bookings not available: $e');
-        }
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG auto_update_expired_bookings: $e\n$stack');
       }
     });
   }
 
+  /// Fetches bookings with pagination. Use limit 20-50 per page for list screens.
+  /// Each page is cached separately; invalidate via invalidateCacheForTable('bookings').
   Future<List<Map<String, dynamic>>> getBookings({
     DateTime? startDate,
     DateTime? endDate,
     int limit = 1000,
+    int offset = 0,
   }) async {
-    // Auto-update expired bookings before fetching to ensure accurate status
-    await updateExpiredBookings();
-    
-    return await _retryOperation(() async {
-      // Explicitly select columns to avoid any issues with non-existent columns
-      var query = _supabase
-          .from('bookings')
-          .select('''
-            id,
-            created_at,
-            guest_profile_id,
-            room_id,
-            requested_room_type,
-            check_in_date,
-            check_out_date,
-            status,
-            total_amount,
-            paid_amount,
-            extra_charges,
-            notes,
-            created_by,
-            updated_at,
-            payment_method,
-            guest_name,
-            guest_email,
-            guest_phone,
-            discount_applied,
-            discount_amount,
-            discount_percentage,
-            discount_reason,
-            discount_applied_by,
-            rooms(*),
-            profiles!guest_profile_id(*),
-            created_by_profile:profiles!created_by(full_name)
-          ''');
-      if (startDate != null) {
-        query = query.gte('created_at', startDate.toIso8601String());
-      }
-      if (endDate != null) {
-        query = query.lte('created_at', endDate.toIso8601String());
-      }
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getBookings:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$offset';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['bookings'],
+      fetch: () async {
+        await updateExpiredBookings();
+        return _retryOperation(() async {
+          var query = _supabase
+              .from('bookings')
+              .select('''
+                id,
+                created_at,
+                guest_profile_id,
+                room_id,
+                requested_room_type,
+                check_in_date,
+                check_out_date,
+                status,
+                total_amount,
+                paid_amount,
+                extra_charges,
+                notes,
+                created_by,
+                updated_at,
+                payment_method,
+                guest_name,
+                guest_email,
+                guest_phone,
+                discount_applied,
+                discount_amount,
+                discount_percentage,
+                discount_reason,
+                discount_applied_by,
+                rooms(*),
+                profiles!guest_profile_id(*),
+                created_by_profile:profiles!created_by(full_name)
+              ''');
+          if (startDate != null) {
+            query = query.gte('created_at', startDate.toIso8601String());
+          }
+          if (endDate != null) {
+            query = query.lte('created_at', endDate.toIso8601String());
+          }
+          final response = await query
+              .order('created_at', ascending: false)
+              .range(offset, offset + limit - 1);
+          return List<Map<String, dynamic>>.from(response);
+        });
+      },
+    );
   }
 
   Future<void> addBookingCharge({
@@ -211,15 +293,25 @@ class DataService {
   }
 
   // Rooms
-  Future<List<Map<String, dynamic>>> getRooms() async {
-    return await _retryOperation(() async {
-      final response = await _supabase
-          .from('rooms')
-          .select()
-          .order('room_number')
-          .limit(500); // Limit for performance
-      return List<Map<String, dynamic>>.from(response);
-    });
+  /// Fetches rooms with pagination. Use limit 20-50 per page for list screens.
+  /// Each page is cached separately; invalidate via invalidateCacheForTable('rooms').
+  Future<List<Map<String, dynamic>>> getRooms({
+    int limit = 500,
+    int offset = 0,
+  }) async {
+    final key = 'getRooms:$limit:$offset';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['rooms'],
+      fetch: () => _retryOperation(() async {
+        final response = await _supabase
+            .from('rooms')
+            .select()
+            .order('room_number')
+            .range(offset, offset + limit - 1);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> updateRoomStatus(String roomId, String newStatus, {String? priority}) async {
@@ -311,14 +403,18 @@ class DataService {
 
   // Locations
   Future<List<Map<String, dynamic>>> getLocations() async {
-    return await _retryOperation(() async {
-      final response = await _supabase
-          .from('locations')
-          .select()
-          .order('name')
-          .limit(100);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: 'getLocations',
+      tables: const ['locations'],
+      fetch: () => _retryOperation(() async {
+        final response = await _supabase
+            .from('locations')
+            .select()
+            .order('name')
+            .limit(100);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   // Departments
@@ -389,41 +485,47 @@ class DataService {
     });
   }
 
+  /// Fetches stock transactions with pagination. Use limit 20-50 per page for list screens.
+  /// Each page is cached separately; invalidate via invalidateCacheForTable('stock_transactions').
   Future<List<Map<String, dynamic>>> getStockTransactions({
     String? locationId,
     String? staffId,
     DateTime? startDate,
     DateTime? endDate,
     int limit = 1000,
+    int offset = 0,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('stock_transactions')
-          .select('''
-            *,
-            stock_items(name, unit),
-            locations(name),
-            profiles!staff_profile_id(full_name)
-          ''');
-      
-      if (locationId != null) {
-        query = query.eq('location_id', locationId);
-      }
-      if (staffId != null) {
-        query = query.eq('staff_profile_id', staffId);
-      }
-      if (startDate != null) {
-        query = query.gte('created_at', startDate.toIso8601String());
-      }
-      if (endDate != null) {
-        query = query.lte('created_at', endDate.toIso8601String());
-      }
-      
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getStockTransactions:$locationId:$staffId:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$offset';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['stock_transactions'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase
+            .from('stock_transactions')
+            .select('''
+              *,
+              stock_items(name, unit),
+              locations(name),
+              profiles!staff_profile_id(full_name)
+            ''');
+        if (locationId != null) {
+          query = query.eq('location_id', locationId);
+        }
+        if (staffId != null) {
+          query = query.eq('staff_profile_id', staffId);
+        }
+        if (startDate != null) {
+          query = query.gte('created_at', startDate.toIso8601String());
+        }
+        if (endDate != null) {
+          query = query.lte('created_at', endDate.toIso8601String());
+        }
+        final response = await query
+            .order('created_at', ascending: false)
+            .range(offset, offset + limit - 1);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> recordStockTransaction(Map<String, dynamic> transaction) async {
@@ -519,20 +621,25 @@ class DataService {
     String? status,
     int limit = 200,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase.from('expenses').select();
-      if (status != null && status.isNotEmpty) {
-        query = query.eq('status', status);
-      }
-      if (startDate != null) {
-        query = query.gte('transaction_date', startDate.toIso8601String().split('T')[0]);
-      }
-      if (endDate != null) {
-        query = query.lte('transaction_date', endDate.toIso8601String().split('T')[0]);
-      }
-      final response = await query.order('transaction_date', ascending: false).limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getExpenses:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$status:$limit';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['expenses'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase.from('expenses').select();
+        if (status != null && status.isNotEmpty) {
+          query = query.eq('status', status);
+        }
+        if (startDate != null) {
+          query = query.gte('transaction_date', startDate.toIso8601String().split('T')[0]);
+        }
+        if (endDate != null) {
+          query = query.lte('transaction_date', endDate.toIso8601String().split('T')[0]);
+        }
+        final response = await query.order('transaction_date', ascending: false).limit(limit);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> addExpense(Map<String, dynamic> expense) async {
@@ -586,17 +693,22 @@ class DataService {
     DateTime? endDate,
     int limit = 200,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase.from('income_records').select();
-      if (startDate != null) {
-        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
-      }
-      if (endDate != null) {
-        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
-      }
-      final response = await query.order('date', ascending: false).limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getIncomeRecords:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['income_records'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase.from('income_records').select();
+        if (startDate != null) {
+          query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+        }
+        if (endDate != null) {
+          query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+        }
+        final response = await query.order('date', ascending: false).limit(limit);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> addIncomeRecord(Map<String, dynamic> income) async {
@@ -1119,14 +1231,18 @@ class DataService {
 
   // Checked-in Guests
   Future<List<Map<String, dynamic>>> getCheckedInGuests() async {
-    return await _retryOperation(() async {
-      final response = await _supabase
-          .from('bookings')
-          .select('id, guest_name, rooms!inner(room_number), created_by, check_in_date')
-          .eq('status', 'Checked-in')
-          .order('check_in_date', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: 'getCheckedInGuests',
+      tables: const ['bookings'],
+      fetch: () => _retryOperation(() async {
+        final response = await _supabase
+            .from('bookings')
+            .select('id, guest_name, rooms!inner(room_number), created_by, check_in_date')
+            .eq('status', 'Checked-in')
+            .order('check_in_date', ascending: false);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   // Department Sales
@@ -1136,38 +1252,32 @@ class DataService {
     DateTime? endDate,
     int limit = 1000,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('department_sales')
-          .select();
-      
-      if (department != null && department.isNotEmpty) {
-        query = query.eq('department', department);
-      }
-      
-      // Account for 5 AM business day boundary
-      // Since department_sales.date is stored as calendar date, we need to query
-      // for all calendar dates that could contain transactions within the business day range
-      if (startDate != null && endDate != null) {
-        // Get calendar dates that span the business day range
-        // Business day can span two calendar dates (e.g., 5 AM Jan 14 to 4:59 AM Jan 15)
-        final startCalendarDate = startDate.toIso8601String().split('T')[0];
-        final endCalendarDate = endDate.toIso8601String().split('T')[0];
-        
-        // Query for all dates in the range (inclusive)
-        query = query.gte('date', startCalendarDate).lte('date', endCalendarDate);
-      } else if (startDate != null) {
-        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
-      } else if (endDate != null) {
-        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
-      }
-      
-      final response = await query
-          .order('date', ascending: false)
-          .limit(limit);
-      
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getDepartmentSales:$department:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['department_sales'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase
+            .from('department_sales')
+            .select();
+        if (department != null && department.isNotEmpty) {
+          query = query.eq('department', department);
+        }
+        if (startDate != null && endDate != null) {
+          final startCalendarDate = startDate.toIso8601String().split('T')[0];
+          final endCalendarDate = endDate.toIso8601String().split('T')[0];
+          query = query.gte('date', startCalendarDate).lte('date', endCalendarDate);
+        } else if (startDate != null) {
+          query = query.gte('date', startDate.toIso8601String().split('T')[0]);
+        } else if (endDate != null) {
+          query = query.lte('date', endDate.toIso8601String().split('T')[0]);
+        }
+        final response = await query
+            .order('date', ascending: false)
+            .limit(limit);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getDepartmentSalesByDepartment(String department) async {
@@ -1333,23 +1443,26 @@ class DataService {
     DateTime? endDate,
     int limit = 200,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('maintenance_work_orders')
-          .select('*, assets(name), reported_by:profiles!reported_by_id(full_name), assigned_to:profiles!assigned_to(full_name)');
-      
-      if (startDate != null) {
-        query = query.gte('created_at', startDate.toIso8601String());
-      }
-      if (endDate != null) {
-        query = query.lte('created_at', endDate.toIso8601String());
-      }
-      
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getMaintenanceWorkOrders:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['maintenance_work_orders'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase
+            .from('maintenance_work_orders')
+            .select('*, assets(name), reported_by:profiles!reported_by_id(full_name), assigned_to:profiles!assigned_to(full_name)');
+        if (startDate != null) {
+          query = query.gte('created_at', startDate.toIso8601String());
+        }
+        if (endDate != null) {
+          query = query.lte('created_at', endDate.toIso8601String());
+        }
+        final response = await query
+            .order('created_at', ascending: false)
+            .limit(limit);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> createMaintenanceWorkOrder(Map<String, dynamic> workOrder) async {
@@ -1388,28 +1501,31 @@ class DataService {
     DateTime? endDate,
     int limit = 200,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('purchase_orders')
-          .select(
-            '*, purchase_order_items(*, stock_items(name, unit)), purchaser:profiles!purchaser_id(full_name), storekeeper:profiles!storekeeper_id(full_name)',
-          );
-
-      if (status != null && status.isNotEmpty) {
-        query = query.eq('status', status);
-      }
-      if (startDate != null) {
-        query = query.gte('created_at', startDate.toIso8601String());
-      }
-      if (endDate != null) {
-        query = query.lte('created_at', endDate.toIso8601String());
-      }
-
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getPurchaseOrders:$status:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['purchase_orders'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase
+            .from('purchase_orders')
+            .select(
+              '*, purchase_order_items(*, stock_items(name, unit)), purchaser:profiles!purchaser_id(full_name), storekeeper:profiles!storekeeper_id(full_name)',
+            );
+        if (status != null && status.isNotEmpty) {
+          query = query.eq('status', status);
+        }
+        if (startDate != null) {
+          query = query.gte('created_at', startDate.toIso8601String());
+        }
+        if (endDate != null) {
+          query = query.lte('created_at', endDate.toIso8601String());
+        }
+        final response = await query
+            .order('created_at', ascending: false)
+            .limit(limit);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<Map<String, dynamic>?> getMonthlyPurchaseBudget(DateTime monthStart) async {
@@ -1617,23 +1733,26 @@ class DataService {
     String? status,
     String? bar,
   }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('direct_supply_requests')
-          .select(
-            '*, stock_items(name), requested_by_profile:profiles!requested_by(full_name), approved_by_profile:profiles!approved_by(full_name)',
-          );
-
-      if (status != null) {
-        query = query.eq('status', status);
-      }
-      if (bar != null) {
-        query = query.eq('bar', bar);
-      }
-
-      final response = await query.order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
-    });
+    final key = 'getDirectSupplyRequests:$status:$bar';
+    return _cache.getOrFetch<List<Map<String, dynamic>>>(
+      key: key,
+      tables: const ['direct_supply_requests'],
+      fetch: () => _retryOperation(() async {
+        var query = _supabase
+            .from('direct_supply_requests')
+            .select(
+              '*, stock_items(name), requested_by_profile:profiles!requested_by(full_name), approved_by_profile:profiles!approved_by(full_name)',
+            );
+        if (status != null) {
+          query = query.eq('status', status);
+        }
+        if (bar != null) {
+          query = query.eq('bar', bar);
+        }
+        final response = await query.order('created_at', ascending: false);
+        return List<Map<String, dynamic>>.from(response);
+      }),
+    );
   }
 
   Future<void> approveDirectSupplyRequest({

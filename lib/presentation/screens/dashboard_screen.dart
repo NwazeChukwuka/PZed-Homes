@@ -1,6 +1,7 @@
-import 'dart:io';
-import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -43,6 +44,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
   final DataService _dataService = DataService();
   RealtimeChannel? _realtimeChannel;
+  Timer? _realtimeDebounceTimer;
+  final Set<String> _pendingRealtimeSlices = {};
+  static const _realtimeDebounceMs = 500;
 
   List<Map<String, dynamic>> _bookings = [];
   Map<String, dynamic> _stats = {};
@@ -101,10 +105,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
 
+  void _onActivitiesScroll() {
+    if (!_activitiesScrollController.hasClients) return;
+    if (_activitiesScrollController.position.pixels >=
+        _activitiesScrollController.position.maxScrollExtent * 0.9) {
+      if (_activitiesDisplayCount < _checkedInGuests.length) {
+        setState(() {
+          _activitiesDisplayCount = (_activitiesDisplayCount + 5).clamp(5, _checkedInGuests.length);
+        });
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _setupScrollListeners();
+    _activitiesScrollController.addListener(_onActivitiesScroll);
     _loadData();
     _activitiesSearchController.addListener(_filterActivities);
     _setupRealtimeSubscriptions();
@@ -126,72 +142,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
   
-  void _setupScrollListeners() {
-    _activitiesScrollController.addListener(() {
-      if (_activitiesScrollController.position.pixels >=
-          _activitiesScrollController.position.maxScrollExtent * 0.9) {
-        // Load 5 more activities when scrolled to 90% of the list
-        if (_activitiesDisplayCount < _checkedInGuests.length) {
-          setState(() {
-            _activitiesDisplayCount = (_activitiesDisplayCount + 5).clamp(5, _checkedInGuests.length);
-          });
-        }
-      }
-    });
-    
-    // Bookings scroll listener removed - Recent Bookings section removed
-  }
-
   void _setupRealtimeSubscriptions() {
     if (_supabase == null) return;
     
     try {
       _realtimeChannel = _supabase!.channel('dashboard_updates')
-        // Listen for new bookings
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'bookings',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh all data when new booking is created
-            }
-          },
+          callback: (_) => _onRealtimeEvent('bookings'),
         )
-        // Listen for booking updates
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'bookings',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh when booking status changes
-            }
-          },
+          callback: (_) => _onRealtimeEvent('bookings'),
         )
-        // Listen for new department sales
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'department_sales',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh sales data when new sale is recorded
-            }
-          },
+          callback: (_) => _onRealtimeEvent('sales'),
         )
-        // Listen for department sales updates
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'department_sales',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh when sales are updated
-            }
-          },
+          callback: (_) => _onRealtimeEvent('sales'),
         )
-        // Listen for bar sales (inventory_items sales via stock_transactions)
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -201,40 +180,183 @@ class _DashboardScreenState extends State<DashboardScreen> {
             column: 'transaction_type',
             value: 'Sale',
           ),
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh when bar sales are made
-            }
-          },
+          callback: (_) => _onRealtimeEvent('sales'),
         )
-        // Listen for mini mart sales
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'mini_mart_sales',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh when mini mart sales are made
-            }
-          },
+          callback: (_) => _onRealtimeEvent('sales'),
         )
-        // Listen for kitchen sales
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'kitchen_sales',
-          callback: (payload) {
-            if (mounted) {
-              _loadData(); // Refresh when kitchen sales are made
-            }
-          },
+          callback: (_) => _onRealtimeEvent('sales'),
         )
         .subscribe();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Failed to setup real-time subscriptions: $e');
-      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG realtime setup: $e\n$stack');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
     }
+  }
+
+  void _onRealtimeEvent(String slice) {
+    try {
+      if (mounted) _scheduleRealtimeRefresh(slice);
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG realtime callback: $e\n$stack');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+    }
+  }
+
+  void _scheduleRealtimeRefresh(String slice) {
+    _pendingRealtimeSlices.add(slice);
+    _realtimeDebounceTimer?.cancel();
+    _realtimeDebounceTimer = Timer(
+      const Duration(milliseconds: _realtimeDebounceMs),
+      _runPendingRealtimeRefresh,
+    );
+  }
+
+  Future<void> _runPendingRealtimeRefresh() async {
+    final slices = _pendingRealtimeSlices.toList();
+    _pendingRealtimeSlices.clear();
+    _realtimeDebounceTimer = null;
+    if (!mounted || slices.isEmpty || !_hasLoadedOnce) return;
+    try {
+      if (slices.contains('bookings')) {
+        _dataService.invalidateCacheForTable('bookings');
+        await _refreshBookingsSlice();
+      }
+      if (slices.contains('sales') && mounted) {
+        _dataService.invalidateCacheForTable('department_sales');
+        _dataService.invalidateCacheForTable('stock_transactions');
+        _dataService.invalidateCacheForTable('mini_mart_sales');
+        _dataService.invalidateCacheForTable('kitchen_sales');
+        await _refreshSalesSlice();
+      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG realtime slice refresh: $e\n$stack');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+    }
+  }
+
+  Future<void> _refreshBookingsSlice() async {
+    if (!mounted) return;
+    try {
+      final results = await Future.wait([
+        _dataService.getCheckedInGuests(),
+        _dataService.getBookings(),
+      ]);
+      final checkedInGuests = results[0] as List<Map<String, dynamic>>;
+      final bookings = results[1] as List<Map<String, dynamic>>;
+      if (mounted) {
+        setState(() {
+          _checkedInGuests = checkedInGuests;
+          _bookings = bookings;
+          _stats = {
+            'checked_in_count': checkedInGuests.length,
+          };
+        });
+      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _refreshBookingsSlice: $e\n$stack');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+    }
+  }
+
+  Future<void> _refreshSalesSlice() async {
+    if (!mounted) return;
+    try {
+      final timeRange = _currentRange();
+      final previousRange = _getPreviousRange(timeRange);
+      final results = await Future.wait([
+        _dataService.getDepartmentSales(department: 'vip_bar', startDate: timeRange.start, endDate: timeRange.end),
+        _dataService.getDepartmentSales(department: 'outside_bar', startDate: timeRange.start, endDate: timeRange.end),
+        _dataService.getDepartmentSales(department: 'mini_mart', startDate: timeRange.start, endDate: timeRange.end),
+        _dataService.getDepartmentSales(department: 'restaurant', startDate: timeRange.start, endDate: timeRange.end),
+        _dataService.getDepartmentSales(department: 'reception', startDate: timeRange.start, endDate: timeRange.end),
+        _dataService.getDepartmentSales(department: 'vip_bar', startDate: previousRange.start, endDate: previousRange.end),
+        _dataService.getDepartmentSales(department: 'outside_bar', startDate: previousRange.start, endDate: previousRange.end),
+        _dataService.getDepartmentSales(department: 'mini_mart', startDate: previousRange.start, endDate: previousRange.end),
+        _dataService.getDepartmentSales(department: 'restaurant', startDate: previousRange.start, endDate: previousRange.end),
+        _dataService.getDepartmentSales(department: 'reception', startDate: previousRange.start, endDate: previousRange.end),
+      ]);
+      final vipSales = results[0] as List<Map<String, dynamic>>;
+      final outsideSales = results[1] as List<Map<String, dynamic>>;
+      final miniMartSales = results[2] as List<Map<String, dynamic>>;
+      final kitchenSales = results[3] as List<Map<String, dynamic>>;
+      final receptionSales = results[4] as List<Map<String, dynamic>>;
+      final previousVipSales = results[5] as List<Map<String, dynamic>>;
+      final previousOutsideSales = results[6] as List<Map<String, dynamic>>;
+      final previousMiniMartSales = results[7] as List<Map<String, dynamic>>;
+      final previousKitchenSales = results[8] as List<Map<String, dynamic>>;
+      final previousReceptionSales = results[9] as List<Map<String, dynamic>>;
+      final vipBarTotal = _sumFilteredDeptSales(vipSales, timeRange);
+      final outsideBarTotal = _sumFilteredDeptSales(outsideSales, timeRange);
+      final miniMartTotal = _sumFilteredDeptSales(miniMartSales, timeRange);
+      final kitchenTotal = _sumFilteredDeptSales(kitchenSales, timeRange);
+      final receptionTotal = _sumFilteredDeptSales(receptionSales, timeRange);
+      final previousVipBarTotal = _sumFilteredDeptSales(previousVipSales, previousRange);
+      final previousOutsideBarTotal = _sumFilteredDeptSales(previousOutsideSales, previousRange);
+      final previousMiniMartTotal = _sumFilteredDeptSales(previousMiniMartSales, previousRange);
+      final previousKitchenTotal = _sumFilteredDeptSales(previousKitchenSales, previousRange);
+      final previousReceptionTotal = _sumFilteredDeptSales(previousReceptionSales, previousRange);
+      final newPreviousDeptSalesSum = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
+      final oldPreviousDeptSalesSum = _previousDeptSalesTotals.values.fold<num>(0, (s, v) => s + v);
+      final newPreviousIncome = _previousIncome - oldPreviousDeptSalesSum + newPreviousDeptSalesSum;
+      final newPreviousProfit = newPreviousIncome - _previousExpenses;
+      if (mounted) {
+        setState(() {
+          _deptSalesTotals = {
+            'VIP Bar': vipBarTotal,
+            'Outside Bar': outsideBarTotal,
+            'Mini Mart': miniMartTotal,
+            'Kitchen': kitchenTotal,
+            'Reception': receptionTotal,
+          };
+          _previousDeptSalesTotals = {
+            'VIP Bar': previousVipBarTotal,
+            'Outside Bar': previousOutsideBarTotal,
+            'Mini Mart': previousMiniMartTotal,
+            'Kitchen': previousKitchenTotal,
+            'Reception': previousReceptionTotal,
+          };
+          _previousIncome = newPreviousIncome;
+          _previousProfit = newPreviousProfit;
+        });
+      }
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _refreshSalesSlice: $e\n$stack');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+    }
+  }
+
+  DateTimeRange _getPreviousRange(DateTimeRange current) {
+    final duration = current.end.difference(current.start);
+    return DateTimeRange(
+      start: current.start.subtract(duration),
+      end: current.start.subtract(const Duration(milliseconds: 1)),
+    );
+  }
+
+  num _sumFilteredDeptSales(List<Map<String, dynamic>> list, DateTimeRange range) {
+    final filtered = list.where((sale) {
+      final createdAt = _parseTimestamp(sale['created_at']);
+      if (createdAt != null && _isDateInRange(createdAt, range)) return true;
+      final updatedAt = _parseTimestamp(sale['updated_at']);
+      if (updatedAt != null && _isDateInRange(updatedAt, range)) return true;
+      final saleDate = _parseTimestamp(sale['date']);
+      if (saleDate != null && _isDateInRange(saleDate, range)) return true;
+      return false;
+    }).toList();
+    return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+  }
+
+  bool _isDateInRange(DateTime date, DateTimeRange range) {
+    return (date.isAfter(range.start) || date.isAtSameMomentAs(range.start)) 
+        && (date.isBefore(range.end) || date.isAtSameMomentAs(range.end));
   }
 
   bool _hasLoadedOnce = false;
@@ -248,10 +370,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
-    _searchController.dispose();
-    _activitiesSearchController.dispose();
+    _realtimeDebounceTimer?.cancel();
+    _realtimeDebounceTimer = null;
+    _activitiesScrollController.removeListener(_onActivitiesScroll);
     _activitiesScrollController.dispose();
-    // Clean up real-time subscriptions
+    _activitiesSearchController.removeListener(_filterActivities);
+    _activitiesSearchController.dispose();
+    _searchController.dispose();
     if (_realtimeChannel != null) {
       _realtimeChannel!.unsubscribe();
       _supabase?.removeChannel(_realtimeChannel!);
@@ -268,27 +393,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final canApproveSupplies =
           effectiveRole == AppRole.owner || effectiveRole == AppRole.manager;
 
-      // Load essential data first (for immediate display)
       DateTimeRange timeRange;
       try {
         timeRange = _currentRange();
-        // Validate date range
         if (timeRange.start.isAfter(timeRange.end)) {
           throw Exception('Invalid date range: start date is after end date');
         }
-      } catch (e) {
+      } catch (e, stackTrace) {
+        if (kDebugMode) debugPrint('DEBUG date range: $e\n$stackTrace');
         if (mounted) {
           ErrorHandler.handleError(
             context,
             e,
             customMessage: 'Invalid date range selected. Please try again.',
+            stackTrace: stackTrace,
           );
         }
         return;
       }
-      final checkedInGuests = await _dataService.getCheckedInGuests();
-      
-      // Calculate previous period range for trend comparison
+
       DateTimeRange getPreviousRange(DateTimeRange current) {
         final duration = current.end.difference(current.start);
         return DateTimeRange(
@@ -297,10 +420,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
       final previousRange = getPreviousRange(timeRange);
-      
-      // Load department sales in parallel for faster loading (current and previous period)
-      // Also load stock transactions as fallback for bars (since they record sales there)
-      final salesFuture = Future.wait([
+
+      // Run all independent sections in parallel
+      final bookingsSection = Future.wait([
+        _dataService.getCheckedInGuests(),
+        _dataService.getBookings(),
+      ]);
+
+      final salesSection = Future.wait([
         _dataService.getDepartmentSales(
           department: 'vip_bar',
           startDate: timeRange.start,
@@ -326,10 +453,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           startDate: timeRange.start,
           endDate: timeRange.end,
         ),
-      ]);
-      
-      // Load previous period sales for trend calculation
-      final previousSalesFuture = Future.wait([
         _dataService.getDepartmentSales(
           department: 'vip_bar',
           startDate: previousRange.start,
@@ -355,98 +478,101 @@ class _DashboardScreenState extends State<DashboardScreen> {
           startDate: previousRange.start,
           endDate: previousRange.end,
         ),
+        _dataService.getStockTransactions(),
       ]);
-      
-      // Load previous period financial data
-      final previousIncomeRecords = await _dataService.getIncomeRecords(
-        startDate: previousRange.start,
-        endDate: previousRange.end,
-      );
-      final previousExpensesList = await _dataService.getExpenses(
-        startDate: previousRange.start,
-        endDate: previousRange.end,
-        status: 'Approved',
-      );
-      final previousPurchaseOrders = await _dataService.getPurchaseOrders(
-        startDate: previousRange.start,
-        endDate: previousRange.end,
-      );
-      final previousMaintenanceOrders = await _dataService.getMaintenanceWorkOrders(
-        startDate: previousRange.start,
-        endDate: previousRange.end,
-      );
-      final previousBookings = await _dataService.getBookings();
-      
-      // Also load stock transactions for bars (fallback if department_sales is empty)
-      final stockTransactionsFuture = _dataService.getStockTransactions();
-      
-      // Load bookings (for recent bookings list and income calculation)
-      final bookings = await _dataService.getBookings();
-      
-      // Load all income sources for financial cards
-      final incomeRecords = await _dataService.getIncomeRecords(
-        startDate: timeRange.start,
-        endDate: timeRange.end,
-      );
-      
-      // Load all expense sources for financial cards
-      final expenses = await _dataService.getExpenses(
-        startDate: timeRange.start,
-        endDate: timeRange.end,
-        status: 'Approved', // Only count approved expenses
-      );
-      
-      // Load purchase orders (expenses)
-      final purchaseOrders = await _dataService.getPurchaseOrders(
-        startDate: timeRange.start,
-        endDate: timeRange.end,
-      );
-      
-      // Load maintenance work orders (expenses)
-      final maintenanceOrders = await _dataService.getMaintenanceWorkOrders(
-        startDate: timeRange.start,
-        endDate: timeRange.end,
-      );
-      
-      // Wait for sales data
-      final salesResults = await salesFuture;
-      final vipSales = salesResults[0];
-      final outsideSales = salesResults[1];
-      final miniMartSales = salesResults[2];
-      final kitchenSales = salesResults[3];
-      final receptionSales = salesResults[4];
-      
-      // Wait for previous period sales data
-      final previousSalesResults = await previousSalesFuture;
-      final previousVipSales = previousSalesResults[0];
-      final previousOutsideSales = previousSalesResults[1];
-      final previousMiniMartSales = previousSalesResults[2];
-      final previousKitchenSales = previousSalesResults[3];
-      final previousReceptionSales = previousSalesResults[4];
-      
-      // Also get stock transactions for bars (fallback aggregation)
-      final stockTransactions = await stockTransactionsFuture;
-      
-      // Calculate checked-in count
+
+      final financeSection = Future.wait([
+        _dataService.getIncomeRecords(
+          startDate: timeRange.start,
+          endDate: timeRange.end,
+        ),
+        _dataService.getIncomeRecords(
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getExpenses(
+          startDate: timeRange.start,
+          endDate: timeRange.end,
+          status: 'Approved',
+        ),
+        _dataService.getExpenses(
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+          status: 'Approved',
+        ),
+        _dataService.getPurchaseOrders(
+          startDate: timeRange.start,
+          endDate: timeRange.end,
+        ),
+        _dataService.getPurchaseOrders(
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+        _dataService.getMaintenanceWorkOrders(
+          startDate: timeRange.start,
+          endDate: timeRange.end,
+        ),
+        _dataService.getMaintenanceWorkOrders(
+          startDate: previousRange.start,
+          endDate: previousRange.end,
+        ),
+      ]);
+
+      final otherSection = Future.wait([
+        _dataService.getLocations(),
+        canApproveSupplies
+            ? _dataService.getDirectSupplyRequests(status: 'pending')
+            : Future<List<Map<String, dynamic>>>.value([]),
+      ]);
+
+      final results = await Future.wait([
+        bookingsSection,
+        salesSection,
+        financeSection,
+        otherSection,
+      ]);
+
+      final bookingsResults = results[0] as List;
+      final checkedInGuests = bookingsResults[0] as List<Map<String, dynamic>>;
+      final bookings = bookingsResults[1] as List<Map<String, dynamic>>;
+
+      final salesResults = results[1] as List;
+      final vipSales = salesResults[0] as List<Map<String, dynamic>>;
+      final outsideSales = salesResults[1] as List<Map<String, dynamic>>;
+      final miniMartSales = salesResults[2] as List<Map<String, dynamic>>;
+      final kitchenSales = salesResults[3] as List<Map<String, dynamic>>;
+      final receptionSales = salesResults[4] as List<Map<String, dynamic>>;
+      final previousVipSales = salesResults[5] as List<Map<String, dynamic>>;
+      final previousOutsideSales = salesResults[6] as List<Map<String, dynamic>>;
+      final previousMiniMartSales = salesResults[7] as List<Map<String, dynamic>>;
+      final previousKitchenSales = salesResults[8] as List<Map<String, dynamic>>;
+      final previousReceptionSales = salesResults[9] as List<Map<String, dynamic>>;
+      final stockTransactions = salesResults[10] as List<Map<String, dynamic>>;
+
+      final financeResults = results[2] as List;
+      final incomeRecords = financeResults[0] as List<Map<String, dynamic>>;
+      final previousIncomeRecords = financeResults[1] as List<Map<String, dynamic>>;
+      final expenses = financeResults[2] as List<Map<String, dynamic>>;
+      final previousExpensesList = financeResults[3] as List<Map<String, dynamic>>;
+      final purchaseOrders = financeResults[4] as List<Map<String, dynamic>>;
+      final previousPurchaseOrders = financeResults[5] as List<Map<String, dynamic>>;
+      final maintenanceOrders = financeResults[6] as List<Map<String, dynamic>>;
+      final previousMaintenanceOrders = financeResults[7] as List<Map<String, dynamic>>;
+
+      final otherResults = results[3] as List;
+      final locations = otherResults[0] as List<Map<String, dynamic>>;
+      final pendingSupplies = otherResults[1] as List<Map<String, dynamic>>;
+
       final checkedInCount = checkedInGuests.length;
-      
-      // Calculate previous period checked-in count
+      final previousBookings = bookings;
       final previousCheckedInCount = previousBookings.where((b) {
         final checkIn = _parseTimestamp(b['check_in_date']);
         if (checkIn == null) return false;
-        // Check if check-in falls within previous range
         return (checkIn.isAfter(previousRange.start) || checkIn.isAtSameMomentAs(previousRange.start)) 
             && (checkIn.isBefore(previousRange.end) || checkIn.isAtSameMomentAs(previousRange.end));
       }).length;
-      
-      // Load pending supplies if needed (non-blocking)
-      final pendingSupplies = canApproveSupplies
-          ? await _dataService.getDirectSupplyRequests(status: 'pending')
-          : <Map<String, dynamic>>[];
 
       if (mounted) {
-        // Get location IDs for bars
-        final locations = await _dataService.getLocations();
         final vipBarLocation = locations.firstWhere(
           (l) => (l['name'] as String?)?.toLowerCase() == 'vip bar',
           orElse: () => <String, dynamic>{},
@@ -630,20 +756,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _hasLoadedOnce = true;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (mounted) {
         setState(() {
           _isLoading = false;
           _isLoadingAttendance = false;
         });
-        // Show more specific error message
-        if (kDebugMode) {
-          print('Dashboard load error: $e');
-        }
+        if (kDebugMode) debugPrint('DEBUG dashboard load: $e\n$stackTrace');
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load dashboard data. Please check your date range and try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -699,8 +823,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       
       return attendance;
-    } catch (e) {
-      // If error, check AuthService state
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _fetchLastAttendance: $e\n$stack');
       final authService = Provider.of<AuthService>(context, listen: false);
       if (mounted) {
         setState(() {
@@ -731,18 +855,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _handleClockIn() async {
     // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"dashboard_screen.dart:267","message":"Clock-in button clicked (dashboard)","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"})}\n', mode: FileMode.append); } catch (_) {}
+    debugLog({"location":"dashboard_screen.dart:267","message":"Clock-in button clicked (dashboard)","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"});
     print('DEBUG: Clock-in button clicked in dashboard');
     // #endregion
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"dashboard_screen.dart:270","message":"Before clockIn call (dashboard)","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"dashboard_screen.dart:270","message":"Before clockIn call (dashboard)","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"});
       print('DEBUG: Before clockIn - userId: ${authService.currentUser?.id}, isClockedIn: ${authService.isClockedIn}');
       // #endregion
       await authService.clockIn();
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"dashboard_screen.dart:272","message":"After clockIn call - success (dashboard)","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"dashboard_screen.dart:272","message":"After clockIn call - success (dashboard)","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"});
       print('DEBUG: ClockIn success - clockInTime: ${authService.clockInTime}');
       // #endregion
       if (mounted) {
@@ -757,15 +881,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'Clocked in successfully',
         );
       }
-    } catch (e) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"dashboard_screen.dart:283","message":"Clock-in error caught (dashboard)","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})}\n', mode: FileMode.append); } catch (_) {}
-      print('DEBUG: ClockIn error: $e');
-      // #endregion
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG ClockIn: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
+          stackTrace: stackTrace,
           customMessage: 'Failed to clock in. Please try again.',
         );
       }
@@ -786,12 +908,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'Clocked out successfully',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG ClockOut: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to clock out. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -822,13 +946,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildDesktopLayout(BuildContext context) {
     return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(24),
       child: AppAnimations.staggeredList(
+        scrollable: false,
         children: [
-          AppAnimations.slideInFromBottom(
-            child: _buildHeader(context),
-          ),
+          _buildHeader(context),
           const SizedBox(height: 12),
           _buildQuickNav(context),
           const SizedBox(height: 12),
@@ -838,17 +961,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 24),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 24),
-          // Calendar launcher
-          AppAnimations.fadeTransition(
-            child: _buildCalendarLauncher(context),
-            animation: const AlwaysStoppedAnimation(1.0),
-          ),
+          _buildCalendarLauncher(context),
           const SizedBox(height: 24),
-          AppAnimations.slideTransition(
-            child: _buildRecentActivities(context),
-            animation: AlwaysStoppedAnimation(1.0),
-            direction: SlideDirection.right,
-          ),
+          _buildRecentActivities(context),
         ],
       ),
     );
@@ -1053,8 +1168,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .toList()
           ..sort();
         rooms = roomNumbers;
-      } catch (e) {
-        // If database query fails, show empty state
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG rooms query: $e\n$stack');
         rooms = [];
       }
     }
@@ -1313,7 +1428,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Helper function to determine crossAxisCount based on screen width
   int _getCrossAxisCount(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     if (width < 600) {
       return 2; // Mobile: 2 cards per row
     } else if (width < 1200) {
@@ -1326,7 +1441,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Unified method to build all cards in specified order
   Widget _buildAllCards(BuildContext context) {
     final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
@@ -1476,17 +1591,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ];
     
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: cardWidth / 140, // Fixed height of 140px for consistency
+    // RepaintBoundary isolates KPI card grid from parent scroll/repaint cascades
+    return RepaintBoundary(
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: spacing,
+          mainAxisSpacing: spacing,
+          childAspectRatio: cardWidth / 140, // Fixed height of 140px for consistency
+        ),
+        itemCount: allCards.length,
+        itemBuilder: (context, index) => allCards[index],
       ),
-      itemCount: allCards.length,
-      itemBuilder: (context, index) => allCards[index],
     );
   }
   
@@ -1752,24 +1870,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildDepartmentSalesQuickCards(BuildContext context) {
     final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
     
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: cardWidth / 120, // Adjust height based on card width
-      ),
-      itemCount: _deptSalesTotals.length,
-      itemBuilder: (context, index) {
-        final entry = _deptSalesTotals.entries.elementAt(index);
-        return AppAnimations.animatedCard(
+    // RepaintBoundary isolates department sales grid from parent repaints
+    return RepaintBoundary(
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: spacing,
+          mainAxisSpacing: spacing,
+          childAspectRatio: cardWidth / 120, // Adjust height based on card width
+        ),
+        itemCount: _deptSalesTotals.length,
+        itemBuilder: (context, index) {
+          final entry = _deptSalesTotals.entries.elementAt(index);
+          return AppAnimations.animatedCard(
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1826,6 +1946,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
       },
+    ),
     );
   }
 
@@ -1944,7 +2065,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildOccupancyChart(BuildContext context) {
-    return Container(
+    // RepaintBoundary isolates entire chart card from scroll-triggered repaints
+    return RepaintBoundary(
+      child: Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1968,10 +2091,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          SizedBox(
-            height: 300,
-            child: BarChart(
-              BarChartData(
+          // RepaintBoundary isolates chart from parent repaints; duration: Duration.zero avoids repeat animations on rebuild
+          RepaintBoundary(
+            child: SizedBox(
+              height: 300,
+              child: BarChart(
+                BarChartData(
                 alignment: BarChartAlignment.spaceAround,
                 maxY: 100,
                 barTouchData: BarTouchData(enabled: false),
@@ -2016,10 +2141,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
               ),
+              duration: Duration.zero,
             ),
           ),
+        ),
         ],
       ),
+    ),
     );
   }
 
@@ -2191,7 +2319,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const Spacer(),
               SizedBox(
-                width: MediaQuery.of(context).size.width < 600 ? 200 : 300,
+                width: MediaQuery.sizeOf(context).width < 600 ? 200 : 300,
                 child: TextField(
                   controller: _activitiesSearchController,
                   onChanged: (_) => setState(() {}), // Refresh on search
@@ -2215,10 +2343,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Text('No recent activities'),
             )
           else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 400),
-              child: ListView.builder(
-                controller: _activitiesScrollController,
+            // RepaintBoundary isolates activities list from parent repaints during scroll
+            RepaintBoundary(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 400),
+                child: ListView.builder(
+                  controller: _activitiesScrollController,
                 shrinkWrap: true,
                 itemCount: displayedActivities.length,
                 itemBuilder: (context, index) {
@@ -2286,6 +2416,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   );
                 },
               ),
+            ),
             ),
         ],
       ),
@@ -2600,7 +2731,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       
       // Try parsing as-is
       return DateTime.parse(str);
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
       return null;
     }
   }
@@ -2669,12 +2801,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           approve ? 'Direct supply approved' : 'Direct supply denied',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG supply request: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to update direct supply request.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -2915,7 +3049,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _inlineCards(BuildContext context, List<(String, String, IconData)> items) {
     final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;

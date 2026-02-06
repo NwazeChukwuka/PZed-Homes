@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -419,8 +420,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Stack(
           children: [
-            // Embedded Map
-            FlutterMap(
+            // RepaintBoundary isolates map tile rendering from parent repaints
+            RepaintBoundary(
+              child: FlutterMap(
               options: MapOptions(
                 initialCenter: hotelLocation,
                 initialZoom: 15.0,
@@ -472,6 +474,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   ],
                 ),
               ],
+            ),
             ),
             
             // Map Controls
@@ -617,13 +620,15 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       _phoneController.clear();
       _subjectController.clear();
       _messageController.clear();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _submitForm: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to send message. Please try again.',
           onRetry: _submitForm,
+          stackTrace: stackTrace,
         );
       }
     } finally {

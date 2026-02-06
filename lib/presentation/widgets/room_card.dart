@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/presentation/screens/room_details_screen.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/performance/optimization_helpers.dart';
 import '../../data/models/room_category.dart';
 
 class RoomCard extends StatefulWidget {
@@ -96,6 +97,9 @@ class _RoomCardState extends State<RoomCard> {
                           child: Image.asset(
                             images[index],
                             fit: BoxFit.cover,
+                            cacheWidth: 800,
+                            cacheHeight: 400,
+                            gaplessPlayback: true,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
                                 color: Colors.grey[200],

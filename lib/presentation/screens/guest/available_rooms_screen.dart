@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/presentation/screens/guest/guest_booking_screen.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -119,14 +121,8 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
         };
       }).toList();
     } catch (e, st) {
-      debugPrint('Error fetching available rooms: $e');
-      debugPrint('Stack trace: $st');
-      // Return more detailed error for debugging
-      if (e is Exception) {
-        debugPrint('Exception details: ${e.toString()}');
-      }
-      // Re-throw with more context
-      throw Exception('Failed to load available rooms: ${e.toString()}');
+      if (kDebugMode) debugPrint('DEBUG _fetchAvailableRooms: $e\n$st');
+      rethrow;
     }
   }
 
@@ -367,7 +363,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        snapshot.error?.toString() ?? 'Unknown error occurred',
+                        ErrorHandler.getFriendlyErrorMessage(snapshot.error),
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Colors.grey),
                       ),
@@ -511,6 +507,8 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                               height: imageHeight,
                               width: double.infinity,
                               fit: BoxFit.cover,
+                              memCacheWidth: 800,
+                              memCacheHeight: 600,
                               placeholder: (context, url) => Container(
                                 height: imageHeight,
                                 color: Colors.grey[300],

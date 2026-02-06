@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -111,8 +112,10 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   
   Widget _buildReadOnlyStoreView() {
     final dataService = DataService();
+    // Data source: stock_levels ledger (stock_transactions). Filter by Main Store only so
+    // issued items (transferred to departments) no longer appear as available in central store.
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: dataService.getStockLevels(),
+      future: dataService.getStockLevels(locationName: 'Main Store'),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -131,7 +134,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         if (items.isEmpty) {
           return ErrorHandler.buildEmptyWidget(
             context,
-            message: 'No stock items available',
+            message: 'No stock items available in Main Store',
           );
         }
         
@@ -203,13 +206,15 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         _stockItems = items;
         _locations = locations;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadData (Record): $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load data. Please check your connection and try again.',
           onRetry: () => setState(() {}),
+          stackTrace: stackTrace,
         );
       }
     }
@@ -230,12 +235,14 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         return [];
       }
       return locations;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _getLocations: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load locations from database.',
+          stackTrace: stackTrace,
         );
       }
       return [];
@@ -291,12 +298,14 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         // Reload data to reflect changes
         await _loadData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _recordDirectEntry: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to record stock. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -414,13 +423,15 @@ class _StockTransferFormState extends State<StockTransferForm> {
         _staffProfiles = staff;
         _sourceLocationId = _defaultMainStoreLocationId();
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadData (Transfer): $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load transfer data. Please try again.',
           onRetry: _loadData,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -511,12 +522,14 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _selectedRecipientId = null;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _submitTransfer: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to transfer stock. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {

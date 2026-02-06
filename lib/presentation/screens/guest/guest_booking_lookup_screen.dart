@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -77,12 +78,14 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
           _result = rows.first;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG lookup booking: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to lookup booking. Please verify your details.',
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -161,12 +164,14 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
         bytes: bytes,
         filename: 'booking_receipt_${_result!['booking_id']}.pdf',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to share receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -191,12 +196,14 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
         paymentReference: _result!['payment_reference']?.toString() ?? '',
       );
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to print receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }

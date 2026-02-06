@@ -1,6 +1,5 @@
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
 // Supabase removed for mock-only mode
 import 'package:go_router/go_router.dart';
@@ -27,12 +26,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Future<List<Map<String, dynamic>>>? _inventoryFuture;
   bool _isLoading = true;
-  
-  // Pagination state
-  int _rowsPerPage = 10;
-  int _currentPage = 0;
+
+  // Infinite scroll state for Stock Movements (performance: load pages of 30, avoid full dataset)
+  static const int _transactionsPageSize = 30;
   List<Map<String, dynamic>> _allTransactions = [];
-  List<Map<String, dynamic>> _currentPageTransactions = [];
+  bool _transactionsHasMore = true;
+  bool _transactionsLoadingMore = false;
+  int _transactionsOffset = 0;
+  final ScrollController _transactionsScrollController = ScrollController();
   
   // Controllers for add item dialog
   final _nameController = TextEditingController();
@@ -65,20 +66,22 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   void initState() {
     super.initState();
     // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:61","message":"Inventory screen initState","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"L"})}\n', mode: FileMode.append); } catch (_) {}
+    debugLog({"location":"inventory_screen.dart:61","message":"Inventory screen initState","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"L"});
     // #endregion
     _updateTabController();
     _loadInventory();
     _loadTransactions();
+    // Infinite scroll: load next page when user scrolls near bottom
+    _transactionsScrollController.addListener(_onTransactionsScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authService = Provider.of<AuthService>(context, listen: false);
       final user = authService.currentUser;
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:68","message":"PostFrameCallback - role check","data":{"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"M"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"inventory_screen.dart:68","message":"PostFrameCallback - role check","data":{"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"M"});
       // #endregion
       final userDepartment = _bartenderDepartment(authService, user);
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:69","message":"Department detection result","data":{"userDepartment":userDepartment,"selectedBar":_selectedBar},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"N"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"inventory_screen.dart:69","message":"Department detection result","data":{"userDepartment":userDepartment,"selectedBar":_selectedBar},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"N"});
       // #endregion
       if (userDepartment != null && _selectedBar == null) {
         setState(() {
@@ -89,8 +92,19 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     });
   }
 
+  void _onTransactionsScroll() {
+    // Load next page when within 200px of bottom (infinite scroll)
+    if (!_transactionsScrollController.hasClients) return;
+    final pos = _transactionsScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      _loadMoreTransactions();
+    }
+  }
+
   @override
   void dispose() {
+    _transactionsScrollController.removeListener(_onTransactionsScroll);
+    _transactionsScrollController.dispose();
     _tabController.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
@@ -111,7 +125,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final user = authService.currentUser;
     final isBartender = _hasBartenderRole(authService, user);
     // #region agent log
-    try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:96","message":"Tab controller update","data":{"isBartender":isBartender,"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name,"tabCount":isBartender?3:2},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"O"})}\n', mode: FileMode.append); } catch (_) {}
+    debugLog({"location":"inventory_screen.dart:96","message":"Tab controller update","data":{"isBartender":isBartender,"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name,"tabCount":isBartender?3:2},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"O"});
     // #endregion
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
     // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
@@ -148,25 +162,22 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Future<void> _loadInventory() async {
     // #region agent log
-    try { 
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final user = authService.currentUser;
-      final logData = {
-        'location': 'inventory_screen.dart:132',
-        'message': 'Loading inventory',
-        'data': {
-          'userId': user?.id,
-          'userRoles': user?.roles.map((r) => r.name).toList(),
-          'isRoleAssumed': authService.isRoleAssumed,
-          'assumedRole': authService.assumedRole?.name
-        },
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'sessionId': 'debug-session',
-        'runId': 'run1',
-        'hypothesisId': 'X'
-      };
-      File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-    } catch (_) {}
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    debugLog({
+      'location': 'inventory_screen.dart:132',
+      'message': 'Loading inventory',
+      'data': {
+        'userId': user?.id,
+        'userRoles': user?.roles.map((r) => r.name).toList(),
+        'isRoleAssumed': authService.isRoleAssumed,
+        'assumedRole': authService.assumedRole?.name
+      },
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'sessionId': 'debug-session',
+      'runId': 'run1',
+      'hypothesisId': 'X'
+    });
     print('DEBUG InventoryScreen: Starting _loadInventory');
     // #endregion
     setState(() {
@@ -175,11 +186,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
     try {
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:139","message":"Calling getInventoryItems","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Y"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"inventory_screen.dart:139","message":"Calling getInventoryItems","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Y"});
       // #endregion
       final inventory = await _dataService.getInventoryItems();
       // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"})}\n', mode: FileMode.append); } catch (_) {}
+      debugLog({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"});
       // #endregion
       final stockLevels = await _dataService.getStockLevels();
       final stockItems = await _dataService.supabase
@@ -210,37 +221,58 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         _missingStockItems = missing;
         _isLoading = false;
       });
-    } catch (e) {
-      // #region agent log
-      try { File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode({"location":"inventory_screen.dart:172","message":"_loadInventory error","data":{"error":e.toString(),"errorType":e.runtimeType.toString()},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"AA"})}\n', mode: FileMode.append); } catch (_) {}
-      print('DEBUG InventoryScreen: Error loading inventory: $e');
-      // #endregion
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadInventory: $e\n$stackTrace');
       setState(() {
         _isLoading = false;
       });
-      ErrorHandler.handleError(context, e);
+      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
     }
   }
 
+  /// Loads first page of transactions (performance: small chunk, cached in DataService).
   Future<void> _loadTransactions() async {
     try {
-      // Increase limit to show more transaction history (1000 records)
-      final transactions = await _dataService.getStockTransactions(limit: 1000);
-        setState(() {
+      final transactions = await _dataService.getStockTransactions(
+        limit: _transactionsPageSize,
+        offset: 0,
+      );
+      if (!mounted) return;
+      setState(() {
         _allTransactions = transactions;
-        _updateCurrentPageTransactions();
-        });
-    } catch (e) {
-      ErrorHandler.handleError(context, e);
+        _transactionsOffset = transactions.length;
+        _transactionsHasMore = transactions.length >= _transactionsPageSize;
+      });
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadLocations: $e\n$stackTrace');
+      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
     }
   }
 
-  void _updateCurrentPageTransactions() {
-    final startIndex = _currentPage * _rowsPerPage;
-    final endIndex = (startIndex + _rowsPerPage).clamp(0, _allTransactions.length);
-    setState(() {
-      _currentPageTransactions = _allTransactions.sublist(startIndex, endIndex);
-    });
+  /// Loads next page when user scrolls near bottom (infinite scroll).
+  Future<void> _loadMoreTransactions() async {
+    if (_transactionsLoadingMore || !_transactionsHasMore) return;
+    _transactionsLoadingMore = true;
+    setState(() {});
+    try {
+      final transactions = await _dataService.getStockTransactions(
+        limit: _transactionsPageSize,
+        offset: _transactionsOffset,
+      );
+      if (!mounted) return;
+      setState(() {
+        _allTransactions.addAll(transactions);
+        _transactionsOffset += transactions.length;
+        _transactionsHasMore = transactions.length >= _transactionsPageSize;
+        _transactionsLoadingMore = false;
+      });
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadMoreTransactions: $e\n$stackTrace');
+      if (mounted) {
+        setState(() => _transactionsLoadingMore = false);
+        ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+      }
+    }
   }
 
   @override
@@ -516,165 +548,30 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildStockMovementsTab() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Text('Rows per page:'),
-              const SizedBox(width: 8),
-              DropdownButton<int>(
-                value: _rowsPerPage,
-                items: const [
-                  DropdownMenuItem(value: 5, child: Text('5')),
-                  DropdownMenuItem(value: 10, child: Text('10')),
-                  DropdownMenuItem(value: 20, child: Text('20')),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    _rowsPerPage = value!;
-                    _currentPage = 0;
-                    _updateCurrentPageTransactions();
-                  });
-                },
-              ),
-              const Spacer(),
-              Text('Page ${_currentPage + 1} of ${(_allTransactions.length / _rowsPerPage).ceil()}'),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ScrollableListViewWithArrows(
-            itemCount: _currentPageTransactions.length,
-            itemBuilder: (context, index) {
-              final transaction = _currentPageTransactions[index];
-              return _buildTransactionItem(transaction);
-            },
-          ),
-        ),
-        if (_allTransactions.length > _rowsPerPage)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _currentPage > 0 ? () {
-                    setState(() {
-                      _currentPage--;
-                      _updateCurrentPageTransactions();
-                    });
-                  } : null,
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                const SizedBox(width: 16),
-                IconButton(
-                  onPressed: _currentPage < (_allTransactions.length / _rowsPerPage).ceil() - 1 ? () {
-                    setState(() {
-                      _currentPage++;
-                      _updateCurrentPageTransactions();
-                    });
-                  } : null,
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              ],
-            ),
-          ),
-      ],
+    // Lazy rendering via ListView.builder, infinite scroll, no preload of full dataset
+    final itemCount = _allTransactions.length + (_transactionsHasMore && _transactionsLoadingMore ? 1 : 0);
+    return ScrollableListViewWithArrows(
+      controller: _transactionsScrollController,
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        if (index >= _allTransactions.length) {
+          // Lightweight loading indicator at end (infinite scroll)
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )),
+          );
+        }
+        return _InventoryTransactionItem(transaction: _allTransactions[index]);
+      },
     );
   }
 
   Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final transactionType = transaction['transaction_type']?.toString() ?? '';
-    final isSale = transactionType == 'Sale';
-    final isTransferOut = transactionType == 'Transfer_Out';
-    final isTransferIn = transactionType == 'Transfer_In';
-    final isPurchase = transactionType == 'Purchase';
-    final isWastage = transactionType == 'Wastage';
-    
-    // Get item name from joined stock_items
-    final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
-    final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
-    final unit = stockItem?['unit']?.toString() ?? '';
-    
-    // Get location name
-    final location = transaction['locations'] as Map<String, dynamic>?;
-    final locationName = location?['name']?.toString() ?? 'Unknown Location';
-    
-    // Get staff name
-    final profile = transaction['profiles'] as Map<String, dynamic>?;
-    final staffName = profile?['full_name']?.toString() ?? 'Unknown Staff';
-    
-    // Get quantity and timestamp
-    final quantity = transaction['quantity'] as int? ?? 0;
-    final createdAt = transaction['created_at']?.toString() ?? '';
-    final timestamp = createdAt.isNotEmpty 
-        ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(createdAt))
-        : 'Unknown time';
-    
-    // Determine icon and color based on transaction type
-    IconData icon;
-    Color color;
-    String typeLabel;
-    
-    if (isSale) {
-      icon = Icons.sell;
-      color = Colors.red[700]!;
-      typeLabel = 'SALE';
-    } else if (isTransferOut) {
-      icon = Icons.send;
-      color = Colors.orange[700]!;
-      typeLabel = 'TRANSFER OUT';
-    } else if (isTransferIn) {
-      icon = Icons.call_received;
-      color = Colors.blue[700]!;
-      typeLabel = 'TRANSFER IN';
-    } else if (isPurchase) {
-      icon = Icons.shopping_cart;
-      color = Colors.green[700]!;
-      typeLabel = 'PURCHASE';
-    } else if (isWastage) {
-      icon = Icons.delete_outline;
-      color = Colors.grey[700]!;
-      typeLabel = 'WASTAGE';
-    } else {
-      icon = Icons.inventory;
-      color = Colors.grey[700]!;
-      typeLabel = transactionType.toUpperCase();
-    }
-    
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.1),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        title: Text(itemName, style: const TextStyle(fontWeight: FontWeight.w500)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text('Quantity: ${quantity.abs()} $unit'),
-            Text('Location: $locationName'),
-            Text('Staff: $staffName'),
-            if (transaction['notes'] != null && transaction['notes'].toString().isNotEmpty)
-              Text('Notes: ${transaction['notes']}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-            const SizedBox(height: 2),
-            Text(timestamp, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-          ],
-        ),
-        trailing: Text(
-          typeLabel,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: color,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
+    return _InventoryTransactionItem(transaction: transaction);
   }
 
   Widget _buildMakeSaleTab() {
@@ -1419,14 +1316,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 });
             
             // Stock ledger is the source of truth; no direct inventory_items update
-          } catch (e) {
-            // CRITICAL: If stock_transactions fails, throw error immediately
-            // DO NOT fall back to updating inventory_items directly - this would mask the error
-            // and cause data inconsistency between stock_transactions and inventory_items
-            throw Exception(
-              'Failed to record stock transaction for ${item['name']}. '
-              'Sale cannot be processed. Error: $e'
-            );
+          } catch (e, stack) {
+            if (kDebugMode) debugPrint('DEBUG stock_transactions: $e\n$stack');
+            rethrow;
           }
         } catch (e) {
           // Re-throw the error from stock item lookup
@@ -1499,11 +1391,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 });
           }
 
-        } catch (e) {
-          // Log error but don't fail the sale
-          if (kDebugMode) {
-            debugPrint('Error creating department_sales record: $e');
-          }
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG department_sales: $e\n$stack');
         }
       }
 
@@ -1550,13 +1439,16 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Clear sale and refresh data
       _clearSale();
       _loadInventory();
+      _dataService.invalidateCacheForTable('stock_transactions'); // Realtime: new sale affects list
       _loadTransactions();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG process sale: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to process sale. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1690,14 +1582,106 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'Item added successfully',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG add item: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to add item. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
+  }
+}
+
+/// Extracted list item widget for performance: avoids Consumer/heavy logic in build.
+/// Precomputes formatting; uses const where possible.
+class _InventoryTransactionItem extends StatelessWidget {
+  final Map<String, dynamic> transaction;
+
+  const _InventoryTransactionItem({required this.transaction});
+
+  @override
+  Widget build(BuildContext context) {
+    final transactionType = transaction['transaction_type']?.toString() ?? '';
+    final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+    final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+    final unit = stockItem?['unit']?.toString() ?? '';
+    final location = transaction['locations'] as Map<String, dynamic>?;
+    final locationName = location?['name']?.toString() ?? 'Unknown Location';
+    final profile = transaction['profiles'] as Map<String, dynamic>?;
+    final staffName = profile?['full_name']?.toString() ?? 'Unknown Staff';
+    final quantity = transaction['quantity'] as int? ?? 0;
+    final createdAt = transaction['created_at']?.toString() ?? '';
+    final timestamp = createdAt.isNotEmpty
+        ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(createdAt))
+        : 'Unknown time';
+
+    IconData icon;
+    Color color;
+    String typeLabel;
+    switch (transactionType) {
+      case 'Sale':
+        icon = Icons.sell;
+        color = Colors.red[700]!;
+        typeLabel = 'SALE';
+        break;
+      case 'Transfer_Out':
+        icon = Icons.send;
+        color = Colors.orange[700]!;
+        typeLabel = 'TRANSFER OUT';
+        break;
+      case 'Transfer_In':
+        icon = Icons.call_received;
+        color = Colors.blue[700]!;
+        typeLabel = 'TRANSFER IN';
+        break;
+      case 'Purchase':
+        icon = Icons.shopping_cart;
+        color = Colors.green[700]!;
+        typeLabel = 'PURCHASE';
+        break;
+      case 'Wastage':
+        icon = Icons.delete_outline;
+        color = Colors.grey[700]!;
+        typeLabel = 'WASTAGE';
+        break;
+      default:
+        icon = Icons.inventory;
+        color = Colors.grey[700]!;
+        typeLabel = transactionType.toUpperCase();
+    }
+
+    final notes = transaction['notes']?.toString();
+    final hasNotes = notes != null && notes.isNotEmpty;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withOpacity(0.1),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        title: Text(itemName, style: const TextStyle(fontWeight: FontWeight.w500)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text('Quantity: ${quantity.abs()} $unit'),
+            Text('Location: $locationName'),
+            Text('Staff: $staffName'),
+            if (hasNotes) Text('Notes: $notes', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            const SizedBox(height: 2),
+            Text(timestamp, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          ],
+        ),
+        trailing: Text(
+          typeLabel,
+          style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 12),
+        ),
+      ),
+    );
   }
 }

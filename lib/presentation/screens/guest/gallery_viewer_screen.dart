@@ -120,9 +120,12 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
             onPageChanged: _onPageChanged,
             itemBuilder: (context, index) {
               final item = widget.items[index];
-              return item.isVideo
-                  ? _buildVideoPlayer()
-                  : _buildImageViewer(item);
+              // RepaintBoundary isolates each page from cross-page repaint cascades
+              return RepaintBoundary(
+                child: item.isVideo
+                    ? _buildVideoPlayer()
+                    : _buildImageViewer(item),
+              );
             },
           ),
           
@@ -218,6 +221,8 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
   }
 
   void _onPageChanged(int index) {
+    // Pause/dispose video when navigating away to avoid background CPU use
+    _disposeVideoPlayer();
     setState(() {
       _currentIndex = index;
       _isVideoPlaying = false;
@@ -246,6 +251,8 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
           ? CachedNetworkImage(
               imageUrl: item.url,
               fit: BoxFit.contain,
+              memCacheWidth: 1200,
+              memCacheHeight: 1200,
               placeholder: (context, url) => const Center(
                 child: CircularProgressIndicator(color: Colors.white),
               ),
@@ -254,6 +261,9 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
           : Image.asset(
               item.url,
               fit: BoxFit.contain,
+              cacheWidth: 1200,
+              cacheHeight: 1200,
+              gaplessPlayback: true,
               errorBuilder: (context, error, stackTrace) {
                 return _buildErrorWidget('Image not found');
               },

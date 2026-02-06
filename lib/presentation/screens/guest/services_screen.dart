@@ -47,6 +47,9 @@ class ServicesScreen extends StatelessWidget {
           Image.asset(
             'assets/images/Front View/Front View 4.jpg',
             fit: BoxFit.cover,
+            cacheWidth: 1200,
+            cacheHeight: 800,
+            gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) => Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -312,6 +315,8 @@ class ServicesScreen extends StatelessWidget {
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
+                    memCacheWidth: 800,
+                    memCacheHeight: 400,
                     placeholder: (context, url) => Shimmer.fromColors(
                       baseColor: Colors.grey.shade300,
                       highlightColor: Colors.grey.shade100,
@@ -338,6 +343,9 @@ class ServicesScreen extends StatelessWidget {
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
+                    cacheWidth: 800,
+                    cacheHeight: 400,
+                    gaplessPlayback: true,
                     errorBuilder: (context, error, stackTrace) => Container(
                       height: 200,
                       decoration: BoxDecoration(

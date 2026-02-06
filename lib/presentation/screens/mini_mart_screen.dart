@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -53,13 +55,22 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   // Search
   final _searchController = TextEditingController();
   List<Map<String, dynamic>> _filteredItems = [];
+  Timer? _filterDebounce;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadMiniMartData();
-    _searchController.addListener(_filterItems);
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  /// Debounced: avoid filtering on every keystroke; reduces main-thread workload during typing.
+  void _onSearchChanged() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) _filterItems();
+    });
   }
 
   @override
@@ -70,11 +81,13 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
     _tabController?.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _approvedByController.dispose();
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -103,7 +116,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           _isLoading = false;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadMiniMartData: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
@@ -111,6 +125,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           e,
           customMessage: 'Failed to load mini mart data. Please check your connection and try again.',
           onRetry: _loadMiniMartData,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -343,10 +358,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                   'staff_id': userId, // Track which staff member made the sales
                 });
           }
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('Warning: Could not create department_sales record: $e');
-          }
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG department_sales record: $e\n$stack');
         }
       }
 
@@ -406,13 +419,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       _clearSale();
 
       await _loadMiniMartData();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _processSale: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to process sale. Please check your connection and try again.',
           onRetry: _processSale,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -546,12 +561,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         bytes: bytes,
         filename: 'mini_mart_receipt_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to share receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -627,12 +644,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG save receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -654,12 +673,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       await Printing.layoutPdf(
         onLayout: (format) async => docBytes,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to generate receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -693,7 +714,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         subject: 'P-ZED Homes Mini Mart Receipt',
         text: receiptText,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG email receipt: $e\n$stackTrace');
       if (mounted) {
         final fallbackUri = Uri(
           scheme: 'mailto',
@@ -712,6 +734,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             context,
             e,
             customMessage: 'Could not open email client. Please try again.',
+            stackTrace: stackTrace,
           );
         }
       }

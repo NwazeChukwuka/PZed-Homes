@@ -1,6 +1,6 @@
-import 'dart:io';
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -9,92 +9,189 @@ import 'package:pzed_homes/core/layout/responsive_layout.dart';
 import 'package:pzed_homes/core/state/app_state_manager.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/performance/optimization_helpers.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/storekeeper_dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/mini_mart_screen.dart';
 
+List<NavigationItem> _computeNavItems(AuthService auth) {
+  final user = auth.currentUser;
+  final userRoles = user?.roles ?? [AppRole.guest];
+  final accessibleFeatures = <String>{};
+  for (var role in userRoles) {
+    accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(role));
+  }
+  if (auth.isRoleAssumed && auth.assumedRole != null) {
+    accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(auth.assumedRole!));
+  }
+  final featuresList = accessibleFeatures.toList();
+  final isReceptionist = userRoles.contains(AppRole.receptionist) ||
+      (auth.isRoleAssumed && auth.assumedRole == AppRole.receptionist);
+
+  final items = <NavigationItem>[];
+  if (featuresList.contains('dashboard')) {
+    items.add(NavigationItem(icon: Icons.dashboard, label: 'Dashboard', route: '/dashboard'));
+  }
+  if (isReceptionist) {
+    items.add(NavigationItem(icon: Icons.book_online, label: 'Create Booking', route: '/booking/create'));
+  }
+  if (featuresList.contains('housekeeping')) {
+    items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
+  }
+  if (featuresList.contains('inventory')) {
+    debugLog({
+      'location': 'main_screen.dart:811',
+      'message': 'Adding inventory menu item',
+      'data': {
+        'userRoles': userRoles.map((r) => r.name).toList(),
+        'accessibleFeatures': featuresList,
+        'hasInventory': true,
+      },
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'sessionId': 'debug-session',
+      'runId': 'run1',
+      'hypothesisId': 'V',
+    });
+    items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));
+  } else {
+    debugLog({
+      'location': 'main_screen.dart:811',
+      'message': 'Inventory menu item NOT added',
+      'data': {
+        'userRoles': userRoles.map((r) => r.name).toList(),
+        'accessibleFeatures': featuresList,
+        'hasInventory': false,
+      },
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'sessionId': 'debug-session',
+      'runId': 'run1',
+      'hypothesisId': 'W',
+    });
+  }
+  if (featuresList.contains('kitchen')) {
+    items.add(NavigationItem(icon: Icons.restaurant, label: 'Kitchen', route: '/kitchen'));
+  }
+  if (featuresList.contains('finance')) {
+    items.add(NavigationItem(icon: Icons.account_balance, label: 'Finance', route: '/finance'));
+  }
+  if (featuresList.contains('hr')) {
+    items.add(NavigationItem(icon: Icons.people, label: 'HR', route: '/hr'));
+  }
+  if (featuresList.contains('communications')) {
+    items.add(NavigationItem(icon: Icons.announcement, label: 'Communications', route: '/communications'));
+  }
+  if (featuresList.contains('maintenance')) {
+    items.add(NavigationItem(icon: Icons.build, label: 'Maintenance', route: '/maintenance'));
+  }
+  if (featuresList.contains('stock')) {
+    items.add(NavigationItem(icon: Icons.inventory_2, label: 'Daily Stock Count', route: '/stock'));
+  }
+  if (featuresList.contains('reporting')) {
+    items.add(NavigationItem(icon: Icons.analytics, label: 'Reporting', route: '/reporting'));
+  }
+  if (featuresList.contains('purchasing')) {
+    items.add(NavigationItem(icon: Icons.shopping_cart, label: 'Purchasing', route: '/purchasing'));
+  }
+  if (featuresList.contains('storekeeping')) {
+    items.add(NavigationItem(icon: Icons.store, label: 'Storekeeping', route: '/storekeeping'));
+  }
+  if (featuresList.contains('mini_mart')) {
+    items.add(NavigationItem(icon: Icons.storefront, label: 'Mini Mart', route: '/mini_mart'));
+  }
+  return items;
+}
+
+void _showLogoutDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Logout'),
+      content: const Text('Are you sure you want to logout?'),
+      actions: [
+        TextButton(
+          onPressed: () => ctx.pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () async {
+            try {
+              ctx.pop();
+              final authService = Provider.of<AuthService>(context, listen: false);
+              await authService.logout();
+              if (context.mounted) context.go('/guest');
+            } catch (e, stackTrace) {
+              if (kDebugMode) debugPrint('DEBUG logout: $e\n$stackTrace');
+              if (context.mounted) {
+                ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+                context.go('/guest');
+              }
+            }
+          },
+          child: const Text('Logout'),
+        ),
+      ],
+    ),
+  );
+}
+
+String _userInitial(String name) =>
+    name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
+
+void _assumeSpecificRole(BuildContext context, AppRole role) {
+  final authService = Provider.of<AuthService>(context, listen: false);
+  authService.assumeRole(role);
+  if (context.mounted) {
+    ErrorHandler.showInfoMessage(
+      context,
+      'Now assuming ${AuthService.getRoleDisplayName(role)} role',
+      duration: const Duration(seconds: 2),
+    );
+  }
+}
+
 class MainScreen extends StatelessWidget {
   final Widget child;
-  
+
   const MainScreen({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<AuthService, AppState>(
-      builder: (context, authService, appState, _) {
-        final user = authService.currentUser;
-        final userRoles = user?.roles ?? [AppRole.guest];
-
-        // Merge: Instead of just one role, collect accessible features for ALL roles
-        // PLUS add features from assumed role (additive, not restrictive)
-        final accessibleFeatures = <String>{};
-        for (var role in userRoles) {
-          accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(role));
-        }
-        
-        // If role is assumed, ADD those features (don't replace)
-        if (authService.isRoleAssumed && authService.assumedRole != null) {
-          accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(authService.assumedRole!));
-        }
-        
-        // #region agent log
-        try { 
-          final logData = {
-            'location': 'main_screen.dart:37',
-            'message': 'Accessible features computed',
-            'data': {
-              'userId': user?.id,
-              'userRoles': userRoles.map((r) => r.name).toList(),
-              'isRoleAssumed': authService.isRoleAssumed,
-              'assumedRole': authService.assumedRole?.name,
-              'accessibleFeatures': accessibleFeatures.toList(),
-              'hasInventory': accessibleFeatures.contains('inventory')
-            },
-            'timestamp': DateTime.now().millisecondsSinceEpoch,
-            'sessionId': 'debug-session',
-            'runId': 'run1',
-            'hypothesisId': 'T'
-          };
-          File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-        } catch (_) {}
-        print('DEBUG MainScreen: userRoles=${userRoles.map((r) => r.name)}, accessibleFeatures=${accessibleFeatures.toList()}, hasInventory=${accessibleFeatures.contains('inventory')}');
-        // #endregion
-
-        return ResponsiveLayout(
-          mobile: _buildMobileLayout(context, userRoles, accessibleFeatures.toList()),
-          tablet: _buildTabletLayout(context, userRoles, accessibleFeatures.toList()),
-          desktop: _buildDesktopLayout(context, userRoles, accessibleFeatures.toList()),
-          largeDesktop: _buildLargeDesktopLayout(context, userRoles, accessibleFeatures.toList()),
-        );
-      },
+    return ResponsiveLayout(
+      mobile: _MainScreenMobile(child: child),
+      tablet: _MainScreenTablet(child: child),
+      desktop: _MainScreenDesktop(child: child),
+      largeDesktop: _MainScreenLargeDesktop(child: child),
     );
   }
+}
 
-  Widget _buildMobileLayout(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _MainScreenMobile extends StatelessWidget {
+  final Widget child;
+
+  const _MainScreenMobile({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: AppAnimations.slideInFromBottom(
-          child: Row(
-            children: [
-              AppAnimations.bounce(
-                child: Image.asset(
-                  'assets/images/PZED logo.png',
-                  height: 32,
-                  width: 32,
-                  fit: BoxFit.contain,
-                ),
+        title: Row(
+          children: [
+            OptimizationHelpers.buildAssetImage(
+              assetPath: 'assets/images/PZED logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'P-ZED Luxury Hotels & Suites',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'P-ZED Luxury Hotels & Suites',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
         backgroundColor: Colors.green[800],
         foregroundColor: Colors.white,
@@ -105,9 +202,7 @@ class MainScreen extends StatelessWidget {
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
-                _showLogoutDialog(context);
-              }
+              if (value == 'logout') _showLogoutDialog(context);
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
@@ -124,38 +219,38 @@ class MainScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: AppAnimations.fadeTransition(
-        child: child,
-        animation: AlwaysStoppedAnimation(1.0),
-      ),
-      drawer: _buildMobileDrawer(context, userRoles, accessibleFeatures),
+      body: child,
+      drawer: _MobileDrawer(),
     );
   }
+}
 
-  Widget _buildTabletLayout(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _MainScreenTablet extends StatelessWidget {
+  final Widget child;
+
+  const _MainScreenTablet({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: AppAnimations.slideInFromBottom(
-          child: Row(
-            children: [
-              AppAnimations.bounce(
-                child: Image.asset(
-                  'assets/images/PZED logo.png',
-                  height: 36,
-                  width: 36,
-                  fit: BoxFit.contain,
-                ),
+        title: Row(
+          children: [
+            OptimizationHelpers.buildAssetImage(
+              assetPath: 'assets/images/PZED logo.png',
+              width: 36,
+              height: 36,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Text(
+                'P-ZED Luxury Hotels & Suites',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Text(
-                  'P-ZED Luxury Hotels & Suites',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
         backgroundColor: Colors.green[800],
         foregroundColor: Colors.white,
@@ -166,9 +261,7 @@ class MainScreen extends StatelessWidget {
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
-                _showLogoutDialog(context);
-              }
+              if (value == 'logout') _showLogoutDialog(context);
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
@@ -185,79 +278,65 @@ class MainScreen extends StatelessWidget {
           ),
         ],
       ),
-      drawer: _buildTabletDrawer(context, userRoles, accessibleFeatures),
-      body: AppAnimations.fadeTransition(
-        child: child,
-        animation: AlwaysStoppedAnimation(1.0),
-      ),
+      drawer: _TabletDrawer(),
+      body: child,
     );
   }
+}
 
-  Widget _buildDesktopLayout(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _MainScreenDesktop extends StatelessWidget {
+  final Widget child;
+
+  const _MainScreenDesktop({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: AppAnimations.fadeTransition(
-        child: Row(
-          children: [
-            AppAnimations.slideTransition(
-              child: _buildDesktopSidebar(context, userRoles, accessibleFeatures),
-              animation: AlwaysStoppedAnimation(1.0),
-              direction: SlideDirection.left,
+      body: Row(
+        children: [
+          _DesktopSidebar(),
+          Expanded(
+            child: Column(
+              children: [
+                _DesktopAppBar(),
+                Expanded(child: child),
+              ],
             ),
-            Expanded(
-              child: Column(
-                children: [
-                  AppAnimations.slideInFromBottom(
-                    child: _buildDesktopAppBar(context),
-                  ),
-                  Expanded(
-                    child: AppAnimations.fadeTransition(
-                      child: child,
-                      animation: AlwaysStoppedAnimation(1.0),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        animation: AlwaysStoppedAnimation(1.0),
+          ),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildLargeDesktopLayout(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _MainScreenLargeDesktop extends StatelessWidget {
+  final Widget child;
+
+  const _MainScreenLargeDesktop({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: AppAnimations.fadeTransition(
-        child: Row(
-          children: [
-            AppAnimations.slideTransition(
-              child: _buildLargeDesktopSidebar(context, userRoles, accessibleFeatures),
-              animation: AlwaysStoppedAnimation(1.0),
-              direction: SlideDirection.left,
+      body: Row(
+        children: [
+          _LargeDesktopSidebar(),
+          Expanded(
+            child: Column(
+              children: [
+                _LargeDesktopAppBar(),
+                Expanded(child: child),
+              ],
             ),
-            Expanded(
-              child: Column(
-                children: [
-                  AppAnimations.slideInFromBottom(
-                    child: _buildLargeDesktopAppBar(context),
-                  ),
-                  Expanded(
-                    child: AppAnimations.fadeTransition(
-                      child: child,
-                      animation: AlwaysStoppedAnimation(1.0),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        animation: AlwaysStoppedAnimation(1.0),
+          ),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildDesktopSidebar(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _DesktopSidebar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       width: 280,
       decoration: BoxDecoration(
@@ -272,81 +351,91 @@ class MainScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _buildSidebarHeader(context),
+          _SidebarHeader(),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
-                  .map((item) => _buildSidebarNavItem(context, item))
-                  .toList(),
+            child: Selector<AuthService, List<NavigationItem>>(
+              selector: (_, auth) => _computeNavItems(auth),
+              shouldRebuild: (prev, next) => !listEquals(prev, next),
+              builder: (context, items, _) => ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: items
+                    .map((item) => _SidebarNavItem(item: item))
+                    .toList(),
+              ),
             ),
           ),
-          _buildSidebarFooter(context),
+          _SidebarFooter(),
         ],
       ),
     );
   }
+}
 
-  Widget _buildSidebarHeader(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.currentUser;
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.green[900],
-            border: Border(
-              bottom: BorderSide(color: Colors.green[700]!, width: 1),
+class _SidebarHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final name = context.select<AuthService, String>((a) => a.currentUser?.name ?? 'Unknown User');
+    final rolesStr = context.select<AuthService, String>(
+        (a) => a.currentUser?.roles.map((r) => r.name.toUpperCase()).join(', ') ?? 'GUEST');
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.green[900],
+        border: Border(
+          bottom: BorderSide(color: Colors.green[700]!, width: 1),
+        ),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.amber[600],
+            child: Text(
+              _userInitial(name),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
             ),
           ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: Colors.amber[600],
-                child: Text(
-                  user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                user?.name ?? 'Unknown User',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                (user?.roles.map((r) => r.name.toUpperCase()).join(', ')) ?? 'GUEST',
-                style: TextStyle(
-                  color: Colors.green[200],
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+          const SizedBox(height: 12),
+          Text(
+            name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
           ),
-        );
-      },
+          const SizedBox(height: 4),
+          Text(
+            rolesStr,
+            style: TextStyle(
+              color: Colors.green[200],
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _buildSidebarNavItem(BuildContext context, NavigationItem item) {
-    final isSelected = _isCurrentRoute(context, item.route);
-    // Use responsive font size - larger on smaller screens (when desktop view is used on mobile)
-    final screenWidth = MediaQuery.of(context).size.width;
-    final fontSize = screenWidth < 1000 ? 16.0 : 14.0; // Larger on smaller screens
-    final iconSize = screenWidth < 1000 ? 24.0 : 20.0; // Larger icons on smaller screens
-    
+class _SidebarNavItem extends StatelessWidget {
+  final NavigationItem item;
+
+  const _SidebarNavItem({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final fontSize = screenWidth < 1000 ? 16.0 : 14.0;
+    final iconSize = screenWidth < 1000 ? 24.0 : 20.0;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
@@ -369,17 +458,20 @@ class MainScreen extends StatelessWidget {
         ),
         contentPadding: EdgeInsets.symmetric(
           horizontal: 16,
-          vertical: screenWidth < 1000 ? 12 : 8, // More padding on smaller screens
+          vertical: screenWidth < 1000 ? 12 : 8,
         ),
-        onTap: () => _navigateToRoute(context, item.route),
+        onTap: () => context.go(item.route),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
         ),
       ),
     );
   }
+}
 
-  Widget _buildSidebarFooter(BuildContext context) {
+class _SidebarFooter extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -400,8 +492,11 @@ class MainScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildDesktopAppBar(BuildContext context) {
+class _DesktopAppBar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       height: 64,
       decoration: BoxDecoration(
@@ -419,10 +514,10 @@ class MainScreen extends StatelessWidget {
           const SizedBox(width: 24),
           Row(
             children: [
-              Image.asset(
-                'assets/images/PZED logo.png',
-                height: 40,
+              OptimizationHelpers.buildAssetImage(
+                assetPath: 'assets/images/PZED logo.png',
                 width: 40,
+                height: 40,
                 fit: BoxFit.contain,
               ),
               const SizedBox(width: 16),
@@ -436,100 +531,8 @@ class MainScreen extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          Consumer<AuthService>(
-            builder: (context, authService, child) {
-              final currentUser = authService.currentUser;
-              final isOwnerOrManager = currentUser?.role == AppRole.owner || currentUser?.role == AppRole.manager;
-              if (!isOwnerOrManager) return const SizedBox.shrink();
-
-              // Get suggested role based on current route
-              final currentRoute = GoRouterState.of(context).uri.toString();
-              final suggestedRole = AuthService.getSuggestedRoleForRoute(currentRoute);
-              final buttonLabel = suggestedRole != null 
-                  ? 'Assume ${AuthService.getRoleDisplayName(suggestedRole)}'
-                  : 'Assume Role';
-
-              return Row(
-                children: [
-                  if (authService.isRoleAssumed)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: [Colors.orange.shade400, Colors.orange.shade600]),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
-                          const SizedBox(width: 6),
-                          Text(
-                            AuthService.getRoleDisplayName(authService.assumedRole!),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
-                          ),
-                          const SizedBox(width: 6),
-                          GestureDetector(
-                            onTap: () => authService.returnToOriginalRole(),
-                            child: const Icon(Icons.close, color: Colors.white, size: 14),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (authService.isRoleAssumed) const SizedBox(width: 10),
-                  ElevatedButton.icon(
-                    onPressed: () => suggestedRole != null 
-                        ? _assumeSpecificRole(context, suggestedRole)
-                        : _showAssumeRoleSheet(context),
-                    icon: const Icon(Icons.person_outline, size: 18),
-                    label: Text(buttonLabel),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: suggestedRole != null ? Colors.orange[700] : Colors.green[800],
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          Consumer<AppStateManager>(
-            builder: (context, state, _) {
-              final count = state.unreadNotifications;
-              return Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined),
-                    onPressed: () => context.push('/notifications'),
-                  ),
-                  if (count > 0)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          count > 99 ? '99+' : '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+          _AssumeRoleButton(),
+          _NotificationBadge(),
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -543,21 +546,10 @@ class MainScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _assumeSpecificRole(BuildContext context, AppRole role) {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    authService.assumeRole(role);
-    if (context.mounted) {
-      ErrorHandler.showInfoMessage(
-        context,
-        'Now assuming ${AuthService.getRoleDisplayName(role)} role',
-        duration: const Duration(seconds: 2),
-      );
-    }
-  }
-
-  void _showAssumeRoleSheet(BuildContext context) {
-    showModalBottomSheet(
+void _showAssumeRoleSheet(BuildContext context) {
+  showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -666,360 +658,304 @@ class MainScreen extends StatelessWidget {
         );
       },
     );
-  }
+}
 
-  Widget _buildMobileDrawer(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
-    return Drawer(
-      child: AppAnimations.fadeTransition(
-        child: Column(
-          children: [
-            AppAnimations.slideInFromBottom(
-              child: _buildMobileDrawerHeader(context),
-            ),
-            Expanded(
-              child: AppAnimations.staggeredList(
-                children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
-                    .map((item) => _buildMobileDrawerItem(context, item))
-                    .toList(),
-              ),
-            ),
-            AppAnimations.slideInFromBottom(
-              child: _buildMobileDrawerFooter(context),
-            ),
-          ],
-        ),
-        animation: AlwaysStoppedAnimation(1.0),
-      ),
-    );
+class _AssumeRoleButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final showButton = context.select<AuthService, bool>((a) {
+      final role = a.currentUser?.role;
+      return role == AppRole.owner || role == AppRole.manager;
+    });
+    if (!showButton) return const SizedBox.shrink();
+    return const _AssumeRoleButtonContent();
   }
+}
 
-  Widget _buildTabletDrawer(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
-    return Drawer(
-      width: 320, // Wider for tablet
-      child: AppAnimations.fadeTransition(
-        child: Column(
-          children: [
-            AppAnimations.slideInFromBottom(
-              child: _buildTabletDrawerHeader(context),
-            ),
-            Expanded(
-              child: AppAnimations.staggeredList(
-                children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
-                    .map((item) => _buildTabletDrawerItem(context, item))
-                    .toList(),
-              ),
-            ),
-            AppAnimations.slideInFromBottom(
-              child: _buildTabletDrawerFooter(context),
-            ),
-          ],
-        ),
-        animation: AlwaysStoppedAnimation(1.0),
-      ),
-    );
-  }
+class _AssumeRoleButtonContent extends StatelessWidget {
+  const _AssumeRoleButtonContent();
 
-  Widget _buildMobileDrawerHeader(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.currentUser;
-        return DrawerHeader(
-          decoration: BoxDecoration(
-            color: Colors.green[800],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: Colors.amber[600],
-                child: Text(
-                  user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+  @override
+  Widget build(BuildContext context) {
+    final isRoleAssumed = context.select<AuthService, bool>((a) => a.isRoleAssumed);
+    final assumedRole = context.select<AuthService, AppRole?>((a) => a.assumedRole);
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final currentRoute = GoRouterState.of(context).uri.toString();
+    final suggestedRole = AuthService.getSuggestedRoleForRoute(currentRoute);
+    final buttonLabel = suggestedRole != null
+        ? 'Assume ${AuthService.getRoleDisplayName(suggestedRole)}'
+        : 'Assume Role';
+    return Row(
+      children: [
+        if (isRoleAssumed && assumedRole != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.orange.shade400, Colors.orange.shade600]),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  AuthService.getRoleDisplayName(assumedRole),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
                 ),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: () => authService.returnToOriginalRole(),
+                  child: const Icon(Icons.close, color: Colors.white, size: 14),
+                ),
+              ],
+            ),
+          ),
+        if (isRoleAssumed && assumedRole != null) const SizedBox(width: 10),
+        ElevatedButton.icon(
+          onPressed: () => suggestedRole != null
+              ? _assumeSpecificRole(context, suggestedRole)
+              : _showAssumeRoleSheet(context),
+          icon: const Icon(Icons.person_outline, size: 18),
+          label: Text(buttonLabel),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: suggestedRole != null ? Colors.orange[700] : Colors.green[800],
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NotificationBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final count = context.select<AppStateManager, int>((s) => s.unreadNotifications);
+    return Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: () => context.push('/notifications'),
+        ),
+        if (count > 0)
+          Positioned(
+            right: 6,
+            top: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(height: 12),
-              Text(
-                user?.name ?? 'Unknown User',
+              child: Text(
+                count > 99 ? '99+' : '$count',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                (user?.roles.map((r) => r.name.toUpperCase()).join(', ')) ?? 'GUEST',
-                style: TextStyle(
-                  color: Colors.green[200],
-                  fontSize: 14,
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+      ],
     );
   }
+}
 
-  Widget _buildMobileDrawerItem(BuildContext context, NavigationItem item) {
-    final isSelected = _isCurrentRoute(context, item.route);
-    
+class _MobileDrawer extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: Column(
+        children: [
+          _MobileDrawerHeader(),
+          Expanded(
+            child: Selector<AuthService, List<NavigationItem>>(
+              selector: (_, auth) => _computeNavItems(auth),
+              shouldRebuild: (prev, next) => !listEquals(prev, next),
+              builder: (context, items, _) => AppAnimations.staggeredList(
+                children: items.map((item) => _MobileDrawerItem(item: item)).toList(),
+              ),
+            ),
+          ),
+          _MobileDrawerFooter(),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileDrawerHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final name = context.select<AuthService, String>((a) => a.currentUser?.name ?? 'Unknown User');
+    final rolesStr = context.select<AuthService, String>(
+        (a) => a.currentUser?.roles.map((r) => r.name.toUpperCase()).join(', ') ?? 'GUEST');
+    return DrawerHeader(
+      decoration: BoxDecoration(color: Colors.green[800]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.amber[600],
+            child: Text(
+              _userInitial(name),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            name,
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            rolesStr,
+            style: TextStyle(color: Colors.green[200], fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileDrawerItem extends StatelessWidget {
+  final NavigationItem item;
+
+  const _MobileDrawerItem({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
     return ListTile(
       leading: Icon(
         item.icon,
         color: isSelected ? Colors.green[800] : Colors.grey[600],
-        size: 28, // Larger icon for better touch targets
+        size: 28,
       ),
       title: Text(
         item.label,
         style: TextStyle(
           color: isSelected ? Colors.green[800] : Colors.grey[700],
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          fontSize: 18, // Larger font for better readability on mobile
+          fontSize: 18,
         ),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // More padding for easier tapping
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       selected: isSelected,
       onTap: () {
-        Navigator.of(context).pop(); // Close drawer
-        _navigateToRoute(context, item.route);
+        Navigator.of(context).pop();
+        context.go(item.route);
       },
     );
   }
+}
 
-  Widget _buildMobileDrawerFooter(BuildContext context) {
+class _MobileDrawerFooter extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Colors.grey[300]!),
-        ),
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
       ),
       child: ListTile(
-        leading: const Icon(Icons.logout, color: Colors.red, size: 28), // Larger icon
-        title: const Text(
-          'Logout',
-          style: TextStyle(fontSize: 18), // Larger font for better readability
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // More padding
+        leading: const Icon(Icons.logout, color: Colors.red, size: 28),
+        title: const Text('Logout', style: TextStyle(fontSize: 18)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         onTap: () {
-          Navigator.of(context).pop(); // Close drawer
+          Navigator.of(context).pop();
           _showLogoutDialog(context);
         },
       ),
     );
   }
+}
 
-  List<NavigationItem> _getNavItemsForRoles(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
-    final items = <NavigationItem>[];
-
-    if (accessibleFeatures.contains('dashboard')) {
-      items.add(NavigationItem(icon: Icons.dashboard, label: 'Dashboard', route: '/dashboard'));
-    }
-    
-    // Add booking form for receptionist only (not owner/manager unless they assume receptionist role)
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final isReceptionist = userRoles.contains(AppRole.receptionist) || 
-        (authService.isRoleAssumed && authService.assumedRole == AppRole.receptionist);
-    if (isReceptionist) {
-      items.add(NavigationItem(icon: Icons.book_online, label: 'Create Booking', route: '/booking/create'));
-    }
-    
-    if (accessibleFeatures.contains('housekeeping')) {
-      items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
-    }
-    if (accessibleFeatures.contains('inventory')) {
-      // #region agent log
-      try { 
-        final logData = {
-          'location': 'main_screen.dart:811',
-          'message': 'Adding inventory menu item',
-          'data': {
-            'userRoles': userRoles.map((r) => r.name).toList(),
-            'accessibleFeatures': accessibleFeatures.toList(),
-            'hasInventory': accessibleFeatures.contains('inventory')
-          },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'sessionId': 'debug-session',
-          'runId': 'run1',
-          'hypothesisId': 'V'
-        };
-        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-      } catch (_) {}
-      print('DEBUG MainScreen: Adding inventory menu item for roles: ${userRoles.map((r) => r.name)}');
-      // #endregion
-      items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));
-    } else {
-      // #region agent log
-      try { 
-        final logData = {
-          'location': 'main_screen.dart:811',
-          'message': 'Inventory menu item NOT added',
-          'data': {
-            'userRoles': userRoles.map((r) => r.name).toList(),
-            'accessibleFeatures': accessibleFeatures.toList(),
-            'hasInventory': false
-          },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'sessionId': 'debug-session',
-          'runId': 'run1',
-          'hypothesisId': 'W'
-        };
-        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-      } catch (_) {}
-      print('DEBUG MainScreen: Inventory NOT in accessibleFeatures. Features: ${accessibleFeatures.toList()}');
-      // #endregion
-    }
-    if (accessibleFeatures.contains('kitchen')) {
-      items.add(NavigationItem(icon: Icons.restaurant, label: 'Kitchen', route: '/kitchen'));
-    }
-    if (accessibleFeatures.contains('finance')) {
-      items.add(NavigationItem(icon: Icons.account_balance, label: 'Finance', route: '/finance'));
-    }
-    if (accessibleFeatures.contains('hr')) {
-      items.add(NavigationItem(icon: Icons.people, label: 'HR', route: '/hr'));
-    }
-    if (accessibleFeatures.contains('communications')) {
-      items.add(NavigationItem(icon: Icons.announcement, label: 'Communications', route: '/communications'));
-    }
-    if (accessibleFeatures.contains('maintenance')) {
-      items.add(NavigationItem(icon: Icons.build, label: 'Maintenance', route: '/maintenance'));
-    }
-    if (accessibleFeatures.contains('stock')) {
-      items.add(NavigationItem(icon: Icons.inventory_2, label: 'Daily Stock Count', route: '/stock'));
-    }
-    if (accessibleFeatures.contains('reporting')) {
-      items.add(NavigationItem(icon: Icons.analytics, label: 'Reporting', route: '/reporting'));
-    }
-    if (accessibleFeatures.contains('purchasing')) {
-      items.add(NavigationItem(icon: Icons.shopping_cart, label: 'Purchasing', route: '/purchasing'));
-    }
-    if (accessibleFeatures.contains('storekeeping')) {
-      items.add(NavigationItem(icon: Icons.store, label: 'Storekeeping', route: '/storekeeping'));
-    }
-    if (accessibleFeatures.contains('mini_mart')) {
-      items.add(NavigationItem(icon: Icons.storefront, label: 'Mini Mart', route: '/mini_mart'));
-    }
-
-    return items;
-  }
-
-  bool _isCurrentRoute(BuildContext context, String route) {
-    final currentLocation = GoRouterState.of(context).uri.toString();
-    return currentLocation == route;
-  }
-
-  void _navigateToRoute(BuildContext context, String route) {
-    context.go(route);
-  }
-
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => context.pop(),
-            child: const Text('Cancel'),
+class _TabletDrawer extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      width: 320,
+      child: Column(
+        children: [
+          _TabletDrawerHeader(),
+          Expanded(
+            child: Selector<AuthService, List<NavigationItem>>(
+              selector: (_, auth) => _computeNavItems(auth),
+              shouldRebuild: (prev, next) => !listEquals(prev, next),
+              builder: (context, items, _) => AppAnimations.staggeredList(
+                children: items.map((item) => _TabletDrawerItem(item: item)).toList(),
+              ),
+            ),
           ),
-          TextButton(
-            onPressed: () async {
-              try {
-                // Close dialog first
-                context.pop();
-                
-                // Logout first to clear auth state
-                final authService = Provider.of<AuthService>(context, listen: false);
-                await authService.logout();
-                
-                // Navigate directly to guest page (bypasses RootDecider)
-                // This prevents showing intermediate "nameless user" state
-                if (context.mounted) {
-                  context.go('/guest');
-                }
-              } catch (e) {
-                print('DEBUG: Logout navigation error: $e');
-                // If logout fails, still try to navigate to guest page
-                if (context.mounted) {
-                  context.go('/guest');
-                }
-              }
-            },
-            child: const Text('Logout'),
+          _TabletDrawerFooter(),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabletDrawerHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final name = context.select<AuthService, String>((a) => a.currentUser?.name ?? 'User');
+    final email = context.select<AuthService, String>((a) => a.currentUser?.email ?? 'user@example.com');
+    return DrawerHeader(
+      decoration: BoxDecoration(color: Colors.green[800]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: Colors.amber[600],
+                child: Text(
+                  _userInitial(name),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      email,
+                      style: TextStyle(color: Colors.green[200], fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
 
-  // Tablet drawer methods
-  Widget _buildTabletDrawerHeader(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.currentUser;
-        return DrawerHeader(
-          decoration: BoxDecoration(
-            color: Colors.green[800],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Colors.amber[600],
-                    child: Text(
-                      user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          user?.name ?? 'User',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          user?.email ?? 'user@example.com',
-                          style: TextStyle(
-                            color: Colors.green[200],
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+class _TabletDrawerItem extends StatelessWidget {
+  final NavigationItem item;
 
-  Widget _buildTabletDrawerItem(BuildContext context, NavigationItem item) {
-    final isSelected = _isCurrentRoute(context, item.route);
-    
+  const _TabletDrawerItem({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
@@ -1030,55 +966,53 @@ class MainScreen extends StatelessWidget {
         leading: Icon(
           item.icon,
           color: isSelected ? Colors.white : Colors.grey[600],
-          size: 26, // Larger icon for better touch targets
+          size: 26,
         ),
         title: Text(
           item.label,
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.grey[700],
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            fontSize: 18, // Larger font for better readability
+            fontSize: 18,
           ),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10), // More padding for easier tapping
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         onTap: () {
-          Navigator.of(context).pop(); // Close drawer
+          Navigator.of(context).pop();
           context.go(item.route);
         },
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
+}
 
-  Widget _buildTabletDrawerFooter(BuildContext context) {
+class _TabletDrawerFooter extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Colors.grey[300]!),
-        ),
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
       ),
       child: ListTile(
-        leading: const Icon(Icons.logout, color: Colors.red, size: 26), // Larger icon
-        title: const Text(
-          'Logout',
-          style: TextStyle(fontSize: 18), // Larger font for better readability
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10), // More padding
+        leading: const Icon(Icons.logout, color: Colors.red, size: 26),
+        title: const Text('Logout', style: TextStyle(fontSize: 18)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         onTap: () {
-          Navigator.of(context).pop(); // Close drawer
+          Navigator.of(context).pop();
           _showLogoutDialog(context);
         },
       ),
     );
   }
+}
 
-  // Large desktop sidebar methods
-  Widget _buildLargeDesktopSidebar(BuildContext context, List<AppRole> userRoles, List<String> accessibleFeatures) {
+class _LargeDesktopSidebar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      width: 320, // Wider for large desktop
+      width: 320,
       decoration: BoxDecoration(
         color: Colors.green[800],
         boxShadow: [
@@ -1091,74 +1025,70 @@ class MainScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _buildLargeDesktopSidebarHeader(context),
+          _LargeDesktopSidebarHeader(),
           Expanded(
-            child: AppAnimations.staggeredList(
-              children: _getNavItemsForRoles(context, userRoles, accessibleFeatures)
-                  .map((item) => _buildLargeDesktopSidebarItem(context, item))
-                  .toList(),
+            child: Selector<AuthService, List<NavigationItem>>(
+              selector: (_, auth) => _computeNavItems(auth),
+              shouldRebuild: (prev, next) => !listEquals(prev, next),
+              builder: (context, items, _) => AppAnimations.staggeredList(
+                scrollable: true,
+                children: items.map((item) => _LargeDesktopSidebarItem(item: item)).toList(),
+              ),
             ),
           ),
-          _buildLargeDesktopSidebarFooter(context),
+          _LargeDesktopSidebarFooter(),
         ],
       ),
     );
   }
+}
 
-  Widget _buildLargeDesktopSidebarHeader(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.currentUser;
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: Colors.green[700]!, width: 1),
+class _LargeDesktopSidebarHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final name = context.select<AuthService, String>((a) => a.currentUser?.name ?? 'User');
+    final email = context.select<AuthService, String>((a) => a.currentUser?.email ?? 'user@example.com');
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.green[700]!, width: 1)),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.amber[600],
+            child: Text(
+              _userInitial(name),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
             ),
           ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: Colors.amber[600],
-                child: Text(
-                  user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                user?.name ?? 'User',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                user?.email ?? 'user@example.com',
-                style: TextStyle(
-                  color: Colors.green[200],
-                  fontSize: 14,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+          const SizedBox(height: 16),
+          Text(
+            name,
+            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
           ),
-        );
-      },
+          const SizedBox(height: 4),
+          Text(
+            email,
+            style: TextStyle(color: Colors.green[200], fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _buildLargeDesktopSidebarItem(BuildContext context, NavigationItem item) {
-    final isSelected = _isCurrentRoute(context, item.route);
-    
+class _LargeDesktopSidebarItem extends StatelessWidget {
+  final NavigationItem item;
+
+  const _LargeDesktopSidebarItem({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
@@ -1180,35 +1110,35 @@ class MainScreen extends StatelessWidget {
           ),
         ),
         onTap: () => context.go(item.route),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
+}
 
-  Widget _buildLargeDesktopSidebarFooter(BuildContext context) {
+class _LargeDesktopSidebarFooter extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Colors.green[700]!, width: 1),
-        ),
+        border: Border(top: BorderSide(color: Colors.green[700]!, width: 1)),
       ),
       child: ListTile(
         leading: const Icon(Icons.logout, color: Colors.red),
         title: const Text('Logout'),
         onTap: () => _showLogoutDialog(context),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
+}
 
-  Widget _buildLargeDesktopAppBar(BuildContext context) {
+class _LargeDesktopAppBar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      height: 80, // Taller for large desktop
+      height: 80,
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1224,10 +1154,10 @@ class MainScreen extends StatelessWidget {
           const SizedBox(width: 32),
           Row(
             children: [
-              Image.asset(
-                'assets/images/PZED logo.png',
-                height: 48,
+              OptimizationHelpers.buildAssetImage(
+                assetPath: 'assets/images/PZED logo.png',
                 width: 48,
+                height: 48,
                 fit: BoxFit.contain,
               ),
               const SizedBox(width: 20),
@@ -1241,39 +1171,7 @@ class MainScreen extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          Consumer<AppStateManager>(
-            builder: (context, state, _) {
-              final count = state.unreadNotifications;
-              return Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined),
-                    onPressed: () => context.push('/notifications'),
-                  ),
-                  if (count > 0)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          count > 99 ? '99+' : '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+          _NotificationBadge(),
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.person),
@@ -1282,9 +1180,7 @@ class MainScreen extends StatelessWidget {
           const SizedBox(width: 8),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
-                _showLogoutDialog(context);
-              }
+              if (value == 'logout') _showLogoutDialog(context);
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
@@ -1316,4 +1212,15 @@ class NavigationItem {
     required this.label,
     required this.route,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NavigationItem &&
+          other.icon == icon &&
+          other.label == label &&
+          other.route == route;
+
+  @override
+  int get hashCode => Object.hash(icon, label, route);
 }

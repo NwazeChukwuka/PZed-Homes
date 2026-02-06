@@ -208,8 +208,8 @@ class _HrScreenState extends State<HrScreen>
           _attendanceRecords = records;
         });
       }
-    } catch (e) {
-      // Handle error silently
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadAttendanceRecords: $e\n$stack');
     }
   }
 
@@ -230,7 +230,8 @@ class _HrScreenState extends State<HrScreen>
         _applySearchFilter();
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadStaff: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
@@ -239,6 +240,7 @@ class _HrScreenState extends State<HrScreen>
           customMessage:
               'Failed to load staff. Please check your connection and try again.',
           onRetry: _loadStaff,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -583,8 +585,8 @@ class _HrScreenState extends State<HrScreen>
           };
         });
       }
-    } catch (e) {
-      // Handle error silently
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG load performance: $e\n$stack');
     }
   }
   
@@ -994,12 +996,14 @@ class _HrScreenState extends State<HrScreen>
                   // Reload positions if needed
                   setState(() {});
                 }
-              } catch (e) {
+              } catch (e, stackTrace) {
+                if (kDebugMode) debugPrint('DEBUG create position: $e\n$stackTrace');
                 if (mounted) {
                   ErrorHandler.handleError(
                     context,
                     e,
                     customMessage: 'Failed to create position. Please try again.',
+                    stackTrace: stackTrace,
                   );
                 }
               }
@@ -1640,13 +1644,15 @@ class _HrScreenState extends State<HrScreen>
                     );
                     _loadStaff();
                   }
-                } catch (e) {
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG suspend staff: $e\n$stackTrace');
                   Navigator.pop(context);
                   if (mounted) {
                     ErrorHandler.handleError(
                       context,
                       e,
                       customMessage: 'Failed to suspend staff. Please try again.',
+                      stackTrace: stackTrace,
                     );
                   }
                 }
@@ -1791,13 +1797,15 @@ class _HrScreenState extends State<HrScreen>
                           );
                           _loadStaff();
                         }
-                      } catch (e) {
+                      } catch (e, stackTrace) {
+                        if (kDebugMode) debugPrint('DEBUG terminate staff: $e\n$stackTrace');
                         Navigator.pop(context);
                         if (mounted) {
                           ErrorHandler.handleError(
                             context,
                             e,
                             customMessage: 'Failed to terminate staff. Please try again.',
+                            stackTrace: stackTrace,
                           );
                         }
                       }
@@ -2155,13 +2163,14 @@ class _HrScreenState extends State<HrScreen>
                         userId: userId!,
                       );
                     } catch (retryError) {
-                      // If it still fails, restore session and throw error
+                      // If it still fails, restore session and rethrow
                       try {
                         await supabase.auth.setSession(currentUserRefreshToken);
                       } catch (_) {
                         // Ignore session restore error in error handler
                       }
-                      throw Exception('Failed to update staff profile: $profileError');
+                      if (kDebugMode) debugPrint('DEBUG createStaffProfile retry failed: $profileError\n$retryError');
+                      rethrow;
                     }
                   } finally {
                     // Always clear the flag, even if there was an error
@@ -2173,7 +2182,8 @@ class _HrScreenState extends State<HrScreen>
                       // Session was lost - try to restore it
                       try {
                         await supabase.auth.setSession(currentUserRefreshToken);
-                      } catch (e) {
+                      } catch (e, stack) {
+                        if (kDebugMode) debugPrint('DEBUG session restore: $e\n$stack');
                         if (mounted) {
                           ErrorHandler.showWarningMessage(
                             context,
@@ -2314,7 +2324,8 @@ class _HrScreenState extends State<HrScreen>
                     );
                     _loadStaff();
                   }
-                } catch (e) {
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG create staff account: $e\n$stackTrace');
                   setDialogState(() => isLoading = false);
                   if (mounted) {
                     // Provide specific error messages for common issues
@@ -2341,13 +2352,14 @@ class _HrScreenState extends State<HrScreen>
                     } else if (errorString.contains('only owner') || errorString.contains('Only owner')) {
                       errorMsg = 'Only owner or manager can create staff profiles';
                     } else {
-                      errorMsg = 'Failed to create staff account: ${e.toString()}';
+                      errorMsg = ErrorHandler.getFriendlyErrorMessage(e);
                     }
                     
                     ErrorHandler.handleError(
                       context,
                       e,
                       customMessage: errorMsg,
+                      stackTrace: stackTrace,
                     );
                   }
                 }

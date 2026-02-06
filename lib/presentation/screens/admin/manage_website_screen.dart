@@ -90,6 +90,8 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
                     width: 60,
                     height: 60,
                     fit: BoxFit.cover,
+                    memCacheWidth: 120,
+                    memCacheHeight: 120,
                     placeholder: (context, url) => Container(
                       width: 60,
                       height: 60,

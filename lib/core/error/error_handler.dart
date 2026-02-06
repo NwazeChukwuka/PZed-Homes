@@ -4,18 +4,38 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Centralized error handling for the application
 class ErrorHandler {
+  /// Returns a clean, user-friendly error message. Use for UI display.
+  /// Debug logs should still print the raw error and stack trace separately.
+  static String getFriendlyErrorMessage(dynamic error) {
+    if (error == null) return 'An unexpected error occurred.';
+    if (error is AuthException) return _handleAuthError(error);
+    if (error is PostgrestException) return _handleDatabaseError(error);
+    if (error is NetworkException) return _handleNetworkError(error);
+    if (error is FormatException) return 'Invalid input format. Please check your input.';
+    if (error is Exception) return _handleGenericError(error);
+    return 'An unexpected error occurred.';
+  }
+
   static void handleError(
     BuildContext context,
     dynamic error, {
     String? customMessage,
     VoidCallback? onRetry,
+    StackTrace? stackTrace,
   }) {
+    if (kDebugMode && error != null) {
+      debugPrint('DEBUG Error: $error');
+      if (stackTrace != null) debugPrint('DEBUG StackTrace:\n$stackTrace');
+    }
+
     String message;
     String title = 'Error';
     IconData icon = Icons.error_outline;
     Color color = Colors.red;
 
-    if (error is AuthException) {
+    if (customMessage != null && customMessage.isNotEmpty) {
+      message = customMessage;
+    } else if (error is AuthException) {
       message = _handleAuthError(error);
       title = 'Authentication Error';
       icon = Icons.lock_outline;
@@ -31,7 +51,7 @@ class ErrorHandler {
     } else if (error is Exception) {
       message = _handleGenericError(error);
     } else {
-      message = customMessage ?? 'An unexpected error occurred';
+      message = 'An unexpected error occurred.';
     }
 
     _showErrorDialog(
@@ -81,7 +101,25 @@ class ErrorHandler {
   }
 
   static String _handleGenericError(Exception error) {
-    return 'An unexpected error occurred: ${error.toString()}';
+    final s = error.toString();
+    // Strip generic wrappers like "Exception: An error occurred: ..."
+    if (s.startsWith('Exception: ')) {
+      final inner = s.substring(11);
+      if (inner.startsWith('An error occurred: ') || inner.startsWith('Operation failed')) {
+        return inner;
+      }
+      return inner;
+    }
+    if (s.startsWith('FormatException: ')) return 'Invalid input format. Please check your input.';
+    // Network/connection hints (no dart:io import for web compat)
+    if (s.contains('SocketException') || s.contains('Connection refused') ||
+        s.contains('Connection timed out') || s.contains('Network is unreachable')) {
+      return 'Network unavailable. Check your connection and try again.';
+    }
+    if (s.contains('TimeoutException') || s.contains('timed out')) {
+      return 'The operation took too long. Please try again.';
+    }
+    return s;
   }
 
   static void _showErrorDialog(
@@ -198,6 +236,7 @@ class ErrorHandler {
     String? message,
     VoidCallback? onRetry,
   }) {
+    final friendlyMessage = message ?? (error != null ? getFriendlyErrorMessage(error) : 'Error loading data');
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -207,15 +246,9 @@ class ErrorHandler {
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 16),
             Text(
-              message ?? 'Error loading data',
+              friendlyMessage,
               style: Theme.of(context).textTheme.titleMedium,
               textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error?.toString() ?? 'Unknown error occurred',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
             ),
             if (onRetry != null) ...[
               const SizedBox(height: 16),

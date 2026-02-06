@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 class AppConnectivity extends ChangeNotifier {
   bool _isOnline = true;
   ConnectivityResult _connectionStatus = ConnectivityResult.none;
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
   
   bool get isOnline => _isOnline;
   ConnectivityResult get connectionStatus => _connectionStatus;
@@ -18,7 +21,14 @@ class AppConnectivity extends ChangeNotifier {
 
   AppConnectivity() {
     _initConnectivity();
-    Connectivity().onConnectivityChanged.listen(_updateConnectionStatus);
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen(_updateConnectionStatus);
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
+    super.dispose();
   }
 
   Future<void> _initConnectivity() async {

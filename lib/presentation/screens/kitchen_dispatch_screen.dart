@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -70,9 +71,15 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   String _dispatchFilterDepartment = 'all';
   String _dispatchFilterStaffId = 'all';
   String _historyFilterType = 'all'; // 'all', 'Sale', 'Dispatch'
+
+  // Memoized: invalidate when _salesHistory/_dispatchHistory or filter params change
+  bool _filteredCachesDirty = true;
+  List<Map<String, dynamic>>? _cachedFilteredSalesHistory;
+  List<Map<String, dynamic>>? _cachedFilteredDispatchHistory;
   DateTimeRange? _historyFilterRange;
   String _historyFilterStaffId = 'all';
   late TabController _tabController;
+  bool _hasPerformedInitialLoad = false;
 
   @override
   void initState() {
@@ -83,6 +90,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Run load once to avoid duplicate I/O when dependencies change (e.g. theme, locale)
+    if (_hasPerformedInitialLoad) return;
+    _hasPerformedInitialLoad = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAccessAndLoad();
     });
@@ -160,6 +170,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _departments = List<Map<String, dynamic>>.from(activeDepartments);
         _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
         _salesHistory = List<Map<String, dynamic>>.from(salesHistory);
+        _invalidateFilteredCaches();
         _bookings = List<Map<String, dynamic>>.from(checkedInBookings);
         _missingStockLinks = stockResponse
             .where((item) => item['stock_item_id'] == null)
@@ -184,12 +195,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           );
         }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG load data: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load data. Please check your connection and try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -456,12 +469,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         ErrorHandler.showSuccessMessage(context, 'Item dispatched successfully!');
         await _loadStockAndLocations();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG dispatch: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to dispatch item. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -605,12 +620,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           setState(() {});
         }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG record sale: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to record sale. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -804,9 +821,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG save receipt: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to save receipt. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save receipt. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -831,9 +849,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         guestName: guestName,
       );
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print receipt: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to print receipt. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print receipt. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -861,9 +880,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'kitchen_receipt.pdf')],
         subject: 'P-ZED Homes Kitchen Receipt',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share receipt: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to share receipt. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share receipt. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -895,7 +915,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         subject: 'P-ZED Homes Kitchen Receipt',
         text: receiptText,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG email receipt: $e\n$stackTrace');
       if (mounted) {
         final fallbackUri = Uri(
           scheme: 'mailto',
@@ -907,7 +928,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
         final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
         if (!fallbackOpened) {
-          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.');
+          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.', stackTrace: stackTrace);
         }
       }
     }
@@ -1110,9 +1131,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Dispatch slip saved to file');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG save dispatch slip: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to save dispatch slip. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to save dispatch slip. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -1141,9 +1163,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         guestName: guestName,
       );
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print dispatch slip: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to print dispatch slip. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to print dispatch slip. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -1175,9 +1198,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         [XFile.fromData(bytes, mimeType: 'application/pdf', name: 'dispatch_slip.pdf')],
         subject: 'P-ZED Homes Kitchen Dispatch Slip',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share dispatch slip: $e\n$stackTrace');
       if (mounted) {
-        ErrorHandler.handleError(context, e, customMessage: 'Failed to share dispatch slip. Please try again.');
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to share dispatch slip. Please try again.', stackTrace: stackTrace);
       }
     }
   }
@@ -1213,7 +1237,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         subject: 'P-ZED Homes Kitchen Dispatch Slip',
         text: slipText,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG email dispatch slip: $e\n$stackTrace');
       if (mounted) {
         final fallbackUri = Uri(
           scheme: 'mailto',
@@ -1225,7 +1250,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
         final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
         if (!fallbackOpened) {
-          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.');
+          ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.', stackTrace: stackTrace);
         }
       }
     }
@@ -1276,14 +1301,19 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     try {
       final date = DateTime.parse(dateString);
       return '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _formatDate: $e\n$stack');
       return '';
     }
   }
 
-  List<Map<String, dynamic>> get _filteredSalesHistory {
-    final range = _salesFilterRange;
-    return _salesHistory.where((sale) {
+  void _invalidateFilteredCaches() {
+    _filteredCachesDirty = true;
+  }
+
+  void _computeFilteredCaches() {
+    final salesRange = _salesFilterRange;
+    _cachedFilteredSalesHistory = _salesHistory.where((sale) {
       final createdAtRaw = sale['created_at']?.toString();
       final method = sale['payment_method']?.toString() ?? '';
       DateTime? createdAt;
@@ -1292,24 +1322,20 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           createdAt = DateTime.parse(createdAtRaw);
         } catch (_) {}
       }
-
-      final inRange = range == null
+      final inRange = salesRange == null
           ? true
           : createdAt != null &&
-              !createdAt.isBefore(range.start) &&
+              !createdAt.isBefore(salesRange.start) &&
               !createdAt.isAfter(
-                DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59),
+                DateTime(salesRange.end.year, salesRange.end.month, salesRange.end.day, 23, 59, 59),
               );
       final methodOk = _salesFilterPaymentMethod == 'all'
           ? true
           : method == _salesFilterPaymentMethod;
       return inRange && methodOk;
     }).toList();
-  }
-
-  List<Map<String, dynamic>> get _filteredDispatchHistory {
-    final range = _dispatchFilterRange;
-    return _dispatchHistory.where((transfer) {
+    final dispatchRange = _dispatchFilterRange;
+    _cachedFilteredDispatchHistory = _dispatchHistory.where((transfer) {
       final createdAtRaw = transfer['created_at']?.toString();
       final status = transfer['payment_status']?.toString() ?? '';
       final department = transfer['destination_department']?.toString() ?? '';
@@ -1320,13 +1346,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           createdAt = DateTime.parse(createdAtRaw);
         } catch (_) {}
       }
-
-      final inRange = range == null
+      final inRange = dispatchRange == null
           ? true
           : createdAt != null &&
-              !createdAt.isBefore(range.start) &&
+              !createdAt.isBefore(dispatchRange.start) &&
               !createdAt.isAfter(
-                DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59),
+                DateTime(dispatchRange.end.year, dispatchRange.end.month, dispatchRange.end.day, 23, 59, 59),
               );
       final statusOk = _dispatchFilterPaymentStatus == 'all'
           ? true
@@ -1339,6 +1364,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           : staffId == _dispatchFilterStaffId;
       return inRange && statusOk && departmentOk && staffOk;
     }).toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredSalesHistory {
+    if (_filteredCachesDirty) {
+      _filteredCachesDirty = false;
+      _computeFilteredCaches();
+    }
+    return _cachedFilteredSalesHistory!;
+  }
+
+  List<Map<String, dynamic>> get _filteredDispatchHistory {
+    if (_filteredCachesDirty) {
+      _filteredCachesDirty = false;
+      _computeFilteredCaches();
+    }
+    return _cachedFilteredDispatchHistory!;
   }
 
   List<DropdownMenuItem<String>> _uniqueDispatchStaffItems() {
@@ -1360,21 +1401,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     return items;
   }
 
+  /// Memoized: derive showFullFunctionality from auth (avoids repeated role checks in build).
+  static bool _selectorShowFullFunctionality(AuthService auth) {
+    final user = auth.currentUser;
+    final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
+    final isAssumedKitchenStaff = auth.isRoleAssumed && auth.assumedRole == AppRole.kitchen_staff;
+    final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
+    final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
+    return isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, child) {
-        final user = authService.currentUser;
-        final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
-        final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
-        final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
-        final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
-        final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
-        
-        // Show full functionality if kitchen staff, assumed kitchen staff, receptionist, or VIP bartender
-        final showFullFunctionality = isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
+    return Selector<AuthService, bool>(
+      selector: (_, auth) => _selectorShowFullFunctionality(auth),
+      builder: (context, showFullFunctionality, _) {
         final destinations = _departments;
-
         return Scaffold(
           appBar: AppBar(
             title: const Text('Kitchen'),
@@ -1394,52 +1436,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           body: Column(
             children: [
               if (_missingStockLinks.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Card(
-                    color: Colors.orange[50],
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Missing stock linkage',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Some kitchen items are not linked to stock items. Sales/dispatch will be blocked for them.',
-                                  style: TextStyle(color: Colors.orange[800], fontSize: 12),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _missingStockLinks.take(5).join(', ') +
-                                      (_missingStockLinks.length > 5 ? '...' : ''),
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            color: Colors.orange[800],
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            onPressed: () {
-                              setState(() {
-                                _dismissedWarnings.add('missing_stock_linkage');
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                _KitchenMissingStockWarning(
+                  missingLinks: _missingStockLinks,
+                  onDismiss: () {
+                    setState(() => _dismissedWarnings.add('missing_stock_linkage'));
+                  },
                 ),
               if (showFullFunctionality)
                 TabBar(
@@ -1678,9 +1679,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                               DropdownMenuItem(value: 'paid', child: Text('Paid')),
                                               DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
                                             ],
-                                            onChanged: (val) => setState(
-                                              () => _dispatchFilterPaymentStatus = val ?? 'all',
-                                            ),
+                                            onChanged: (val) => setState(() {
+                                              _dispatchFilterPaymentStatus = val ?? 'all';
+                                              _invalidateFilteredCaches();
+                                            }),
                                           ),
                                         ),
                                         const SizedBox(width: 12),
@@ -1695,7 +1697,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                 initialDateRange: _dispatchFilterRange,
                                               );
                                               if (picked != null) {
-                                                setState(() => _dispatchFilterRange = picked);
+                                                setState(() {
+                                                _dispatchFilterRange = picked;
+                                                _invalidateFilteredCaches();
+                                              });
                                               }
                                             },
                                             icon: const Icon(Icons.date_range),
@@ -1725,9 +1730,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                     child: Text(_formatDepartmentName(dept['name'] as String)),
                                                   )),
                                             ],
-                                            onChanged: (val) => setState(
-                                              () => _dispatchFilterDepartment = val ?? 'all',
-                                            ),
+                                            onChanged: (val) => setState(() {
+                                              _dispatchFilterDepartment = val ?? 'all';
+                                              _invalidateFilteredCaches();
+                                            }),
                                           ),
                                         ),
                                         const SizedBox(width: 12),
@@ -1742,9 +1748,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                               const DropdownMenuItem(value: 'all', child: Text('All')),
                                               ..._uniqueDispatchStaffItems(),
                                             ],
-                                            onChanged: (val) => setState(
-                                              () => _dispatchFilterStaffId = val ?? 'all',
-                                            ),
+                                            onChanged: (val) => setState(() {
+                                              _dispatchFilterStaffId = val ?? 'all';
+                                              _invalidateFilteredCaches();
+                                            }),
                                           ),
                                         ),
                                       ],
@@ -1753,7 +1760,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                       Align(
                                         alignment: Alignment.centerRight,
                                         child: TextButton(
-                                          onPressed: () => setState(() => _dispatchFilterRange = null),
+                                          onPressed: () => setState(() {
+                                          _dispatchFilterRange = null;
+                                          _invalidateFilteredCaches();
+                                        }),
                                           child: const Text('Clear date filter'),
                                         ),
                                       ),
@@ -2021,9 +2031,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                               DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
                                               DropdownMenuItem(value: 'credit', child: Text('Credit')),
                                             ],
-                                            onChanged: (val) => setState(
-                                              () => _salesFilterPaymentMethod = val ?? 'all',
-                                            ),
+                                            onChanged: (val) => setState(() {
+                                              _salesFilterPaymentMethod = val ?? 'all';
+                                              _invalidateFilteredCaches();
+                                            }),
                                           ),
                                         ),
                                         const SizedBox(width: 12),
@@ -2038,7 +2049,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                 initialDateRange: _salesFilterRange,
                                               );
                                               if (picked != null) {
-                                                setState(() => _salesFilterRange = picked);
+                                                setState(() {
+                                                _salesFilterRange = picked;
+                                                _invalidateFilteredCaches();
+                                              });
                                               }
                                             },
                                             icon: const Icon(Icons.date_range),
@@ -2055,7 +2069,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                       Align(
                                         alignment: Alignment.centerRight,
                                         child: TextButton(
-                                          onPressed: () => setState(() => _salesFilterRange = null),
+                                          onPressed: () => setState(() {
+                                          _salesFilterRange = null;
+                                          _invalidateFilteredCaches();
+                                        }),
                                           child: const Text('Clear date filter'),
                                         ),
                                       ),
@@ -2397,7 +2414,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     if (timestamp == null) return null;
     try {
       return DateTime.parse(timestamp.toString());
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
       return null;
     }
   }
@@ -2431,7 +2449,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
                       ],
                       onChanged: (val) => setState(
-                        () => _dispatchFilterPaymentStatus = val ?? 'all',
+                        () {
+                          _dispatchFilterPaymentStatus = val ?? 'all';
+                          _invalidateFilteredCaches();
+                        },
                       ),
                     ),
                   ),
@@ -2447,7 +2468,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           initialDateRange: _dispatchFilterRange,
                         );
                         if (picked != null) {
-                          setState(() => _dispatchFilterRange = picked);
+                          setState(() {
+                                                _dispatchFilterRange = picked;
+                                                _invalidateFilteredCaches();
+                                              });
                         }
                       },
                       icon: const Icon(Icons.date_range),
@@ -2478,7 +2502,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                             )),
                       ],
                       onChanged: (val) => setState(
-                        () => _dispatchFilterDepartment = val ?? 'all',
+                        () {
+                          _dispatchFilterDepartment = val ?? 'all';
+                          _invalidateFilteredCaches();
+                        },
                       ),
                     ),
                   ),
@@ -2495,7 +2522,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         ..._uniqueDispatchStaffItems(),
                       ],
                       onChanged: (val) => setState(
-                        () => _dispatchFilterStaffId = val ?? 'all',
+                        () {
+                          _dispatchFilterStaffId = val ?? 'all';
+                          _invalidateFilteredCaches();
+                        },
                       ),
                     ),
                   ),
@@ -2505,7 +2535,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () => setState(() => _dispatchFilterRange = null),
+                    onPressed: () => setState(() {
+                                          _dispatchFilterRange = null;
+                                          _invalidateFilteredCaches();
+                                        }),
                     child: const Text('Clear date filter'),
                   ),
                 ),
@@ -2550,6 +2583,61 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             ),
           ),
             ],
+    );
+  }
+}
+
+/// Extracted subwidget: reduces build cost and isolates warning UI.
+class _KitchenMissingStockWarning extends StatelessWidget {
+  final List<String> missingLinks;
+  final VoidCallback onDismiss;
+
+  const _KitchenMissingStockWarning({
+    required this.missingLinks,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = missingLinks.take(5).join(', ') + (missingLinks.length > 5 ? '...' : '');
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Card(
+        color: Colors.orange[50],
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Missing stock linkage',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Some kitchen items are not linked to stock items. Sales/dispatch will be blocked for them.',
+                      style: TextStyle(color: Colors.orange[800], fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(preview, style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                color: Colors.orange[800],
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: onDismiss,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

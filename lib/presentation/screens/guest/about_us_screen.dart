@@ -45,6 +45,9 @@ class AboutUsScreen extends StatelessWidget {
           Image.asset(
             'assets/images/Front View/Front View 1.JPG',
             fit: BoxFit.cover,
+            cacheWidth: 1200,
+            cacheHeight: 800,
+            gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) => Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(

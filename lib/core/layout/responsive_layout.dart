@@ -60,7 +60,7 @@ class ResponsiveValue<T> {
   });
 
   T getValue(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     
     if (screenWidth >= 1400) {
       return largeDesktop ?? desktop ?? tablet ?? mobile;
@@ -92,7 +92,7 @@ class ResponsivePadding extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     
     EdgeInsets padding;
     if (screenWidth >= 1400) {
@@ -134,7 +134,7 @@ class ResponsiveGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     
     int columns;
     if (screenWidth >= 1400) {
@@ -152,7 +152,7 @@ class ResponsiveGrid extends StatelessWidget {
       runSpacing: runSpacing ?? 16.0,
       children: children.map((child) {
         return SizedBox(
-          width: (MediaQuery.of(context).size.width - 
+          width: (MediaQuery.sizeOf(context).width - 
                  (columns - 1) * (spacing ?? 16.0)) / columns,
           child: child,
         );
@@ -181,7 +181,7 @@ class ResponsiveText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     
     TextStyle? style;
     if (screenWidth >= 1400) {
@@ -222,7 +222,7 @@ class ResponsiveSpacing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     
     double spacing;
     if (screenWidth >= 1400) {
@@ -266,21 +266,21 @@ class Breakpoints {
 // Responsive helper functions
 class ResponsiveHelper {
   static bool isMobile(BuildContext context) {
-    return MediaQuery.of(context).size.width < Breakpoints.mobile;
+    return MediaQuery.sizeOf(context).width < Breakpoints.mobile;
   }
 
   static bool isTablet(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     return width >= Breakpoints.mobile && width < Breakpoints.tablet;
   }
 
   static bool isDesktop(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     return width >= Breakpoints.tablet && width < Breakpoints.desktop;
   }
 
   static bool isLargeDesktop(BuildContext context) {
-    return MediaQuery.of(context).size.width >= Breakpoints.desktop;
+    return MediaQuery.sizeOf(context).width >= Breakpoints.desktop;
   }
 
   static T responsiveValue<T>(
@@ -290,7 +290,7 @@ class ResponsiveHelper {
     T? desktop,
     T? largeDesktop,
   }) {
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     
     if (width >= Breakpoints.largeDesktop) {
       return largeDesktop ?? desktop ?? tablet ?? mobile;

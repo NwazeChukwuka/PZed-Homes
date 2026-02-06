@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -8,7 +9,10 @@ import '../../core/services/payment_service.dart';
 import '../../data/models/user.dart';
 
 /// Read-only store view for Owner/Manager to see what's available in the store
-/// without the ability to record or modify stock
+/// without the ability to record or modify stock.
+/// Data source: stock_levels ledger (stock_transactions). Only Main Store items shown.
+const String _kCentralStoreLocationName = 'Main Store';
+
 class StoreViewScreen extends StatefulWidget {
   const StoreViewScreen({super.key});
 
@@ -45,17 +49,70 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
   Future<void> _loadStoreData() async {
     setState(() => _isLoading = true);
     try {
-      final items = await _dataService.getInventoryItems();
-      final transactions = await _dataService.getStockTransactions();
+      // Invalidate cache so we read fresh ledger data on open/refresh
+      _dataService.invalidateCacheForTable('stock_transactions');
+
+      // Data source: stock_levels ledger (stock_transactions). Filter by Main Store only;
+      // issued items no longer appear as available in central store.
+      final stockLevels = await _dataService.getStockLevels(locationName: _kCentralStoreLocationName);
+      final stockItems = await _dataService.getStockItems();
+      final stockItemsById = {for (var s in stockItems) s['id']?.toString(): s};
+
+      // Merge stock_levels with stock_items for category/unit; map to UI shape
+      final items = stockLevels.map((sl) {
+        final si = stockItemsById[sl['id']?.toString()];
+        return <String, dynamic>{
+          'name': sl['name'],
+          'quantity': sl['current_stock'] ?? 0,
+          'category': si?['category']?.toString() ?? 'Uncategorized',
+          'unit': si?['unit']?.toString() ?? 'units',
+          'location': sl['location_name'] ?? _kCentralStoreLocationName,
+          'description': si?['description'],
+          'id': sl['id'],
+        };
+      }).toList();
+
+      // Filter transactions by Main Store location
+      final locations = await _dataService.getLocations();
+      String? mainStoreId;
+      for (final l in locations) {
+        final name = (l['name'] ?? '').toString().toLowerCase();
+        if (name.contains('main') || name.contains('store')) {
+          mainStoreId = l['id']?.toString();
+          break;
+        }
+      }
+
+      final rawTransactions = await _dataService.getStockTransactions(
+        locationId: mainStoreId,
+        limit: 50,
+      );
+
+      // Transform to shape expected by _buildTransactionCard
+      final transactions = rawTransactions.map((t) {
+        final stockItem = t['stock_items'] as Map<String, dynamic>?;
+        return <String, dynamic>{
+          'type': (t['transaction_type'] ?? 'unknown').toString().toLowerCase().replaceAll(' ', '_'),
+          'item_name': stockItem?['name'] ?? 'Unknown Item',
+          'quantity': t['quantity'] ?? 0,
+          'unit': stockItem?['unit'] ?? 'units',
+          'timestamp': t['created_at'],
+          'staff_profile_id': t['staff_profile_id'],
+        };
+      }).toList();
+
       final purchases = await _dataService.getPendingPurchases();
-      
-      setState(() {
-        _storeItems = items;
-        _recentTransactions = transactions.take(50).toList();
-        _pendingPurchases = purchases;
-        _isLoading = false;
-      });
-    } catch (e) {
+
+      if (mounted) {
+        setState(() {
+          _storeItems = items;
+          _recentTransactions = transactions;
+          _pendingPurchases = purchases;
+          _isLoading = false;
+        });
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadStoreData: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
@@ -63,6 +120,7 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
           e,
           customMessage: 'Failed to load store data. Please check your connection and try again.',
           onRetry: _loadStoreData,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -500,7 +558,8 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
     try {
       final dateTime = date is DateTime ? date : DateTime.parse(date.toString());
       return DateFormat('MMM dd, yyyy HH:mm').format(dateTime);
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _formatDate: $e\n$stack');
       return date.toString();
     }
   }

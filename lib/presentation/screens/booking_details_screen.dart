@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -106,8 +107,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           _roomBasePriceKobo = 0;
         });
       }
-    } catch (e) {
-      print('Error fetching room price: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG fetch room price: $e\n$stack');
       setState(() {
         _roomBasePriceKobo = 0;
       });
@@ -208,7 +209,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       } else {
         throw Exception('Check-in failed. Please ensure room is assigned and booking is in correct status.');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG check in: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
         ErrorHandler.handleError(
@@ -216,6 +218,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           e,
           customMessage: 'Failed to check in guest. Please try again.',
           onRetry: _performCheckIn,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -273,8 +276,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       });
       await _loadBookingDebts();
       await _loadBookingCharges();
-    } catch (e) {
-      print('Error reloading booking: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG reload booking: $e\n$stack');
     }
   }
 
@@ -284,8 +287,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       if (mounted) {
         setState(() => _bookingCharges = charges);
       }
-    } catch (e) {
-      // Non-blocking
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadBookingCharges: $e\n$stack');
     }
   }
 
@@ -297,8 +300,8 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       if (mounted) {
         setState(() => _bookingDebts = debts);
       }
-    } catch (e) {
-      // Non-blocking for booking screen
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _loadBookingDebts: $e\n$stack');
     }
   }
 
@@ -321,13 +324,15 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Charge added successfully!');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG add charge: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to add charge. Please try again.',
           onRetry: () => _addCharge(itemName, price),
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -371,13 +376,15 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       } else {
         throw Exception('Check-out failed. Please ensure booking is in correct status.');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG check out: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to check out guest. Please try again.',
           onRetry: _performCheckOut,
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -660,12 +667,14 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                     await _loadBookingDebts();
                     _performCheckOut();
                   }
-                } catch (e) {
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG record payments: $e\n$stackTrace');
                   if (mounted) {
                     ErrorHandler.handleError(
                       context,
                       e,
                       customMessage: 'Failed to record payments. Please try again.',
+                      stackTrace: stackTrace,
                     );
                   }
                 }

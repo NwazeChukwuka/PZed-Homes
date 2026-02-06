@@ -275,7 +275,7 @@ class ReportingService {
         expenseBreakdown: expenseBreakdown,
       );
     } catch (e) {
-      throw Exception('Failed to generate P&L report: $e');
+      rethrow;
     }
   }
 

@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/data_service.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -319,25 +320,22 @@ class AuthService with ChangeNotifier {
           .toList();
       
       // #region agent log
-      try { 
-        final logData = {
-          'location': 'auth_service.dart:297',
-          'message': 'User roles loaded',
-          'data': {
-            'userId': profileResponse['id'],
-            'rawRoles': roles.map((r) => r.toString()).toList(),
-            'parsedRoles': parsedRoles.map((r) => r.name).toList(),
-            'primaryRole': primaryRole.name,
-            'hasVipBartender': parsedRoles.contains(AppRole.vip_bartender),
-            'hasOutsideBartender': parsedRoles.contains(AppRole.outside_bartender)
-          },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'sessionId': 'debug-session',
-          'runId': 'run1',
-          'hypothesisId': 'U'
-        };
-        File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-      } catch (_) {}
+      debugLog({
+        'location': 'auth_service.dart:297',
+        'message': 'User roles loaded',
+        'data': {
+          'userId': profileResponse['id'],
+          'rawRoles': roles.map((r) => r.toString()).toList(),
+          'parsedRoles': parsedRoles.map((r) => r.name).toList(),
+          'primaryRole': primaryRole.name,
+          'hasVipBartender': parsedRoles.contains(AppRole.vip_bartender),
+          'hasOutsideBartender': parsedRoles.contains(AppRole.outside_bartender)
+        },
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+        'hypothesisId': 'U'
+      });
       print('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
       // #endregion
       
@@ -439,8 +437,11 @@ class AuthService with ChangeNotifier {
       }
       
       return e.message;
-    } catch (e) {
-      return 'An unexpected error occurred: ${e.toString()}';
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('DEBUG signUp error: $e\n$stackTrace');
+      }
+      return ErrorHandler.getFriendlyErrorMessage(e);
     }
   }
 
@@ -543,22 +544,16 @@ class AuthService with ChangeNotifier {
       
       // For other auth errors, return the original message
       return e.message;
-    } catch (e) {
+    } catch (e, stackTrace) {
       _isLoading = false;
       _isLoggedIn = false;
       _currentUser = null;
       _isLoggingIn = false;
       notifyListeners();
-      
-      // Provide more specific error messages
-      final errorString = e.toString();
-      if (errorString.contains('Profile not found')) {
-        return 'User profile not found. Please contact support.';
-      } else if (errorString.contains('timeout') || errorString.contains('Timeout')) {
-        return 'Request timed out. Please check your internet connection and try again.';
-      } else {
-        return 'Login failed: ${errorString.contains("Invalid login credentials") ? "Invalid email or password" : errorString}';
+      if (kDebugMode) {
+        debugPrint('DEBUG login error: $e\n$stackTrace');
       }
+      return ErrorHandler.getFriendlyErrorMessage(e);
     } finally {
       _isLoggingIn = false;
     }
@@ -568,12 +563,9 @@ class AuthService with ChangeNotifier {
   Future<void> logout({bool clearRememberMe = true}) async {
     if (_supabase == null) return;
     
-    // Stop session monitoring timers
     _sessionRefreshTimer?.cancel();
     _sessionWarningTimer?.cancel();
-    
-    // Clock-out on logout removed - no longer required
-    
+    DataService().invalidateAllCache();
     await _supabase!.auth.signOut();
     
     // Clear remember me preference if requested

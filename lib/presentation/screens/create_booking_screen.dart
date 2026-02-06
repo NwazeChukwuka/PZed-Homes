@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:typed_data';
@@ -127,13 +128,15 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       setState(() {
         _roomTypes = List<Map<String, dynamic>>.from(response);
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadRoomTypes: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load room types. Please check your connection and try again.',
           onRetry: _loadRoomTypes,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -180,13 +183,15 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         _availableRooms = List<Map<String, dynamic>>.from(rooms);
         _selectedRoomId = null;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadAvailableRooms: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isFetchingRooms = false);
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to check availability. Please try again.',
+          stackTrace: stackTrace,
           onRetry: _findAvailableRooms,
         );
       }
@@ -340,13 +345,15 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         );
         _resetBookingForm();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _createBooking: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to create booking. Please try again.',
           onRetry: _createBooking,
+          stackTrace: stackTrace,
         );
       }
     } finally {
@@ -581,12 +588,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Receipt saved to file');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG save receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -619,12 +628,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         bytes: bytes,
         filename: 'booking_receipt_$bookingId.pdf',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG share receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to share receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -656,12 +667,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       await Printing.layoutPdf(
         onLayout: (format) async => docBytes,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG print receipt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to generate receipt. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -704,7 +717,8 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         subject: 'P-ZED Homes Booking Receipt',
         text: receiptText,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG email receipt: $e\n$stackTrace');
       if (mounted) {
         final fallbackUri = Uri(
           scheme: 'mailto',
@@ -723,6 +737,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
             context,
             e,
             customMessage: 'Could not open email client. Please try again.',
+            stackTrace: stackTrace,
           );
         }
       }
@@ -759,10 +774,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     );
   }
 
+  static final _dateFormatter = DateFormat('EEE, MMM d, yyyy');
+
   @override
   Widget build(BuildContext context) {
-    final dateFormatter = DateFormat('EEE, MMM d, yyyy');
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create New Booking'),
@@ -779,14 +794,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               _buildDateSelector(
                 'Check-in Date',
                 _checkInDate,
-                dateFormatter,
+                _dateFormatter,
                 () => _selectDate(context, true),
               ),
               const SizedBox(height: 16),
               _buildDateSelector(
                 'Check-out Date',
                 _checkOutDate,
-                dateFormatter,
+                _dateFormatter,
                 () => _selectDate(context, false),
               ),
               const SizedBox(height: 24),
@@ -976,9 +991,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                         : null,
                   ),
                   keyboardType: TextInputType.number,
-                  onChanged: (value) {
-                    setState(() {}); // Trigger rebuild to update discount display
-                  },
                   validator: (val) {
                     if (_discountApplied && (val == null || val.trim().isEmpty)) {
                       return 'Please enter amount paid';
@@ -993,10 +1005,22 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                // Discount Calculation Display
-                if (_amountPaidController.text.trim().isNotEmpty && _baseTotalAmount > 0)
-                  _buildDiscountDisplay(),
-                const SizedBox(height: 16),
+                // Discount display: ListenableBuilder scopes rebuild to this section only
+                ListenableBuilder(
+                  listenable: _amountPaidController,
+                  builder: (context, _) {
+                    if (_amountPaidController.text.trim().isEmpty || _baseTotalAmount <= 0) {
+                      return const SizedBox.shrink();
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildDiscountDisplay(),
+                        const SizedBox(height: 16),
+                      ],
+                    );
+                  },
+                ),
                 TextFormField(
                   controller: _discountReasonController,
                   decoration: const InputDecoration(

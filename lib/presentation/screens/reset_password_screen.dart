@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -54,7 +55,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       } else {
         setState(() => _statusMessage = 'Invalid or expired reset link.');
       }
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _initRecoverySession: $e\n$stack');
       setState(() => _statusMessage = 'Invalid or expired reset link.');
     }
   }
@@ -83,12 +85,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         );
         context.go('/login');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _updatePassword: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to update password. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {

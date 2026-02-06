@@ -35,7 +35,7 @@ class PasswordService {
       );
       return true;
     } catch (e) {
-      throw Exception('Failed to send password reset email: $e');
+      rethrow;
     }
   }
 
@@ -53,7 +53,7 @@ class PasswordService {
       );
       return true;
     } catch (e) {
-      throw Exception('Failed to update password: $e');
+      rethrow;
     }
   }
 

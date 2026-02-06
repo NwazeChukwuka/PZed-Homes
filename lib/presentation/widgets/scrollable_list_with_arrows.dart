@@ -30,46 +30,41 @@ class ScrollableListWithArrows extends StatefulWidget {
 
 class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
   late ScrollController _scrollController;
-  bool _showUpArrow = false;
-  bool _showDownArrow = false;
+  final ValueNotifier<bool> _showUpArrow = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _showDownArrow = ValueNotifier<bool>(false);
 
   @override
   void initState() {
     super.initState();
     _scrollController = widget.controller ?? ScrollController();
     _scrollController.addListener(_updateArrowVisibility);
-    // Initial check after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowVisibility());
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_updateArrowVisibility);
     if (widget.controller == null) {
       _scrollController.dispose();
-    } else {
-      _scrollController.removeListener(_updateArrowVisibility);
     }
+    _showUpArrow.dispose();
+    _showDownArrow.dispose();
     super.dispose();
   }
 
+  /// Uses ValueNotifier instead of setState to scope rebuilds to arrow widgets only.
   void _updateArrowVisibility() {
     if (!_scrollController.hasClients) {
-      setState(() {
-        _showUpArrow = false;
-        _showDownArrow = false;
-      });
+      _showUpArrow.value = false;
+      _showDownArrow.value = false;
       return;
     }
-
     final position = _scrollController.position;
     final showUp = position.pixels > 0;
     final showDown = position.pixels < position.maxScrollExtent;
-
-    if (showUp != _showUpArrow || showDown != _showDownArrow) {
-      setState(() {
-        _showUpArrow = showUp;
-        _showDownArrow = showDown;
-      });
+    if (_showUpArrow.value != showUp || _showDownArrow.value != showDown) {
+      _showUpArrow.value = showUp;
+      _showDownArrow.value = showDown;
     }
   }
 
@@ -116,62 +111,62 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
                 padding: widget.padding,
                 child: widget.child,
               ),
-        // Up arrow button
-        if (_showUpArrow)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-              color: arrowBgColor,
-              child: InkWell(
-                onTap: _scrollUp,
-                borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-                child: Container(
-                  width: widget.arrowSize,
-                  height: widget.arrowSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+        // Up arrow button (ValueListenableBuilder scopes rebuild to arrows only)
+        ValueListenableBuilder<bool>(
+          valueListenable: _showUpArrow,
+          builder: (context, showUp, _) => showUp
+              ? Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                    color: arrowBgColor,
+                    child: InkWell(
+                      onTap: _scrollUp,
+                      borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                      child: Container(
+                        width: widget.arrowSize,
+                        height: widget.arrowSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                        ),
+                        child: Icon(Icons.keyboard_arrow_up, color: arrowColor, size: widget.arrowSize * 0.6),
+                      ),
+                    ),
                   ),
-                  child: Icon(
-                    Icons.keyboard_arrow_up,
-                    color: arrowColor,
-                    size: widget.arrowSize * 0.6,
+                )
+              : const SizedBox.shrink(),
+        ),
+        // Down arrow button (ValueListenableBuilder scopes rebuild to arrows only)
+        ValueListenableBuilder<bool>(
+          valueListenable: _showDownArrow,
+          builder: (context, showDown, _) => showDown
+              ? Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                    color: arrowBgColor,
+                    child: InkWell(
+                      onTap: _scrollDown,
+                      borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                      child: Container(
+                        width: widget.arrowSize,
+                        height: widget.arrowSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                        ),
+                        child: Icon(Icons.keyboard_arrow_down, color: arrowColor, size: widget.arrowSize * 0.6),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ),
-        // Down arrow button
-        if (_showDownArrow)
-          Positioned(
-            bottom: 8,
-            right: 8,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-              color: arrowBgColor,
-              child: InkWell(
-                onTap: _scrollDown,
-                borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-                child: Container(
-                  width: widget.arrowSize,
-                  height: widget.arrowSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
-                  ),
-                  child: Icon(
-                    Icons.keyboard_arrow_down,
-                    color: arrowColor,
-                    size: widget.arrowSize * 0.6,
-                  ),
-                ),
-              ),
-            ),
-          ),
+                )
+              : const SizedBox.shrink(),
+        ),
       ],
     );
   }
@@ -252,8 +247,8 @@ class _ScrollableListViewWithArrowsStateful extends StatefulWidget {
 
 class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListViewWithArrowsStateful> {
   late ScrollController _scrollController;
-  bool _showUpArrow = false;
-  bool _showDownArrow = false;
+  final ValueNotifier<bool> _showUpArrow = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _showDownArrow = ValueNotifier<bool>(false);
 
   @override
   void initState() {
@@ -265,32 +260,27 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
 
   @override
   void dispose() {
+    _scrollController.removeListener(_updateArrowVisibility);
     if (widget.controller == null) {
       _scrollController.dispose();
-    } else {
-      _scrollController.removeListener(_updateArrowVisibility);
     }
+    _showUpArrow.dispose();
+    _showDownArrow.dispose();
     super.dispose();
   }
 
   void _updateArrowVisibility() {
     if (!_scrollController.hasClients) {
-      setState(() {
-        _showUpArrow = false;
-        _showDownArrow = false;
-      });
+      _showUpArrow.value = false;
+      _showDownArrow.value = false;
       return;
     }
-
     final position = _scrollController.position;
     final showUp = position.pixels > 0;
     final showDown = position.pixels < position.maxScrollExtent;
-
-    if (showUp != _showUpArrow || showDown != _showDownArrow) {
-      setState(() {
-        _showUpArrow = showUp;
-        _showDownArrow = showDown;
-      });
+    if (_showUpArrow.value != showUp || _showDownArrow.value != showDown) {
+      _showUpArrow.value = showUp;
+      _showDownArrow.value = showDown;
     }
   }
 
@@ -334,62 +324,62 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
             physics: widget.physics ?? const AlwaysScrollableScrollPhysics(),
           ),
         ),
-        // Up arrow button
-        if (_showUpArrow)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-              color: arrowBgColor,
-              child: InkWell(
-                onTap: _scrollUp,
-                borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-                child: Container(
-                  width: widget.arrowSize,
-                  height: widget.arrowSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+        // Up arrow button (ValueListenableBuilder scopes rebuild to arrows only)
+        ValueListenableBuilder<bool>(
+          valueListenable: _showUpArrow,
+          builder: (context, showUp, _) => showUp
+              ? Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                    color: arrowBgColor,
+                    child: InkWell(
+                      onTap: _scrollUp,
+                      borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                      child: Container(
+                        width: widget.arrowSize,
+                        height: widget.arrowSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                        ),
+                        child: Icon(Icons.keyboard_arrow_up, color: arrowColor, size: widget.arrowSize * 0.6),
+                      ),
+                    ),
                   ),
-                  child: Icon(
-                    Icons.keyboard_arrow_up,
-                    color: arrowColor,
-                    size: widget.arrowSize * 0.6,
+                )
+              : const SizedBox.shrink(),
+        ),
+        // Down arrow button (ValueListenableBuilder scopes rebuild to arrows only)
+        ValueListenableBuilder<bool>(
+          valueListenable: _showDownArrow,
+          builder: (context, showDown, _) => showDown
+              ? Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                    color: arrowBgColor,
+                    child: InkWell(
+                      onTap: _scrollDown,
+                      borderRadius: BorderRadius.circular(widget.arrowSize / 2),
+                      child: Container(
+                        width: widget.arrowSize,
+                        height: widget.arrowSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                        ),
+                        child: Icon(Icons.keyboard_arrow_down, color: arrowColor, size: widget.arrowSize * 0.6),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ),
-        // Down arrow button
-        if (_showDownArrow)
-          Positioned(
-            bottom: 8,
-            right: 8,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-              color: arrowBgColor,
-              child: InkWell(
-                onTap: _scrollDown,
-                borderRadius: BorderRadius.circular(widget.arrowSize / 2),
-                child: Container(
-                  width: widget.arrowSize,
-                  height: widget.arrowSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
-                  ),
-                  child: Icon(
-                    Icons.keyboard_arrow_down,
-                    color: arrowColor,
-                    size: widget.arrowSize * 0.6,
-                  ),
-                ),
-              ),
-            ),
-          ),
+                )
+              : const SizedBox.shrink(),
+        ),
       ],
     );
   }

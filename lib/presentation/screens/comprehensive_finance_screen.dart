@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/data_service.dart';
@@ -222,7 +223,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         };
         _isLoadingData = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadFinancialData: $e\n$stackTrace');
       setState(() => _isLoadingData = false);
       if (mounted) {
         ErrorHandler.handleError(
@@ -230,6 +232,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           e,
           customMessage: 'Failed to load financial data. Please check your connection and try again.',
           onRetry: _loadFinancialData,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -245,12 +248,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ..addAll(staff);
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadStaffProfiles: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load staff profiles. Payroll entry will be limited.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1480,12 +1485,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         _clearDebtForm();
         _loadFinancialData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG record debt: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to record debt. Please check all fields and try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1817,13 +1824,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ErrorHandler.showSuccessMessage(context, 'Income record saved successfully!');
         _loadFinancialData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _saveIncomeRecord: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save income record. Please try again.',
           onRetry: _saveIncomeRecord,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1862,13 +1871,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
         _loadFinancialData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _saveExpense: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save expense. Please try again.',
           onRetry: _saveExpense,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1914,13 +1925,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ErrorHandler.showSuccessMessage(context, 'Payroll record saved successfully!');
         _loadFinancialData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _savePayrollRecord: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save payroll record. Please try again.',
           onRetry: _savePayrollRecord,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -1977,13 +1990,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ErrorHandler.showSuccessMessage(context, 'Cash deposit saved successfully!');
         _loadFinancialData();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _saveCashDeposit: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to save cash deposit. Please try again.',
           onRetry: _saveCashDeposit,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -2122,12 +2137,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ErrorHandler.showSuccessMessage(context, 'Payment recorded successfully!');
                   _loadFinancialData();
                 }
-              } catch (e) {
+              } catch (e, stackTrace) {
+                if (kDebugMode) debugPrint('DEBUG record payment: $e\n$stackTrace');
                 if (mounted) {
                   ErrorHandler.handleError(
                     context,
                     e,
                     customMessage: 'Failed to record payment. Please try again.',
+                    stackTrace: stackTrace,
                   );
                 }
               }
@@ -2219,13 +2236,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       if (mounted) {
         _showReportDialog('Department Sales Report', departmentSummary.values.toList());
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG generate department report: $e\n$stackTrace');
       setState(() => _isGeneratingReport = false);
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to generate department report. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -2241,12 +2260,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           'Finance CSV copied to clipboard',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG export CSV: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to export CSV. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -2259,12 +2280,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         bytes: Uint8List.fromList(pdf),
         filename: 'finance_report_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG export PDF: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to generate PDF. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -2502,13 +2525,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       if (mounted) {
         _showFinancialReportDialog(reportData);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG generate financial report: $e\n$stackTrace');
       setState(() => _isGeneratingReport = false);
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to generate financial report. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     }

@@ -1,6 +1,5 @@
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -53,12 +52,14 @@ class AppRouter {
   static Future<T?> safePush<T>(BuildContext context, String location, {Object? extra}) async {
     try {
       return await context.push<T>(location, extra: extra);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG safePush: $e\n$stackTrace');
       if (context.mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Navigation error occurred',
+          stackTrace: stackTrace,
         );
       }
       return null;
@@ -68,12 +69,14 @@ class AppRouter {
   static void safeGo(BuildContext context, String location, {Object? extra}) {
     try {
       context.go(location, extra: extra);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG safeGo: $e\n$stackTrace');
       if (context.mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Navigation error occurred',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -82,12 +85,14 @@ class AppRouter {
   static void safePop<T>(BuildContext context, [T? result]) {
     try {
       context.pop(result);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG safePop: $e\n$stackTrace');
       if (context.mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Navigation error occurred',
+          stackTrace: stackTrace,
         );
       }
     }
@@ -497,27 +502,24 @@ class AppRouter {
             }
             
             // #region agent log
-            try { 
-              final logData = {
-                'location': 'app_router.dart:446',
-                'message': 'Router access check',
-                'data': {
-                  'route': location,
-                  'userId': currentUser.id,
-                  'userRoles': currentUser.roles.map((r) => r.name).toList(),
-                  'primaryRole': currentUser.role.name,
-                  'isRoleAssumed': authService.isRoleAssumed,
-                  'assumedRole': authService.assumedRole?.name,
-                  'checkedRole': checkedRole?.name,
-                  'hasAccess': hasAccess
-                },
-                'timestamp': DateTime.now().millisecondsSinceEpoch,
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'S'
-              };
-              File('c:\\Users\\user\\PZed-Homes\\PZed-Homes\\.cursor\\debug.log').writeAsStringSync('${jsonEncode(logData)}\n', mode: FileMode.append); 
-            } catch (_) {}
+            debugLog({
+              'location': 'app_router.dart:446',
+              'message': 'Router access check',
+              'data': {
+                'route': location,
+                'userId': currentUser.id,
+                'userRoles': currentUser.roles.map((r) => r.name).toList(),
+                'primaryRole': currentUser.role.name,
+                'isRoleAssumed': authService.isRoleAssumed,
+                'assumedRole': authService.assumedRole?.name,
+                'checkedRole': checkedRole?.name,
+                'hasAccess': hasAccess
+              },
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'sessionId': 'debug-session',
+              'runId': 'run1',
+              'hypothesisId': 'S'
+            });
             print('DEBUG Router: route=$location, roles=${currentUser.roles.map((r) => r.name)}, hasAccess=$hasAccess');
             // #endregion
             
@@ -528,8 +530,8 @@ class AppRouter {
         }
 
         return null;
-      } catch (e) {
-        // If there's an error accessing the provider, redirect to login
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG redirect: $e\n$stack');
         return '/login';
       }
     },
@@ -656,8 +658,8 @@ Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
         .timeout(const Duration(seconds: 5));
     
     return Map<String, dynamic>.from(response);
-  } catch (e) {
-    // Return empty map if query fails - will be handled by fallback
+  } catch (e, stack) {
+    if (kDebugMode) debugPrint('DEBUG _fetchUserProfile: $e\n$stack');
     return {};
   }
 }
@@ -676,7 +678,8 @@ class RootDecider extends StatelessWidget {
     try {
       supabase = Supabase.instance.client;
       isSupabaseInitialized = true;
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG RootDecider init: $e\n$stack');
       supabase = null;
       isSupabaseInitialized = false;
       initError = e.toString();
@@ -720,15 +723,11 @@ class RootDecider extends StatelessWidget {
                 // Use go() to navigate to dashboard, which is inside ShellRoute
                 // This ensures MainScreen wrapper is applied
               context.go('/dashboard');
-            } catch (e) {
-              // If navigation fails, show a fallback
-              if (kDebugMode) {
-                print('Navigation error in RootDecider: $e');
+            } catch (e, stackTrace) {
+              if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
+              if (context.mounted) {
+                context.go('/guest');
               }
-                // Fallback: try navigating to guest page
-                if (context.mounted) {
-                  context.go('/guest');
-                }
             }
           }
           });
@@ -942,8 +941,8 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
                                    userRole == AppRole.hr;
               
               context.go(isManagement ? '/dashboard' : '/dashboard');
-            } catch (e) {
-              // If navigation fails, just go to guest page
+            } catch (e, stackTrace) {
+              if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
               context.go('/guest');
             }
           }

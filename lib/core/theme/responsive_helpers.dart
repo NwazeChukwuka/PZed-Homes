@@ -6,20 +6,20 @@ class ResponsiveHelper {
   static const double desktopBreakpoint = 1200;
 
   static bool isMobile(BuildContext context) {
-    return MediaQuery.of(context).size.width < mobileBreakpoint;
+    return MediaQuery.sizeOf(context).width < mobileBreakpoint;
   }
 
   static bool isTablet(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final width = MediaQuery.sizeOf(context).width;
     return width >= mobileBreakpoint && width < tabletBreakpoint;
   }
 
   static bool isDesktop(BuildContext context) {
-    return MediaQuery.of(context).size.width >= tabletBreakpoint;
+    return MediaQuery.sizeOf(context).width >= tabletBreakpoint;
   }
 
   static bool isLargeDesktop(BuildContext context) {
-    return MediaQuery.of(context).size.width >= desktopBreakpoint;
+    return MediaQuery.sizeOf(context).width >= desktopBreakpoint;
   }
 
   static double getResponsiveValue(
@@ -155,7 +155,7 @@ class ResponsiveContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     final containerWidth = maxWidth ?? screenWidth;
     
     return Center(

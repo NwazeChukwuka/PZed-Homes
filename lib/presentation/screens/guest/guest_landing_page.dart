@@ -13,6 +13,7 @@ import 'package:pzed_homes/presentation/widgets/guest_auth_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/animated_wrapper.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/performance/optimization_helpers.dart';
 import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/gallery_viewer_screen.dart';
 import 'package:pzed_homes/data/models/gallery_item.dart';
@@ -113,8 +114,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           _isLoadingRoomTypes = false;
         });
       }
-    } catch (e) {
-      debugPrint('Error loading room types: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG load room types: $e\n$stack');
       if (mounted) {
         setState(() => _isLoadingRoomTypes = false);
       }
@@ -133,8 +134,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         final priceInKobo = roomType['price'] as int? ?? 0;
         return priceInKobo; // Keep in kobo
       }
-    } catch (e) {
-      debugPrint('Error getting room price for $roomTypeName: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _getRoomPrice: $e\n$stack');
     }
     
     // Fallback to hardcoded prices if database query fails
@@ -155,8 +156,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       // Check if Supabase is initialized
       try {
         Supabase.instance.client;
-      } catch (e) {
-        // Supabase not initialized, use assets only
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG Supabase check: $e\n$stack');
         return {};
       }
 
@@ -185,8 +186,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     } on TimeoutException catch (e) {
       debugPrint('Site content request timed out (using assets): $e');
       return {}; // Return empty - will use assets
-    } catch (e) {
-      debugPrint('Error fetching site content (using assets): $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _fetchSiteContent: $e\n$stack');
       return {}; // Return empty - will use assets
     }
   }
@@ -197,8 +198,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       // Check if Supabase is initialized
       try {
         Supabase.instance.client;
-      } catch (e) {
-        // Supabase not initialized, use assets only
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG Supabase check: $e\n$stack');
         return _getFallbackGalleryItems();
       }
 
@@ -237,8 +238,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     } on TimeoutException catch (e) {
       debugPrint('Gallery request timed out: $e');
       return _getFallbackGalleryItems();
-    } catch (e) {
-      debugPrint('Error fetching gallery items: $e');
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG _fetchGalleryItems: $e\n$stack');
       return _getFallbackGalleryItems();
     }
   }
@@ -777,6 +778,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                           ? CachedNetworkImage(
                               imageUrl: item.url,
                               fit: BoxFit.cover,
+                              memCacheWidth: 800,
+                              memCacheHeight: 600,
                               placeholder: (context, url) => Shimmer.fromColors(
                                 baseColor: Colors.grey[300]!,
                                 highlightColor: Colors.grey[100]!,
@@ -787,6 +790,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                           : Image.asset(
                               item.url,
                               fit: BoxFit.cover,
+                              cacheWidth: 800,
+                              cacheHeight: 600,
+                              gaplessPlayback: true,
                               errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
                             ),
                 ),
@@ -925,6 +931,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       return CachedNetworkImage(
                         imageUrl: imagePath,
                         fit: BoxFit.cover,
+                        memCacheWidth: 800,
+                        memCacheHeight: 600,
                         placeholder: (context, url) => Shimmer.fromColors(
                           baseColor: Colors.grey.shade300,
                           highlightColor: Colors.grey.shade100,
@@ -960,10 +968,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         ),
                       );
                     } else {
-                      // Local asset - use Image.asset
                       return Image.asset(
                         imagePath,
                         fit: BoxFit.cover,
+                        cacheWidth: 800,
+                        cacheHeight: 600,
+                        gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           if (kDebugMode) {
                             print('Failed to load room image: $imagePath');
@@ -1137,12 +1147,16 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Image.asset(
               imageUrl,
               height: 250,
               width: double.infinity,
               fit: BoxFit.cover,
+              cacheWidth: 800,
+              cacheHeight: 500,
+              gaplessPlayback: true,
               errorBuilder: (context, error, stackTrace) => Container(
                 height: 250,
                 decoration: BoxDecoration(
@@ -1226,11 +1240,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(32),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
@@ -1257,13 +1272,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           const Text(
                             'Contact Us',
@@ -1274,9 +1289,15 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          const Text('+234 815 750 5978 ', style: TextStyle(color: Colors.white70)),
-                          const SizedBox(height: 4),
-                          const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('+234 815 750 5978', style: TextStyle(color: Colors.white70)),
+                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                              const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
+                            ],
+                          ),
                           const SizedBox(height: 4),
                           const Text('Unity FM Junction, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
                         ],
@@ -1284,7 +1305,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     ),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           const Text(
                             'Quick Links',
@@ -1295,19 +1316,25 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          InkWell(
-                            onTap: () => context.push('/guest/about'),
-                            child: const Text('About Us', style: TextStyle(color: Colors.white70)),
-                          ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => context.push('/guest/services'),
-                            child: const Text('Services', style: TextStyle(color: Colors.white70)),
-                          ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => context.push('/guest/contact'),
-                            child: const Text('Contact', style: TextStyle(color: Colors.white70)),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              InkWell(
+                                onTap: () => context.push('/guest/about'),
+                                child: const Text('About Us', style: TextStyle(color: Colors.white70)),
+                              ),
+                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                              InkWell(
+                                onTap: () => context.push('/guest/services'),
+                                child: const Text('Services', style: TextStyle(color: Colors.white70)),
+                              ),
+                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                              InkWell(
+                                onTap: () => context.push('/guest/contact'),
+                                child: const Text('Contact', style: TextStyle(color: Colors.white70)),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1318,7 +1345,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 32),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.2),
             ),
@@ -1638,11 +1665,18 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
               controller: _pageController,
               itemCount: widget.heroImages.length,
               onPageChanged: _onPageChanged,
+              allowImplicitScrolling: false,
               itemBuilder: (context, index) {
                 final imagePath = widget.heroImages[index];
+                final size = MediaQuery.sizeOf(context);
+                final cacheW = (size.width * 2).round().clamp(1, OptimizationHelpers.maxCacheDimension);
+                final cacheH = (size.height * 2).round().clamp(1, OptimizationHelpers.maxCacheDimension);
                 return Image.asset(
                   imagePath,
                   fit: BoxFit.cover,
+                  cacheWidth: cacheW,
+                  cacheHeight: cacheH,
+                  gaplessPlayback: true,
                   errorBuilder: (context, error, stackTrace) {
                     if (kDebugMode) {
                       print('Failed to load image: $imagePath');
@@ -1798,8 +1832,8 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
         borderRadius: BorderRadius.circular(20),
       ),
       child: SizedBox(
-        width: MediaQuery.of(context).size.width * 0.9,
-        height: MediaQuery.of(context).size.height * 0.8,
+        width: MediaQuery.sizeOf(context).width * 0.9,
+        height: MediaQuery.sizeOf(context).height * 0.8,
         child: Column(
           children: [
             // Header with close button
@@ -1844,6 +1878,8 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                       return CachedNetworkImage(
                         imageUrl: widget.imageUrls[index],
                         fit: BoxFit.cover,
+                        memCacheWidth: 800,
+                        memCacheHeight: 600,
                         placeholder: (context, url) => Shimmer.fromColors(
                           baseColor: Colors.grey.shade300,
                           highlightColor: Colors.grey.shade100,

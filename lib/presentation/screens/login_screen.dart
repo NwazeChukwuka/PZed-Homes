@@ -126,12 +126,12 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
       
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: 'An unexpected error occurred. Please try again.',
+          stackTrace: stackTrace,
         );
       }
     } finally {

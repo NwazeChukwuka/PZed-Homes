@@ -171,6 +171,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
               SizedBox(
                 height: 250,
                 child: PageView.builder(
+                  allowImplicitScrolling: false,
                   itemCount: images.length,
                   itemBuilder: (context, index) {
                     return ClipRRect(
@@ -178,6 +179,9 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                       child: Image.asset(
                         images[index],
                         fit: BoxFit.cover,
+                        cacheWidth: 800,
+                        cacheHeight: 500,
+                        gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
                             color: Colors.grey[200],

@@ -99,6 +99,8 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
                   width: 50,
                   height: 50,
                   fit: BoxFit.cover,
+                  memCacheWidth: 100,
+                  memCacheHeight: 100,
                   placeholder: (context, url) => Container(
                     width: 50,
                     height: 50,

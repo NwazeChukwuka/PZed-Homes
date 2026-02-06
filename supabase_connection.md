@@ -2898,10 +2898,18 @@ BEGIN
         RAISE EXCEPTION 'Booking is not in valid state for room assignment';
     END IF;
     
-    -- Assign room
+    -- Assign room and automatically set status to Checked-in
     UPDATE public.bookings
-    SET room_id = assign_room_to_booking.room_id
+    SET room_id = assign_room_to_booking.room_id,
+        status = 'Checked-in',
+        updated_at = now()
     WHERE id = booking_id;
+    
+    -- Update room status to Occupied
+    UPDATE public.rooms
+    SET status = 'Occupied',
+        updated_at = now()
+    WHERE id = assign_room_to_booking.room_id;
     
     RETURN TRUE;
 END;
@@ -3210,17 +3218,119 @@ RETURNS BOOLEAN AS $$
 BEGIN
     -- Update booking status
     UPDATE public.bookings 
-    SET status = 'Checked-out'
+    SET status = 'Checked-out',
+        updated_at = now()
     WHERE id = booking_id AND status = 'Checked-in';
     
     -- Update room status
     UPDATE public.rooms 
-    SET status = 'Dirty'
+    SET status = 'Dirty',
+        updated_at = now()
     WHERE id = (SELECT room_id FROM public.bookings WHERE id = booking_id);
     
     RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to automatically update expired bookings to Checked-out
+-- A booking expires at 12:00 PM on the check-out date
+CREATE OR REPLACE FUNCTION public.auto_update_expired_bookings()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_now TIMESTAMPTZ;
+    v_expired_count INT;
+BEGIN
+    v_now := now();
+    
+    -- Update bookings where check-out date has passed 12:00 PM
+    -- and status is still 'Checked-in' or 'Pending Check-in'
+    UPDATE public.bookings
+    SET status = 'Checked-out',
+        updated_at = v_now
+    WHERE status IN ('Checked-in', 'Pending Check-in')
+      AND check_out_date IS NOT NULL
+      AND (
+          -- Check if current time is past 12:00 PM on check-out date
+          v_now > (
+              DATE(check_out_date) + INTERVAL '12 hours'
+          )
+      );
+    
+    GET DIAGNOSTICS v_expired_count = ROW_COUNT;
+    
+    -- Update room status to Dirty for rooms that were occupied by expired bookings
+    UPDATE public.rooms
+    SET status = 'Dirty',
+        updated_at = v_now
+    WHERE id IN (
+        SELECT room_id
+        FROM public.bookings
+        WHERE status = 'Checked-out'
+          AND check_out_date IS NOT NULL
+          AND v_now > (DATE(check_out_date) + INTERVAL '12 hours')
+          AND room_id IS NOT NULL
+    )
+    AND status = 'Occupied';
+END;
+$$;
+
+-- Trigger to automatically check and update expired bookings on any booking read/update
+-- This ensures status is always accurate when bookings are accessed
+CREATE OR REPLACE FUNCTION public.ensure_booking_status_accuracy()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_check_out_expiry TIMESTAMPTZ;
+BEGIN
+    -- Only process if check_out_date exists
+    IF NEW.check_out_date IS NOT NULL THEN
+        -- Calculate expiry time (12:00 PM on check-out date)
+        v_check_out_expiry := DATE(NEW.check_out_date) + INTERVAL '12 hours';
+        
+        -- If current time is past expiry and booking is still active, mark as Checked-out
+        IF now() > v_check_out_expiry AND NEW.status IN ('Checked-in', 'Pending Check-in') THEN
+            NEW.status := 'Checked-out';
+            NEW.updated_at := now();
+            
+            -- Also update room status if room is assigned
+            IF NEW.room_id IS NOT NULL THEN
+                UPDATE public.rooms
+                SET status = 'Dirty',
+                    updated_at = now()
+                WHERE id = NEW.room_id
+                  AND status = 'Occupied';
+            END IF;
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+-- Create trigger to ensure booking status accuracy on SELECT (via a view) and UPDATE
+DROP TRIGGER IF EXISTS trg_ensure_booking_status_accuracy ON public.bookings;
+CREATE TRIGGER trg_ensure_booking_status_accuracy
+BEFORE UPDATE ON public.bookings
+FOR EACH ROW
+EXECUTE FUNCTION public.ensure_booking_status_accuracy();
+
+-- Schedule automatic update of expired bookings (runs every hour)
+DO $$
+BEGIN
+  PERFORM cron.schedule(
+    'auto_update_expired_bookings',
+    '0 * * * *', -- Every hour at minute 0
+    'SELECT public.auto_update_expired_bookings()'
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL; -- pg_cron might not be available, ignore
+END $$;
 
 -- Function to calculate stock levels
 CREATE OR REPLACE FUNCTION public.calculate_stock_level(item_id UUID, location_id UUID)
