@@ -53,10 +53,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
   bool get _isReceptionist {
     final authService = Provider.of<AuthService>(context, listen: false);
     final currentUser = authService.currentUser;
-    final effectiveRole = authService.isRoleAssumed
-        ? (authService.assumedRole ?? currentUser?.role)
-        : currentUser?.role;
-    return effectiveRole == AppRole.receptionist;
+    return currentUser?.role == AppRole.receptionist ||
+        authService.hasAssumedRole(AppRole.receptionist);
   }
 
   @override

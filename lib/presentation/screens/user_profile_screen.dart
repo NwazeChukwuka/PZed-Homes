@@ -383,13 +383,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final currentUser = authService.currentUser;
-    final effectiveRole = authService.isRoleAssumed
-        ? (authService.assumedRole ?? currentUser?.role)
-        : currentUser?.role;
+    final effectiveRole = currentUser?.role;
     final roles = <AppRole>{
       ...?currentUser?.roles,
-      if (authService.isRoleAssumed && authService.assumedRole != null)
-        authService.assumedRole!,
+      ...authService.activeAssumedRoles,
     };
     final bool isManagement = roles.contains(AppRole.owner) ||
         roles.contains(AppRole.manager) ||
@@ -562,7 +559,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (authService.isRoleAssumed) ...[
+                    if (authService.activeAssumedRoles.isNotEmpty) ...[
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -576,7 +573,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Currently assuming: ${authService.assumedRole?.toString().split('.').last ?? 'Unknown'}',
+                                'Assuming: ${authService.activeAssumedRoles.map((r) => AuthService.getRoleDisplayName(r)).join(', ')}',
                                 style: TextStyle(
                                   color: Colors.orange.shade700,
                                   fontWeight: FontWeight.w500,
@@ -584,8 +581,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               ),
                             ),
                             TextButton(
-                              onPressed: () => authService.returnToOriginalRole(),
-                              child: const Text('Return to Original Role'),
+                              onPressed: () => authService.clearAssumedRoles(),
+                              child: const Text('Clear All'),
                             ),
                           ],
                         ),
@@ -682,20 +679,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildRoleChip(String roleName, AppRole role, AuthService authService) {
-    final isCurrentlyAssumed = authService.isRoleAssumed && authService.assumedRole == role;
-    
+    final isCurrentlyAssumed = authService.hasAssumedRole(role);
+
     return ChoiceChip(
       label: Text(roleName),
       selected: isCurrentlyAssumed,
       onSelected: (selected) {
         if (selected) {
           authService.assumeRole(role);
-          if (mounted) {
-            ErrorHandler.showSuccessMessage(
-              context,
-              'Now assuming $roleName role',
-            );
-          }
+          if (mounted) ErrorHandler.showSuccessMessage(context, 'Now assuming $roleName');
+        } else {
+          authService.dropAssumedRole(role);
+          if (mounted) ErrorHandler.showInfoMessage(context, 'Dropped $roleName');
         }
       },
       selectedColor: Colors.green,

@@ -108,10 +108,12 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final contentWidth = screenWidth < 420 ? screenWidth - 48 : 420.0;
         return AlertDialog(
           title: const Text('Confirm Purchase Order'),
           content: SizedBox(
-            width: 420,
+            width: contentWidth,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,

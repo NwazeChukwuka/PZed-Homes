@@ -59,7 +59,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
-    final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+    final isAssumedPurchaser = authService.hasAssumedRole(AppRole.purchaser);
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final showRecordPurchase = (isPurchaser || isAssumedPurchaser) && !(isOwnerOrManager && !isAssumedPurchaser);
     
@@ -318,7 +318,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
     final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
-    final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+    final isAssumedPurchaser = authService.hasAssumedRole(AppRole.purchaser);
     final canRecord = isPurchaser || isAssumedPurchaser;
     
     // Owner/Manager can only access Record Purchase if they assume purchaser role
@@ -331,7 +331,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         builder: (context, authService, child) {
           final user = authService.currentUser;
           final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
-          final isAssumedPurchaser = authService.isRoleAssumed && authService.assumedRole?.name == 'purchaser';
+          final isAssumedPurchaser = authService.hasAssumedRole(AppRole.purchaser);
           final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
           final showRecordPurchase = (isPurchaser || isAssumedPurchaser) && !(isOwnerOrManager && !isAssumedPurchaser);
           
@@ -385,8 +385,57 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   }
 
   Widget _buildHeader(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final padding = isMobile ? 16.0 : 24.0;
+    final titleSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Purchaser Dashboard',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.green[800],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Record purchases and manage company budget',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+    final budgetChip = Container(
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green[200]!),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _budgetSet
+                  ? 'Budget: ₦${NumberFormat('#,##0.00').format(_monthlyBudgetKobo / 100)}'
+                  : 'Budget: Not set',
+              style: TextStyle(
+                color: _budgetExceeded ? Colors.red[700] : Colors.green[700],
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(padding),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -397,65 +446,35 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Purchaser Dashboard',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Record purchases and manage company budget',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.grey[600],
-                  ),
-                ),
+                titleSection,
+                const SizedBox(height: 12),
+                const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
+                const SizedBox(height: 12),
+                budgetChip,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: titleSection),
+                const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
+                const SizedBox(width: 12),
+                budgetChip,
               ],
             ),
-          ),
-          const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green[200]!),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.shopping_cart, color: Colors.green[700], size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  _budgetSet
-                      ? 'Budget: ₦${NumberFormat('#,##0.00').format(_monthlyBudgetKobo / 100)}'
-                      : 'Budget: Not set',
-                  style: TextStyle(
-                    color: _budgetExceeded ? Colors.red[700] : Colors.green[700],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
   Widget _buildPurchaseForm() {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final formPadding = isMobile ? 16.0 : 24.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(formPadding),
       child: Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(formPadding),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -478,65 +497,115 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
               ),
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _itemNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Item Name *',
-                      border: OutlineInputBorder(),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 600) {
+                  return Column(
+                    children: [
+                      TextField(
+                        controller: _itemNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Item Name *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _categoryController,
+                        decoration: const InputDecoration(
+                          labelText: 'Category',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _itemNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Item Name *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextField(
-                    controller: _categoryController,
-                    decoration: const InputDecoration(
-                      labelText: 'Category',
-                      border: OutlineInputBorder(),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _categoryController,
+                        decoration: const InputDecoration(
+                          labelText: 'Category',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedSupplierId,
-                    decoration: const InputDecoration(
-                      labelText: 'Preferred Supplier',
-                      border: OutlineInputBorder(),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 600) {
+                  return Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: _selectedSupplierId,
+                        decoration: const InputDecoration(
+                          labelText: 'Preferred Supplier',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _suppliers.map((supplier) {
+                          return DropdownMenuItem(
+                            value: supplier['id']?.toString(),
+                            child: Text(supplier['name']?.toString() ?? 'Unknown'),
+                          );
+                        }).toList(),
+                        onChanged: (v) => setState(() => _selectedSupplierId = v),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _supplierController,
+                        decoration: const InputDecoration(
+                          labelText: 'Or enter supplier name',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedSupplierId,
+                        decoration: const InputDecoration(
+                          labelText: 'Preferred Supplier',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _suppliers.map((supplier) {
+                          final id = supplier['id']?.toString();
+                          final name = supplier['name']?.toString() ?? 'Unknown';
+                          return DropdownMenuItem(value: id, child: Text(name));
+                        }).toList(),
+                        onChanged: (value) => setState(() => _selectedSupplierId = value),
+                      ),
                     ),
-                    items: _suppliers.map((supplier) {
-                      final id = supplier['id']?.toString();
-                      final name = supplier['name']?.toString() ?? 'Unknown';
-                      return DropdownMenuItem(
-                        value: id,
-                        child: Text(name),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedSupplierId = value;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextField(
-                    controller: _supplierController,
-                    decoration: const InputDecoration(
-                      labelText: 'Supplier (type to add)',
-                      border: OutlineInputBorder(),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _supplierController,
+                        decoration: const InputDecoration(
+                          labelText: 'Supplier (type to add)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
             Row(
@@ -606,6 +675,9 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       return const Center(child: CircularProgressIndicator());
     }
 
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final padding = isMobile ? 16.0 : 24.0;
+
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final canManageBudget = user?.roles.any((r) =>
@@ -618,11 +690,11 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         : (_spentKobo / _monthlyBudgetKobo) * 100;
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(padding),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(padding),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
@@ -801,8 +873,11 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       return const Center(child: CircularProgressIndicator());
     }
 
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final padding = isMobile ? 16.0 : 24.0;
+
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(padding),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -818,14 +893,16 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(isMobile ? 16.0 : 20.0),
               child: Row(
                 children: [
-                  Text(
-                    'Purchase History',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
+                  Flexible(
+                    child: Text(
+                      'Purchase History',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                      ),
                     ),
                   ),
                   const Spacer(),

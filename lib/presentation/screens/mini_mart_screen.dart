@@ -54,6 +54,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   
   // Search
   final _searchController = TextEditingController();
+  final ScrollController _currentSaleScrollController = ScrollController();
   List<Map<String, dynamic>> _filteredItems = [];
   Timer? _filterDebounce;
 
@@ -84,6 +85,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _filterDebounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _currentSaleScrollController.dispose();
     _tabController?.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
@@ -141,6 +143,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   }
 
   void _addItemToSale(Map<String, dynamic> item) {
+    var addedNewItem = false;
     final existingIndex = _currentSale.indexWhere((saleItem) => saleItem['id'] == item['id']);
     
     setState(() {
@@ -151,9 +154,11 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           ...item,
           'quantity': 1,
         });
+        addedNewItem = true;
       }
       _calculateTotal();
     });
+    if (addedNewItem) _scrollCurrentSaleToEnd();
   }
 
   void _removeItemFromSale(int index) {
@@ -172,6 +177,19 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         _calculateTotal();
       });
     }
+  }
+
+  void _scrollCurrentSaleToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_currentSaleScrollController.hasClients) {
+        final pos = _currentSaleScrollController.position;
+        _currentSaleScrollController.animateTo(
+          pos.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   void _calculateTotal() {
@@ -777,7 +795,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       builder: (context, authService, child) {
         final user = authService.currentUser;
         final isReceptionist = (user?.roles.any((r) => r.name == 'receptionist') ?? false) ||
-            (authService.isRoleAssumed && authService.assumedRole?.name == 'receptionist');
+            authService.hasAssumedRole(AppRole.receptionist);
 
         // Update tab controller if needed
         final tabCount = isReceptionist ? 3 : 2;
@@ -796,7 +814,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Mini Mart'),
+            title: const Text('Mini Mart', overflow: TextOverflow.ellipsis, maxLines: 1),
             backgroundColor: Colors.green[700],
             foregroundColor: Colors.white,
             leading: Navigator.of(context).canPop() ? IconButton(
@@ -906,12 +924,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   }
 
   Widget _buildSalesInterface() {
-    return Row(
-      children: [
-        // Items Grid
-        Expanded(
-          flex: 2,
-          child: Container(
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final gridSection = Expanded(
+      flex: 2,
+      child: Container(
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -942,15 +958,20 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : GridView.builder(
-                          padding: const EdgeInsets.all(16),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 4,
-                            childAspectRatio: 0.75,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                          ),
-                          itemCount: _filteredItems.length,
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final width = MediaQuery.sizeOf(context).width;
+                            final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
+                            final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
+                            return GridView.builder(
+                              padding: const EdgeInsets.all(16),
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                childAspectRatio: childAspectRatio,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                              ),
+                              itemCount: _filteredItems.length,
                           itemBuilder: (context, index) {
                             final item = _filteredItems[index];
                             final stock = item['stock_quantity'] as int? ?? 0; // Schema uses 'stock_quantity' not 'current_stock'
@@ -961,7 +982,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                               child: InkWell(
                                 onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
                                 child: Container(
-                                  padding: const EdgeInsets.all(6),
+                                  padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
                                     color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
                                     border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
@@ -969,18 +990,20 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                   ),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Expanded(
+                                      SizedBox(
+                                        height: 28,
+                                        width: double.infinity,
                                         child: Container(
-                                          width: double.infinity,
                                           decoration: BoxDecoration(
                                             color: Colors.grey[200],
                                             borderRadius: BorderRadius.circular(4),
                                           ),
-                                          child: const Icon(Icons.inventory, size: 26),
+                                          child: const Icon(Icons.inventory, size: 18),
                                         ),
                                       ),
-                                      const SizedBox(height: 6),
+                                      const SizedBox(height: 3),
                                       Text(
                                         item['name']?.toString() ?? 'Unknown',
                                         style: const TextStyle(
@@ -990,7 +1013,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 3),
+                                      const SizedBox(height: 2),
                                       Text(
                                         '₦${NumberFormat('#,##0.00').format(item['price'])}',
                                         style: TextStyle(
@@ -999,7 +1022,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                           fontSize: 10,
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
+                                      const SizedBox(height: 1),
                                       Text(
                                         'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                                         style: TextStyle(
@@ -1014,42 +1037,43 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                               ),
                             );
                           },
+                        );
+                          },
                         ),
                 ),
               ],
             ),
           ),
-        ),
-        // Sale Cart
-        Expanded(
-          flex: 1,
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+        );
+    final saleSection = Expanded(
+      flex: 1,
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
             ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.green[50],
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.shopping_cart, color: Colors.green),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.shopping_cart, color: Colors.green),
                       const SizedBox(width: 8),
                       const Text(
                         'Current Sale',
@@ -1079,6 +1103,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           ),
                         )
                       : ListView.builder(
+                          controller: _currentSaleScrollController,
                           itemCount: _currentSale.length,
                           itemBuilder: (context, index) {
                             final item = _currentSale[index];
@@ -1237,9 +1262,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               ],
             ),
           ),
-        ),
-      ],
     );
+    return isMobile
+        ? Column(children: [gridSection, saleSection])
+        : Row(children: [gridSection, saleSection]);
   }
 
   Widget _buildSalesHistory() {

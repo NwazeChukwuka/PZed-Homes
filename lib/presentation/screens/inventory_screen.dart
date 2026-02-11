@@ -34,6 +34,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   bool _transactionsLoadingMore = false;
   int _transactionsOffset = 0;
   final ScrollController _transactionsScrollController = ScrollController();
+  final ScrollController _currentSaleScrollController = ScrollController();
   
   // Controllers for add item dialog
   final _nameController = TextEditingController();
@@ -105,6 +106,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   void dispose() {
     _transactionsScrollController.removeListener(_onTransactionsScroll);
     _transactionsScrollController.dispose();
+    _currentSaleScrollController.dispose();
     _tabController.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
@@ -140,16 +142,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   bool _hasBartenderRole(AuthService authService, AppUser? user) {
     return (user?.roles.any(_isBartenderRole) ?? false) ||
-        (authService.isRoleAssumed &&
-            authService.assumedRole != null &&
-            _isBartenderRole(authService.assumedRole!));
+        authService.activeAssumedRoles.any(_isBartenderRole);
   }
 
   String? _bartenderDepartment(AuthService authService, AppUser? user) {
-    if (authService.isRoleAssumed && authService.assumedRole != null) {
-      final assumed = authService.assumedRole!;
-      if (assumed == AppRole.vip_bartender) return 'vip_bar';
-      if (assumed == AppRole.outside_bartender) return 'outside_bar';
+    for (final r in authService.activeAssumedRoles) {
+      if (r == AppRole.vip_bartender) return 'vip_bar';
+      if (r == AppRole.outside_bartender) return 'outside_bar';
     }
 
     if (user != null) {
@@ -170,8 +169,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       'data': {
         'userId': user?.id,
         'userRoles': user?.roles.map((r) => r.name).toList(),
-        'isRoleAssumed': authService.isRoleAssumed,
-        'assumedRole': authService.assumedRole?.name
+        'activeAssumedRoles': authService.activeAssumedRoles.map((r) => r.name).toList()
       },
       'timestamp': DateTime.now().millisecondsSinceEpoch,
       'sessionId': 'debug-session',
@@ -296,7 +294,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Inventory Management'),
+            title: const Text('Inventory Management', overflow: TextOverflow.ellipsis, maxLines: 1),
             backgroundColor: Colors.green[700],
             foregroundColor: Colors.white,
             leading: Navigator.of(context).canPop() ? IconButton(
@@ -575,15 +573,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildMakeSaleTab() {
-    return Row(
-      children: [
-        // Items grid
-        Expanded(
-          flex: 2,
-          child: Column(
-            children: [
-              // Search bar
-              Padding(
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final gridSection = Expanded(
+      flex: 2,
+      child: Column(
+        children: [
+          // Search bar
+          Padding(
                 padding: const EdgeInsets.all(16),
                 child: TextField(
                   controller: _searchController,
@@ -672,14 +668,17 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     }
 
                     final filteredItems = _filterItemsForSales(items);
+                    final width = MediaQuery.sizeOf(context).width;
+                    final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
+                    final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
 
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
-                        childAspectRatio: 0.65,
+                        childAspectRatio: childAspectRatio,
                       ),
                       itemCount: filteredItems.length,
                       itemBuilder: (context, index) {
@@ -692,14 +691,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
             ],
           ),
-        ),
-        // Current sale section
-        Expanded(
-          flex: 1,
-          child: _buildCurrentSaleSection(),
-        ),
-      ],
     );
+    final saleSection = Expanded(
+      flex: 1,
+      child: _buildCurrentSaleSection(),
+    );
+    return isMobile
+        ? Column(children: [gridSection, saleSection])
+        : Row(children: [gridSection, saleSection]);
   }
 
   Widget _buildBarSelectionForSales() {
@@ -708,9 +707,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isManagement = user?.roles.any((role) => 
         role.toString().contains('owner') || 
         role.toString().contains('manager')) ?? false;
-    final isBartenderAssumed = authService.isRoleAssumed &&
-        authService.assumedRole != null &&
-        _isBartenderRole(authService.assumedRole!);
+    final isBartenderAssumed = authService.activeAssumedRoles.any(_isBartenderRole);
 
     // Only show bar selection dropdown for management when they've assumed a bartender role
     // Actual bartenders (VIP/Outside) don't need this - they're already restricted to their bar
@@ -760,9 +757,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }).toList();
 
     // Filter by bar/department
-    if (authService.isRoleAssumed &&
-        authService.assumedRole != null &&
-        _isBartenderRole(authService.assumedRole!)) {
+    if (authService.activeAssumedRoles.any(_isBartenderRole)) {
       // Management assuming bartender role (explicit bar selection)
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
@@ -791,7 +786,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       child: InkWell(
         onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
         child: Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
             border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
@@ -799,18 +794,20 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
+              SizedBox(
+                height: 28,
+                width: double.infinity,
                 child: Container(
-                  width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Icon(Icons.inventory, size: 26),
+                  child: const Icon(Icons.inventory, size: 18),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 3),
               Text(
                 item['name']?.toString() ?? 'Unknown',
                 style: const TextStyle(
@@ -820,7 +817,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 2),
               Text(
                 '₦${NumberFormat('#,##0.00').format(price)}',
                 style: TextStyle(
@@ -829,7 +826,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   fontSize: 10,
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 1),
               Text(
                 'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
                 style: TextStyle(
@@ -850,9 +847,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final user = authService.currentUser;
     final userDepartment = _bartenderDepartment(authService, user);
 
-    if (authService.isRoleAssumed &&
-        authService.assumedRole != null &&
-        _isBartenderRole(authService.assumedRole!)) {
+    if (authService.activeAssumedRoles.any(_isBartenderRole)) {
       // Management assuming bartender role
       if (_selectedBarForSales == 'vip_bar') {
         return PaymentService.koboToNaira(
@@ -962,6 +957,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ),
                   )
                 : ListView.builder(
+                    controller: _currentSaleScrollController,
                     itemCount: _currentSale.length,
                     itemBuilder: (context, index) {
                       final saleItem = _currentSale[index];
@@ -1129,7 +1125,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   void _addItemToSale(Map<String, dynamic> item) {
-                setState(() {
+    var addedNewItem = false;
+    setState(() {
       final existingIndex = _currentSale.indexWhere((saleItem) => 
           saleItem['item']['id'] == item['id']);
       
@@ -1141,9 +1138,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           'quantity': 1,
           'price': _getItemPrice(item),
         });
+        addedNewItem = true;
       }
       _calculateTotal();
     });
+    if (addedNewItem) _scrollCurrentSaleToEnd();
   }
 
   void _removeItemFromSale(String itemId) {
@@ -1165,6 +1164,19 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       if (index != -1) {
         _currentSale[index]['quantity'] = newQuantity;
         _calculateTotal();
+      }
+    });
+  }
+
+  void _scrollCurrentSaleToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_currentSaleScrollController.hasClients) {
+        final pos = _currentSaleScrollController.position;
+        _currentSaleScrollController.animateTo(
+          pos.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }

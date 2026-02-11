@@ -105,6 +105,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
 
+  // Memoized activities: recompute only when source data or search changes
+  List<Map<String, dynamic>>? _cachedFilteredActivities;
+  String _activitiesSearchQuery = '';
+  Timer? _activitiesSearchDebounce;
+  static const _activitiesSearchDebounceMs = 300;
+
+  // Cached chart data: recompute only when _bookings changes
+  List<BarChartGroupData>? _cachedBarGroups;
+  List<String>? _cachedChartRoomTypes;
+
   void _onActivitiesScroll() {
     if (!_activitiesScrollController.hasClients) return;
     if (_activitiesScrollController.position.pixels >=
@@ -122,7 +132,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _activitiesScrollController.addListener(_onActivitiesScroll);
     _loadData();
-    _activitiesSearchController.addListener(_filterActivities);
+    _activitiesSearchController.addListener(_filterActivitiesDebounced);
     _setupRealtimeSubscriptions();
     // Set default focus by role and sync clock-in status
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -133,7 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isClockedIn = auth.isClockedIn;
         });
       }
-      final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+      final role = auth.userRole;
       if (role == AppRole.owner || role == AppRole.accountant) {
         setState(() { _focus = 'financial'; });
       } else {
@@ -258,6 +268,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _stats = {
             'checked_in_count': checkedInGuests.length,
           };
+          _cachedFilteredActivities = null;
+          _cachedBarGroups = null;
+          _cachedChartRoomTypes = null;
         });
       }
     } catch (e, stack) {
@@ -374,7 +387,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _realtimeDebounceTimer = null;
     _activitiesScrollController.removeListener(_onActivitiesScroll);
     _activitiesScrollController.dispose();
-    _activitiesSearchController.removeListener(_filterActivities);
+    _activitiesSearchController.removeListener(_filterActivitiesDebounced);
+    _activitiesSearchDebounce?.cancel();
+    _activitiesSearchDebounce = null;
     _activitiesSearchController.dispose();
     _searchController.dispose();
     if (_realtimeChannel != null) {
@@ -698,6 +713,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _bookings = bookings;
           _checkedInGuests = checkedInGuests;
+          _cachedFilteredActivities = null;
+          _cachedBarGroups = null;
+          _cachedChartRoomTypes = null;
           _pendingDirectSupplies = pendingSupplies;
           _isLoading = false;
           _isLoadingAttendance = false;
@@ -835,10 +853,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _filterActivities() {
-    setState(() {
-      // Trigger rebuild to apply search filter
+  void _filterActivitiesDebounced() {
+    _activitiesSearchDebounce?.cancel();
+    _activitiesSearchDebounce = Timer(const Duration(milliseconds: _activitiesSearchDebounceMs), () {
+      if (!mounted) return;
+      setState(() {
+        _activitiesSearchQuery = _activitiesSearchController.text.trim();
+        _cachedFilteredActivities = null;
+      });
     });
+  }
+
+  List<Map<String, dynamic>> _getFilteredActivities() {
+    if (_cachedFilteredActivities != null) return _cachedFilteredActivities!;
+    final sorted = List<Map<String, dynamic>>.from(_checkedInGuests)
+      ..sort((a, b) {
+        final aTime = a['check_in_date'] != null ? DateTime.tryParse(a['check_in_date'].toString()) : null;
+        final bTime = b['check_in_date'] != null ? DateTime.tryParse(b['check_in_date'].toString()) : null;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+    final query = _activitiesSearchQuery.toLowerCase();
+    final filtered = query.isEmpty
+        ? sorted
+        : sorted.where((guest) {
+            final roomNumber = (guest['rooms']?['room_number'] as String? ?? guest['room_number'] as String? ?? '').toLowerCase();
+            String guestName = '';
+            if (guest['profiles'] != null) {
+              if (guest['profiles'] is Map) {
+                guestName = (guest['profiles']['full_name'] as String? ?? guest['profiles']['guest_profile_id']?['full_name'] as String? ?? '').toLowerCase();
+              }
+            } else {
+              guestName = (guest['guest_name'] as String? ?? '').toLowerCase();
+            }
+            return guestName.contains(query) || roomNumber.contains(query);
+          }).toList();
+    _cachedFilteredActivities = filtered;
+    return filtered;
   }
 
 
@@ -931,12 +984,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onRefresh: _loadData,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  if (constraints.maxWidth > 1200) {
-                    return _buildDesktopLayout(context);
-                  } else if (constraints.maxWidth > 800) {
-                    return _buildTabletLayout(context);
+                  final screenWidth = constraints.maxWidth;
+                  final isMobile = screenWidth < 600;
+                  if (screenWidth > 1200) {
+                    return _buildDesktopLayout(context, screenWidth, isMobile);
+                  } else if (screenWidth > 800) {
+                    return _buildTabletLayout(context, screenWidth, isMobile);
                   } else {
-                    return _buildMobileLayout(context);
+                    return _buildMobileLayout(context, screenWidth, isMobile);
                   }
                 },
               ),
@@ -944,82 +999,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildDesktopLayout(BuildContext context) {
+  Widget _buildDesktopLayout(BuildContext context, double screenWidth, bool isMobile) {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(24),
       child: AppAnimations.staggeredList(
         scrollable: false,
         children: [
-          _buildHeader(context),
+          _buildHeader(context, isMobile),
           const SizedBox(height: 12),
-          _buildQuickNav(context),
+          _buildQuickNav(context, isMobile),
           const SizedBox(height: 12),
-          _buildTimeRangeToolbar(context),
+          _buildTimeRangeToolbar(context, isMobile),
           const SizedBox(height: 24),
-          _buildAllCards(context),
+          _buildAllCards(context, screenWidth, isMobile),
           const SizedBox(height: 24),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 24),
-          _buildCalendarLauncher(context),
+          _buildCalendarLauncher(context, isMobile),
           const SizedBox(height: 24),
-          _buildRecentActivities(context),
+          _buildRecentActivities(context, isMobile: isMobile, screenWidth: screenWidth),
         ],
       ),
     );
   }
 
-  Widget _buildTabletLayout(BuildContext context) {
+  Widget _buildTabletLayout(BuildContext context, double screenWidth, bool isMobile) {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(context),
+          _buildHeader(context, isMobile),
           const SizedBox(height: 12),
-          _buildQuickNav(context),
+          _buildQuickNav(context, isMobile),
           const SizedBox(height: 16),
-          _buildTimeRangeToolbar(context),
+          _buildTimeRangeToolbar(context, isMobile),
           const SizedBox(height: 16),
-          _buildAllCards(context),
+          _buildAllCards(context, screenWidth, isMobile),
           const SizedBox(height: 16),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 16),
-          _buildCalendarLauncher(context),
+          _buildCalendarLauncher(context, isMobile),
           const SizedBox(height: 16),
-          _buildRecentActivities(context),
+          _buildRecentActivities(context, isMobile: isMobile, screenWidth: screenWidth),
         ],
       ),
     );
   }
 
-  Widget _buildMobileLayout(BuildContext context) {
+  Widget _buildMobileLayout(BuildContext context, double screenWidth, bool isMobile) {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeader(context),
-          const SizedBox(height: 12),
-          _buildQuickNav(context),
+          _buildHeader(context, isMobile),
           const SizedBox(height: 16),
-          _buildTimeRangeToolbar(context),
+          _buildQuickNav(context, isMobile),
           const SizedBox(height: 16),
-          _buildAllCards(context),
+          _buildTimeRangeToolbar(context, isMobile),
+          const SizedBox(height: 16),
+          _buildAllCards(context, screenWidth, isMobile),
           const SizedBox(height: 16),
           _buildCheckedInGuestsCard(context),
           const SizedBox(height: 16),
-          _buildCalendarLauncher(context),
+          _buildCalendarLauncher(context, isMobile),
           const SizedBox(height: 16),
-          _buildRecentActivities(context),
+          _buildRecentActivities(context, isMobile: isMobile, screenWidth: screenWidth),
         ],
       ),
     );
   }
 
-  Widget _buildCalendarLauncher(BuildContext context) {
+  Widget _buildCalendarLauncher(BuildContext context, bool isMobile) {
+    final titleWidget = Text(
+      'Booking Calendar',
+      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+    final viewCalendarBtn = ElevatedButton.icon(
+      onPressed: _showCalendarDialog,
+      icon: const Icon(Icons.calendar_today),
+      label: const Text('View Calendar'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.green[800],
+        foregroundColor: Colors.white,
+      ),
+    );
+    final bookingCalendarBtn = ElevatedButton.icon(
+      onPressed: _showFrontDeskCalendarDialog,
+      icon: const Icon(Icons.view_timeline),
+      label: const Text('Booking Calendar'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.green[800],
+        foregroundColor: Colors.white,
+      ),
+    );
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1033,38 +1114,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Booking Calendar',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                  ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: titleWidget),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: viewCalendarBtn,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: bookingCalendarBtn,
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: titleWidget),
+                viewCalendarBtn,
+                const SizedBox(width: 8),
+                bookingCalendarBtn,
+              ],
             ),
-          ),
-          ElevatedButton.icon(
-            onPressed: _showCalendarDialog,
-            icon: const Icon(Icons.calendar_today),
-            label: const Text('View Calendar'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green[800],
-              foregroundColor: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: _showFrontDeskCalendarDialog,
-            icon: const Icon(Icons.view_timeline),
-            label: const Text('Booking Calendar'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green[800],
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1360,34 +1438,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
  
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, bool isMobile) {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+    final role = auth.userRole;
     final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
 
-    return Row(
+    final welcomeSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Dashboard',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.green[800],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Welcome back! Here\'s what\'s happening at P-ZED Luxury Hotels & Suites.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Colors.grey[700],
+          ),
+        ),
+      ],
+    );
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                'Dashboard',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green[800], // Green for headers on light background
-                ),
-              ),
-              const SizedBox(height: 8),
-                          Text(
-                'Welcome back! Here\'s what\'s happening at P-ZED Luxury Hotels & Suites.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.grey[700], // Darker grey for better readability
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+          welcomeSection,
+          const SizedBox(height: 16),
+          if (isManagement) _buildFocusToggle(),
+          if (!isManagement) _buildAttendanceCard(),
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: welcomeSection),
         if (isManagement) _buildFocusToggle(),
         if (!isManagement) ...[
           const SizedBox(width: 12),
@@ -1426,22 +1517,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Helper function to determine crossAxisCount based on screen width
-  int _getCrossAxisCount(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    if (width < 600) {
-      return 2; // Mobile: 2 cards per row
-    } else if (width < 1200) {
-      return 3; // Tablet: 3 cards per row
-    } else {
-      return 4; // Desktop: 4 cards per row
-    }
+  int _getCrossAxisCount(double screenWidth) {
+    if (screenWidth < 600) return 2;
+    if (screenWidth < 1200) return 3;
+    return 4;
   }
 
-  // Unified method to build all cards in specified order
-  Widget _buildAllCards(BuildContext context) {
-    final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.sizeOf(context).width;
+  Widget _buildAllCards(BuildContext context, double screenWidth, bool isMobile) {
+    final crossAxisCount = _getCrossAxisCount(screenWidth);
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
@@ -1868,9 +1951,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildDepartmentSalesQuickCards(BuildContext context) {
-    final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.sizeOf(context).width;
+  Widget _buildDepartmentSalesQuickCards(BuildContext context, double screenWidth) {
+    final crossAxisCount = _getCrossAxisCount(screenWidth);
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
@@ -2152,89 +2234,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<BarChartGroupData> _generateBarGroups() {
-    // Use real occupancy data from bookings
-    // Count occupied rooms by type
+    if (_cachedBarGroups != null) return _cachedBarGroups!;
     final roomTypeCounts = <String, int>{};
     int totalOccupied = 0;
-    
     for (var booking in _bookings) {
       if (_normalizeBookingStatus(booking['status']?.toString()) == 'checked-in' &&
           booking['room_id'] != null) {
         totalOccupied++;
-        final roomType = booking['rooms']?['type'] as String? ?? 
-                        booking['requested_room_type'] as String? ?? 
-                        'Unknown';
+        final roomType = booking['rooms']?['type'] as String? ?? booking['requested_room_type'] as String? ?? 'Unknown';
         roomTypeCounts[roomType] = (roomTypeCounts[roomType] ?? 0) + 1;
       }
     }
-    
-    // If no occupied rooms, return empty chart
     if (roomTypeCounts.isEmpty || totalOccupied == 0) {
-      return List.generate(5, (index) {
-        return BarChartGroupData(
-          x: index + 1,
-          barRods: [
-            BarChartRodData(
-              toY: 0,
-              color: Colors.grey[300]!,
-              width: 20,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(4),
-                topRight: Radius.circular(4),
-              ),
-            ),
-          ],
-        );
-      });
-    }
-    
-    // Convert to chart data (limit to 5 room types, sorted by count)
-    final sortedTypes = roomTypeCounts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    
-    final chartData = sortedTypes.take(5).toList();
-    
-    return chartData.asMap().entries.map((entry) {
-      final index = entry.key;
-      final typeEntry = entry.value;
-      final count = typeEntry.value;
-      final percentage = (count / totalOccupied * 100).clamp(0.0, 100.0);
-      
-      return BarChartGroupData(
+      _cachedBarGroups = List.generate(5, (index) => BarChartGroupData(
         x: index + 1,
-        barRods: [
-          BarChartRodData(
-            toY: percentage,
-            color: Colors.green[400],
-            width: 20,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(4),
-              topRight: Radius.circular(4),
-            ),
-          ),
-        ],
+        barRods: [BarChartRodData(
+          toY: 0,
+          color: Colors.grey[300]!,
+          width: 20,
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
+        )],
+      ));
+      return _cachedBarGroups!;
+    }
+    final sortedTypes = roomTypeCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final chartData = sortedTypes.take(5).toList();
+    _cachedBarGroups = chartData.asMap().entries.map((entry) {
+      final count = entry.value.value;
+      final percentage = (count / totalOccupied * 100).clamp(0.0, 100.0);
+      return BarChartGroupData(
+        x: entry.key + 1,
+        barRods: [BarChartRodData(
+          toY: percentage,
+          color: Colors.green[400]!,
+          width: 20,
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
+        )],
       );
     }).toList();
+    return _cachedBarGroups!;
   }
-  
-  // Helper to get room type names for chart labels
+
   List<String> _getRoomTypesForChart() {
+    if (_cachedChartRoomTypes != null) return _cachedChartRoomTypes!;
     final roomTypeCounts = <String, int>{};
-    
     for (var booking in _bookings) {
-      if (_normalizeBookingStatus(booking['status']?.toString()) == 'checked-in' &&
-          booking['room_id'] != null) {
-        final roomType = booking['rooms']?['type'] as String? ?? 
-                        booking['requested_room_type'] as String? ?? 
-                        'Unknown';
+      if (_normalizeBookingStatus(booking['status']?.toString()) == 'checked-in' && booking['room_id'] != null) {
+        final roomType = booking['rooms']?['type'] as String? ?? booking['requested_room_type'] as String? ?? 'Unknown';
         roomTypeCounts[roomType] = (roomTypeCounts[roomType] ?? 0) + 1;
       }
     }
-    
-    final sortedTypes = roomTypeCounts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    
-    return sortedTypes.take(5).map((e) => e.key).toList();
+    final sortedTypes = roomTypeCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    _cachedChartRoomTypes = sortedTypes.take(5).map((e) => e.key).toList();
+    return _cachedChartRoomTypes!;
   }
   
   // Helper to format time ago
@@ -2253,43 +2305,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Widget _buildRecentActivities(BuildContext context) {
-    // Sort by check-in date (most recent first)
-    final sortedActivities = List<Map<String, dynamic>>.from(_checkedInGuests)
-      ..sort((a, b) {
-        final aTime = a['check_in_date'] != null ? DateTime.tryParse(a['check_in_date'].toString()) : null;
-        final bTime = b['check_in_date'] != null ? DateTime.tryParse(b['check_in_date'].toString()) : null;
-        if (aTime == null && bTime == null) return 0;
-        if (aTime == null) return 1;
-        if (bTime == null) return -1;
-        return bTime.compareTo(aTime); // Most recent first
-      });
-    
-    // Filter activities based on search query
-    final searchQuery = _activitiesSearchController.text.toLowerCase();
-    final filteredActivities = searchQuery.isEmpty
-        ? sortedActivities
-        : sortedActivities.where((guest) {
-            // Extract room number
-            final roomNumber = (guest['rooms']?['room_number'] as String? ?? 
-                               guest['room_number'] as String? ?? 
-                               '').toLowerCase();
-            
-            // Extract guest name
-            String guestName = '';
-            if (guest['profiles'] != null) {
-              if (guest['profiles'] is Map) {
-                guestName = (guest['profiles']['full_name'] as String? ?? 
-                           guest['profiles']['guest_profile_id']?['full_name'] as String? ??
-                           '').toLowerCase();
-              }
-            } else {
-              guestName = (guest['guest_name'] as String? ?? '').toLowerCase();
-            }
-            
-            return guestName.contains(searchQuery) || roomNumber.contains(searchQuery);
-          }).toList();
-    
+  Widget _buildRecentActivities(BuildContext context, {required bool isMobile, required double screenWidth}) {
+    final filteredActivities = _getFilteredActivities();
     final displayedActivities = filteredActivities.take(_activitiesDisplayCount).toList();
     
     return Container(
@@ -2319,10 +2336,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const Spacer(),
               SizedBox(
-                width: MediaQuery.sizeOf(context).width < 600 ? 200 : 300,
+                width: isMobile ? 200 : 300,
                 child: TextField(
                   controller: _activitiesSearchController,
-                  onChanged: (_) => setState(() {}), // Refresh on search
                   decoration: InputDecoration(
                     hintText: 'Search by guest name or room...',
                     prefixIcon: const Icon(Icons.search),
@@ -2484,7 +2500,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // Toolbar to select time range filters
-  Widget _buildTimeRangeToolbar(BuildContext context) {
+  Widget _buildTimeRangeToolbar(BuildContext context, bool isMobile) {
+    final chipSpacing = isMobile ? 4.0 : 8.0;
+    final chipPadding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : null;
+    final labelStyle = isMobile ? const TextStyle(fontSize: 11) : null;
+
     String labelFor(TimeRange r) {
       switch (r) {
         case TimeRange.today:
@@ -2498,74 +2518,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    return Row(
-      children: [
-        Wrap(
-          spacing: 8,
-          children: TimeRange.values.map((r) {
-            final selected = _timeRange == r;
-            return ChoiceChip(
-              label: Text(labelFor(r)),
-              selected: selected,
-              onSelected: (_) async {
-                if (r == TimeRange.custom) {
-                  final now = DateTime.now();
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(now.year - 2),
-                    lastDate: DateTime(now.year + 2),
-                  );
-                  if (picked != null) {
-                    // Consolidate state updates to prevent flickering
-                    setState(() {
-                      _timeRange = r;
-                      _customRange = picked;
-                      _isLoading = true; // Set loading state immediately
-                    });
-                    _loadData(); // Reload data when time range changes
-                  }
-                } else {
-                  // Consolidate state updates to prevent flickering
-                  setState(() {
-                    _timeRange = r;
-                    _customRange = null;
-                    _isLoading = true; // Set loading state immediately
-                  });
-                  _loadData(); // Reload data when time range changes
-                }
-              },
-              selectedColor: Colors.green[700],
-            );
-          }).toList(),
-        ),
-      ],
+    return Wrap(
+      spacing: chipSpacing,
+      runSpacing: chipSpacing,
+      children: TimeRange.values.map((r) {
+        final selected = _timeRange == r;
+        return ChoiceChip(
+          label: Text(labelFor(r), style: labelStyle),
+          padding: chipPadding,
+          selected: selected,
+          onSelected: (_) async {
+            if (r == TimeRange.custom) {
+              final now = DateTime.now();
+              final picked = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(now.year - 2),
+                lastDate: DateTime(now.year + 2),
+              );
+              if (picked != null) {
+                setState(() {
+                  _timeRange = r;
+                  _customRange = picked;
+                  _isLoading = true;
+                });
+                _loadData();
+              }
+            } else {
+              setState(() {
+                _timeRange = r;
+                _customRange = null;
+                _isLoading = true;
+              });
+              _loadData();
+            }
+          },
+          selectedColor: Colors.green[700],
+        );
+      }).toList(),
     );
   }
 
   // Role-specific metrics section
-  Widget _buildRoleSpecificSection(BuildContext context) {
+  Widget _buildRoleSpecificSection(BuildContext context, double screenWidth) {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final effectiveRole = auth.isRoleAssumed ? auth.assumedRole ?? auth.userRole : auth.userRole;
+    final effectiveRole = auth.userRole;
 
     switch (effectiveRole) {
       case AppRole.owner:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context);
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
       case AppRole.accountant:
         return _buildManagementAggregate(context);
       case AppRole.manager:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context);
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
       case AppRole.receptionist:
-        return _buildReceptionistPanel(context);
+        return _buildReceptionistPanel(context, screenWidth);
       case AppRole.vip_bartender:
-        return _buildBartenderPanel(context);
+        return _buildBartenderPanel(context, screenWidth);
       case AppRole.outside_bartender:
-        return _buildBartenderPanel(context);
+        return _buildBartenderPanel(context, screenWidth);
       case AppRole.kitchen_staff:
-        return _buildKitchenPanel(context);
+        return _buildKitchenPanel(context, screenWidth);
       case AppRole.storekeeper:
-        return _buildStorekeeperPanel(context);
+        return _buildStorekeeperPanel(context, screenWidth);
       case AppRole.purchaser:
-        return _buildPurchaserPanel(context);
+        return _buildPurchaserPanel(context, screenWidth);
       case AppRole.security:
       case AppRole.laundry_attendant:
       case AppRole.cleaner:
@@ -2577,54 +2593,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // Performance-focused aggregate for management (non-financial emphasis)
-  Widget _buildPerformanceAggregate(BuildContext context) {
-    return _buildReceptionistPanel(context); // reuse a performance-like panel as placeholder
+  Widget _buildPerformanceAggregate(BuildContext context, double screenWidth) {
+    return _buildReceptionistPanel(context, screenWidth); // reuse a performance-like panel as placeholder
   }
 
   // Quick navigation for department and key areas
-  Widget _buildQuickNav(BuildContext context) {
+  Widget _buildQuickNav(BuildContext context, bool isMobile) {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final role = auth.isRoleAssumed ? (auth.assumedRole ?? auth.userRole) : auth.userRole;
+    final role = auth.userRole;
     final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
 
     if (!isManagement) {
       return Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        spacing: isMobile ? 6 : 8,
+        runSpacing: isMobile ? 8 : 8,
         children: [
           _quickButton(context, 'My Department', Icons.domain, () {
             if (role == AppRole.storekeeper) context.go('/storekeeping');
             else if (role == AppRole.purchaser) context.go('/purchasing');
             else if (role == AppRole.kitchen_staff) context.go('/kitchen');
-            else if (role == AppRole.vip_bartender ||
-                role == AppRole.outside_bartender) {
-              context.go('/inventory');
-            }
+            else if (role == AppRole.vip_bartender || role == AppRole.outside_bartender) context.go('/inventory');
             else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
             else context.go('/dashboard');
-          }),
-          _quickButton(context, 'My Profile', Icons.person, () { context.push('/profile'); }),
+          }, isMobile),
+          _quickButton(context, 'My Profile', Icons.person, () { context.push('/profile'); }, isMobile),
         ],
       );
     }
 
+    final managementButtons = <Widget>[
+      if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr)
+        _quickButton(context, 'HR', Icons.people_alt, () { context.go('/hr'); }, isMobile),
+      _quickButton(context, 'Finance', Icons.account_balance, () { context.go('/finance'); }, isMobile),
+      _quickButton(context, 'Reporting', Icons.insights, () { context.go('/reporting'); }, isMobile),
+    ];
+
+    if (isMobile) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < managementButtons.length; i++) ...[
+              if (i > 0) SizedBox(width: isMobile ? 6 : 8),
+              managementButtons[i],
+            ],
+          ],
+        ),
+      );
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: [
-        if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr)
-          _quickButton(context, 'HR', Icons.people_alt, () { context.go('/hr'); }),
-        _quickButton(context, 'Finance', Icons.account_balance, () { context.go('/finance'); }),
-        _quickButton(context, 'Reporting', Icons.insights, () { context.go('/reporting'); }),
-      ],
+      children: managementButtons,
     );
   }
 
-  Widget _quickButton(BuildContext context, String label, IconData icon, VoidCallback onTap) {
+  Widget _quickButton(BuildContext context, String label, IconData icon, VoidCallback onTap, [bool isMobile = false]) {
+    final padding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 8) : const EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+    final iconSpacing = isMobile ? 6.0 : 8.0;
+    final fontSize = isMobile ? 12.0 : null;
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: padding,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -2635,9 +2667,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.green[700]),
-            const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: Colors.grey[800])),
+            Icon(icon, color: Colors.green[700], size: isMobile ? 18 : null),
+            SizedBox(width: iconSpacing),
+            Text(label, style: TextStyle(color: Colors.grey[800], fontSize: fontSize)),
           ],
         ),
       ),
@@ -2976,40 +3008,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return month.startsWith('${r.start.year}-${r.start.month.toString().padLeft(2, '0')}');
     }).length;
 
-    return _inlineCards(context, [
+    return _inlineCards(context, MediaQuery.sizeOf(context).width, [
       ('Cash Deposits', '$depositsInRange', Icons.savings),
       ('Payroll Runs', '$payrollInRange', Icons.payments),
     ]);
   }
 
   // Receptionist personal metrics
-  Widget _buildReceptionistPanel(BuildContext context) {
+  Widget _buildReceptionistPanel(BuildContext context, double screenWidth) {
     // Using bookings as proxy for processed rooms in range
     final processed = _bookings.where((b) {
       final ci = _parseTimestamp(b['check_in'] ?? b['check_in_date']);
       return ci != null && _isInRange(ci);
     }).length;
-    return _inlineCards(context, [
+    return _inlineCards(context, screenWidth, [
       ('Rooms Processed', '$processed', Icons.meeting_room),
     ]);
   }
 
   // Bartender metrics (sales from stock transactions)
-  Widget _buildBartenderPanel(BuildContext context) {
+  Widget _buildBartenderPanel(BuildContext context, double screenWidth) {
     final sales = _stockTransactions.where((t) {
       final ts = _parseTimestamp(t['timestamp']);
       return (t['type'] == 'sale') && ts != null && _isInRange(ts);
     }).toList();
     final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as int).abs()));
     final value = sales.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
-    return _inlineCards(context, [
+    return _inlineCards(context, screenWidth, [
       ('Items Sold', '$qty', Icons.local_bar),
       ('Sales Value', '₦${_formatKobo(value)}', Icons.point_of_sale),
     ]);
   }
 
   // Kitchen metrics
-  Widget _buildKitchenPanel(BuildContext context) {
+  Widget _buildKitchenPanel(BuildContext context, double screenWidth) {
     // Proxy using income records from vip/outside bar as dispatched
     final inRange = _incomeRecords.where((e) {
       final d = _parseTimestamp(e['date']);
@@ -3018,38 +3050,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return d != null && _isInRange(d) && isBar;
     }).toList();
     final total = inRange.fold<num>(0, (s, e) => s + (e['amount'] as num));
-    return _inlineCards(context, [
+    return _inlineCards(context, screenWidth, [
       ('Food Dispatched', '${inRange.length}', Icons.restaurant),
       ('Value', '₦${_formatKobo(total)}', Icons.attach_money),
     ]);
   }
 
   // Storekeeper metrics
-  Widget _buildStorekeeperPanel(BuildContext context) {
+  Widget _buildStorekeeperPanel(BuildContext context, double screenWidth) {
     final movements = _stockTransactions.where((t) {
       final ts = _parseTimestamp(t['timestamp']);
       return ts != null && _isInRange(ts);
     }).length;
-    return _inlineCards(context, [
+    return _inlineCards(context, screenWidth, [
       ('Stock Movements', '$movements', Icons.inventory_2),
     ]);
   }
 
   // Purchaser metrics
-  Widget _buildPurchaserPanel(BuildContext context) {
+  Widget _buildPurchaserPanel(BuildContext context, double screenWidth) {
     final kitchenExpenses = _expenseRecords.where((e) {
       final d = _parseTimestamp(e['date']);
       return d != null && _isInRange(d) && (e['department'] == 'kitchen');
     }).toList();
     final total = kitchenExpenses.fold<num>(0, (s, e) => s + (e['amount'] as num));
-    return _inlineCards(context, [
+    return _inlineCards(context, screenWidth, [
       ('Kitchen Purchases', '₦${_formatKobo(total)}', Icons.shopping_cart),
     ]);
   }
 
-  Widget _inlineCards(BuildContext context, List<(String, String, IconData)> items) {
-    final crossAxisCount = _getCrossAxisCount(context);
-    final screenWidth = MediaQuery.sizeOf(context).width;
+  Widget _inlineCards(BuildContext context, double screenWidth, List<(String, String, IconData)> items) {
+    final crossAxisCount = _getCrossAxisCount(screenWidth);
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;

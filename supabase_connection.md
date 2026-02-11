@@ -1518,20 +1518,21 @@ USING (
   )
 );
 
--- Allow staff who created debt to record payments
+-- Allow staff who created debt to record payments; kitchen debts: vip_bartender, receptionist, or kitchen_staff
 CREATE POLICY "Staff can record payments for own debts" ON public.debt_payments FOR INSERT
 WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.profiles p
+    INNER JOIN public.debts d ON d.id = debt_payments.debt_id
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      EXISTS (
-        SELECT 1 FROM public.debts d
-        WHERE d.id = debt_payments.debt_id
-        AND d.sold_by = auth.uid()
-      )
+      d.sold_by = auth.uid()
       OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+      OR (
+        COALESCE(d.source_department, d.department) = 'restaurant'
+        AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+      )
     )
   )
 );
@@ -1733,7 +1734,25 @@ WITH CHECK (
   )
 );
 
--- Allow staff who created debt to update it
+-- Allow staff to view debts they created or kitchen debts (vip_bartender, receptionist, kitchen_staff can all record kitchen credit)
+CREATE POLICY "Staff can view relevant debts" ON public.debts FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid()
+    AND p.status = 'Active'
+    AND (
+      debts.sold_by = auth.uid()
+      OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+      OR (
+        COALESCE(debts.source_department, debts.department) = 'restaurant'
+        AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+      )
+    )
+  )
+);
+
+-- Allow staff who created debt to update it; kitchen debts: vip_bartender, receptionist, or kitchen_staff (any can record kitchen credit sales)
 CREATE POLICY "Staff can update own debts" ON public.debts FOR UPDATE
 USING (
   EXISTS (
@@ -1741,8 +1760,12 @@ USING (
     WHERE p.id = auth.uid()
     AND p.status = 'Active'
     AND (
-      debts.sold_by = auth.uid() -- Staff who created the debt
-      OR (p.roles && ARRAY['manager', 'owner', 'accountant']) -- Or accountant/manager/owner
+      debts.sold_by = auth.uid()
+      OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+      OR (
+        COALESCE(debts.source_department, debts.department) = 'restaurant'
+        AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+      )
     )
   )
 );

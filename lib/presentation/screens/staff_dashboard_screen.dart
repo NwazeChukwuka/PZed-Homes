@@ -13,6 +13,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/data/models/booking.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -38,14 +39,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   
   // Personal stats
   Map<String, dynamic> _personalStats = {};
+  Map<String, dynamic> _previousPersonalStats = {};
   List<Map<String, dynamic>> _myTransactions = [];
   List<Map<String, dynamic>> _myDebts = [];
   
   // Department stats
   Map<String, dynamic> _departmentStats = {};
+  Map<String, dynamic> _previousDepartmentStats = {};
   List<Map<String, dynamic>> _departmentTransactions = [];
   List<Map<String, dynamic>> _departmentDebts = [];
-  List<Map<String, dynamic>> _departmentStockLevels = [];
+  Set<String> _debtIdsWithPendingClaim = {};
   
   // Receptionist booking data
   List<Map<String, dynamic>> _bookings = [];
@@ -78,9 +81,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final staffId = user?.id ?? 'unknown';
-    final userRole = authService.isRoleAssumed 
-        ? (authService.assumedRole ?? user?.role) 
-        : user?.role;
+    final userRole = user?.role;
     
     // Determine department based on role
     String? department = _getDepartmentFromRole(
@@ -95,7 +96,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       // Load department data if applicable
       if (department != null) {
         await _loadDepartmentData(department);
-        await _loadDepartmentStockLevels(department);
       }
       
       // Load booking data for receptionists
@@ -256,18 +256,15 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
   Future<void> _loadPersonalData(String staffId, String? department) async {
     final range = _getDateRangeForFilter();
+    final prevRange = _getPreviousDateRangeForFilter();
     // Load all transactions
     final allTransactions = await _dataService.getStockTransactions();
     
     // Filter to only this staff member's transactions
-    _myTransactions = allTransactions.where((t) => 
-      t['staff_id'] == staffId
-    ).toList();
+    final myTransactionsRaw = allTransactions.where((t) => t['staff_id'] == staffId).toList();
+    _myTransactions = _filterByTime(myTransactionsRaw);
     
-    // Apply time filter
-    _myTransactions = _filterByTime(_myTransactions);
-    
-    // Calculate personal stats
+    // Calculate current personal stats
     double totalSales = 0;
     int transactionCount = 0;
     double cashSales = 0;
@@ -280,26 +277,17 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         final amount = (transaction['total_amount'] as num?)?.toDouble() ?? 0.0;
         totalSales += amount.abs();
         transactionCount++;
-        
         final paymentMethod = transaction['payment_method']?.toString().toLowerCase();
         switch (paymentMethod) {
-          case 'cash':
-            cashSales += amount.abs();
-            break;
-          case 'card':
-            cardSales += amount.abs();
-            break;
-          case 'transfer':
-            transferSales += amount.abs();
-            break;
-          case 'credit':
-            creditSales += amount.abs();
-            break;
+          case 'cash': cashSales += amount.abs(); break;
+          case 'card': cardSales += amount.abs(); break;
+          case 'transfer': transferSales += amount.abs(); break;
+          case 'credit': creditSales += amount.abs(); break;
         }
       }
     }
     
-    // Load debts created by this staff member
+    // Load debts created by this staff member (current period)
     final soldDebts = await _dataService.getDebts(
       soldBy: staffId,
       startDate: range?.start,
@@ -319,6 +307,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       return true;
     }).toList();
     
+    final pendingDebts = _myDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');
+    final totalDebtAmount = pendingDebts.fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0));
+    
     _personalStats = {
       'total_sales': totalSales,
       'transaction_count': transactionCount,
@@ -326,25 +317,57 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'card_sales': cardSales,
       'transfer_sales': transferSales,
       'credit_sales': creditSales,
-      'pending_debts': _myDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid').length,
-      'total_debt_amount': _myDebts
-          .where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid')
-          .fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0)),
+      'pending_debts': pendingDebts.length,
+      'total_debt_amount': totalDebtAmount,
+    };
+    
+    // Previous period stats for trend
+    double prevTotalSales = 0;
+    int prevTransactionCount = 0;
+    if (prevRange != null) {
+      final prevTxn = _filterTransactionsByRange(myTransactionsRaw, prevRange);
+      for (var t in prevTxn) {
+        if (t['type'] == 'sale') {
+          prevTotalSales += ((t['total_amount'] as num?)?.toDouble() ?? 0).abs();
+          prevTransactionCount++;
+        }
+      }
+    }
+    final prevSoldDebts = prevRange != null
+        ? await _dataService.getDebts(soldBy: staffId, startDate: prevRange.start, endDate: prevRange.end)
+        : <Map<String, dynamic>>[];
+    final prevCreatedDebts = prevRange != null
+        ? await _dataService.getDebts(createdBy: staffId, startDate: prevRange.start, endDate: prevRange.end)
+        : <Map<String, dynamic>>[];
+    final prevMerged = [...prevSoldDebts, ...prevCreatedDebts];
+    final prevUniqueIds = <String>{};
+    final prevDebts = prevMerged.where((d) {
+      final id = d['id']?.toString();
+      if (id == null || prevUniqueIds.contains(id)) return false;
+      prevUniqueIds.add(id);
+      return true;
+    }).toList();
+    final prevPending = prevDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');
+    final prevDebtAmount = prevPending.fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0));
+    
+    _previousPersonalStats = {
+      'total_sales': prevTotalSales,
+      'transaction_count': prevTransactionCount,
+      'pending_debts': prevPending.length,
+      'total_debt_amount': prevDebtAmount,
     };
   }
 
   Future<void> _loadDepartmentData(String department) async {
     final range = _getDateRangeForFilter();
+    final prevRange = _getPreviousDateRangeForFilter();
     // Load all transactions for the department
     final allTransactions = await _dataService.getStockTransactions();
     
-    _departmentTransactions = allTransactions.where((t) => 
-      t['department'] == department || 
-      t['location'] == department
+    final deptTransactionsRaw = allTransactions.where((t) =>
+      t['department'] == department || t['location'] == department,
     ).toList();
-    
-    // Apply time filter
-    _departmentTransactions = _filterByTime(_departmentTransactions);
+    _departmentTransactions = _filterByTime(deptTransactionsRaw);
     
     // Calculate department stats
     double totalSales = 0;
@@ -356,13 +379,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         final amount = (transaction['total_amount'] as num?)?.toDouble() ?? 0.0;
         totalSales += amount.abs();
         transactionCount++;
-        
-        final staffId = transaction['staff_id']?.toString() ?? 'unknown';
-        staffSales[staffId] = (staffSales[staffId] ?? 0) + amount.abs();
+        final sid = transaction['staff_id']?.toString() ?? 'unknown';
+        staffSales[sid] = (staffSales[sid] ?? 0) + amount.abs();
       }
     }
     
-    // Load department debts
+    // Load department debts (current period)
     if (department == 'mini_mart') {
       final miniMartDebts = await _dataService.getDebts(
         department: 'mini_mart',
@@ -383,38 +405,55 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       );
     }
     
+    // Load pending debt payment claims to show clock icon and prevent duplicate recording
+    final pendingClaims = await _dataService.getDebtPaymentClaims(status: 'pending');
+    _debtIdsWithPendingClaim = {
+      for (final c in pendingClaims)
+        if (c['debt_id'] != null) c['debt_id'].toString()
+    };
+    
+    final pendingDeptDebts = _departmentDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');
+    final totalDeptDebt = pendingDeptDebts.fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0));
+    
     _departmentStats = {
       'total_sales': totalSales,
       'transaction_count': transactionCount,
       'staff_sales': staffSales,
-      'pending_debts': _departmentDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid').length,
-      'total_debt_amount': _departmentDebts
-          .where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid')
-          .fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0)),
+      'pending_debts': pendingDeptDebts.length,
+      'total_debt_amount': totalDeptDebt,
     };
-  }
-
-  Future<void> _loadDepartmentStockLevels(String department) async {
-    if (department == 'mini_mart') {
-      final items = await _dataService.getMiniMartItems();
-      _departmentStockLevels = items.map((item) {
-        return {
-          'name': item['name'],
-          'current_stock': item['stock_quantity'] ?? 0,
-          'min_stock': item['min_stock_level'] ?? 0,
-        };
-      }).toList();
-      return;
+    
+    // Previous period stats for trend
+    double prevTotalSales = 0;
+    int prevTransactionCount = 0;
+    if (prevRange != null) {
+      final prevTxn = _filterTransactionsByRange(deptTransactionsRaw, prevRange);
+      for (var t in prevTxn) {
+        if (t['type'] == 'sale') {
+          prevTotalSales += ((t['total_amount'] as num?)?.toDouble() ?? 0).abs();
+          prevTransactionCount++;
+        }
+      }
     }
-
-    final locationName = _getLocationNameForDepartment(department);
-    if (locationName == null) {
-      _departmentStockLevels = [];
-      return;
+    List<Map<String, dynamic>> prevDeptDebts = [];
+    if (prevRange != null) {
+      if (department == 'mini_mart') {
+        final pm = await _dataService.getDebts(department: 'mini_mart', startDate: prevRange.start, endDate: prevRange.end);
+        final rc = await _dataService.getDebts(department: 'reception', startDate: prevRange.start, endDate: prevRange.end);
+        prevDeptDebts = [...pm, ...rc];
+      } else {
+        prevDeptDebts = await _dataService.getDebts(department: department, startDate: prevRange.start, endDate: prevRange.end);
+      }
     }
-
-    final stockLevels = await _dataService.getStockLevels(locationName: locationName);
-    _departmentStockLevels = stockLevels;
+    final prevPendingDept = prevDeptDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');
+    final prevTotalDeptDebt = prevPendingDept.fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0));
+    
+    _previousDepartmentStats = {
+      'total_sales': prevTotalSales,
+      'transaction_count': prevTransactionCount,
+      'pending_debts': prevPendingDept.length,
+      'total_debt_amount': prevTotalDeptDebt,
+    };
   }
 
   Future<void> _loadBookingData() async {
@@ -654,6 +693,49 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
   }
 
+  DateTimeRange? _getPreviousDateRangeForFilter() {
+    final now = DateTime.now();
+    switch (_timeFilter) {
+      case 'today':
+        final yesterday = now.subtract(const Duration(days: 1));
+        final start = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        final end = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
+        return DateTimeRange(start: start, end: end);
+      case 'week':
+        final start = DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(days: 14));
+        final end = DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(days: 7));
+        return DateTimeRange(start: start, end: end);
+      case 'month':
+        final prevMonth = DateTime(now.year, now.month - 1, 1);
+        final lastDay = DateTime(now.year, now.month, 0);
+        return DateTimeRange(
+          start: prevMonth,
+          end: DateTime(lastDay.year, lastDay.month, lastDay.day, 23, 59, 59),
+        );
+      default:
+        return null;
+    }
+  }
+
+  List<Map<String, dynamic>> _filterTransactionsByRange(
+    List<Map<String, dynamic>> transactions,
+    DateTimeRange range,
+  ) {
+    return transactions.where((t) {
+      final timestamp = t['timestamp']?.toString() ?? t['date']?.toString();
+      if (timestamp == null) return false;
+      try {
+        final date = DateTime.parse(timestamp);
+        return (date.isAfter(range.start) || date.isAtSameMomentAs(range.start)) &&
+            (date.isBefore(range.end) || date.isAtSameMomentAs(range.end));
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+  }
+
   String _formatKobo(num value) {
     return NumberFormat('#,##0.00').format(
       PaymentService.koboToNaira(value.toInt()),
@@ -664,9 +746,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final user = authService.currentUser;
-    final userRole = authService.isRoleAssumed 
-        ? (authService.assumedRole ?? user?.role) 
-        : user?.role;
+    final userRole = user?.role;
     final department = _getDepartmentFromRole(
       userRole,
       profileDepartment: user?.department,
@@ -674,7 +754,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: Text(_showDepartmentView ? 'Department Dashboard' : 'My Dashboard'),
+        title: Text(
+          _showDepartmentView ? 'Department Dashboard' : 'My Dashboard',
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
         actions: [
@@ -747,15 +831,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Widget _buildTimeFilter() {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final chipPadding = isMobile ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4) : const EdgeInsets.symmetric(horizontal: 12, vertical: 8);
+    final chipSpacing = isMobile ? 6.0 : 8.0;
+    final labelFontSize = isMobile ? 11.0 : null;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Row(
+        padding: EdgeInsets.all(isMobile ? 6 : 8),
+        child: Wrap(
+          spacing: chipSpacing,
+          runSpacing: chipSpacing,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            const Text('Time Period: ', style: TextStyle(fontWeight: FontWeight.w500)),
-            const SizedBox(width: 8),
+            if (!isMobile)
+              const Padding(
+                padding: EdgeInsets.only(right: 4),
+                child: Text('Time Period: ', style: TextStyle(fontWeight: FontWeight.w500)),
+              ),
             ChoiceChip(
-              label: const Text('Today'),
+              label: Text('Today', style: labelFontSize != null ? TextStyle(fontSize: labelFontSize) : null),
+              padding: chipPadding,
               selected: _timeFilter == 'today',
               onSelected: (selected) {
                 if (selected) {
@@ -766,9 +862,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 }
               },
             ),
-            const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('This Week'),
+              label: Text('This Week', style: labelFontSize != null ? TextStyle(fontSize: labelFontSize) : null),
+              padding: chipPadding,
               selected: _timeFilter == 'week',
               onSelected: (selected) {
                 if (selected) {
@@ -779,9 +875,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 }
               },
             ),
-            const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('This Month'),
+              label: Text('This Month', style: labelFontSize != null ? TextStyle(fontSize: labelFontSize) : null),
+              padding: chipPadding,
               selected: _timeFilter == 'month',
               onSelected: (selected) {
                 if (selected) {
@@ -801,9 +897,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Widget _buildPersonalView() {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
-    final userRole = authService.isRoleAssumed 
-        ? (authService.assumedRole ?? user?.role) 
-        : user?.role;
+    final userRole = user?.role;
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -814,11 +908,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
         const SizedBox(height: 12),
 
-        if (_departmentStockLevels.isNotEmpty) ...[
-          _buildDepartmentStockLevels(),
-          const SizedBox(height: 24),
-        ],
-        
         // Receptionist quick actions + booking stats
         if (userRole == AppRole.receptionist) ...[
           _buildReceptionistQuickActions(),
@@ -846,7 +935,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             userRole == AppRole.outside_bartender ||
             userRole == AppRole.receptionist ||
             userRole == AppRole.kitchen_staff) ...[
-          _buildStatsGrid(_personalStats, isPersonal: true),
+          _buildStatsGrid(_personalStats, _previousPersonalStats, isPersonal: true),
           if (userRole == AppRole.receptionist) ...[
             const SizedBox(height: 16),
             _buildDebtSummaryCard(
@@ -880,7 +969,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
-        _buildStatsGrid(_departmentStats, isPersonal: false),
+        _buildStatsGrid(_departmentStats, _previousDepartmentStats, isPersonal: false),
         if (department == 'reception') ...[
           const SizedBox(height: 12),
           _buildReceptionPaymentSummary(),
@@ -895,53 +984,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           ),
         ],
         const SizedBox(height: 24),
-        if (_departmentStockLevels.isNotEmpty) ...[
-          _buildDepartmentStockLevels(),
-          const SizedBox(height: 24),
-        ],
         _buildStaffPerformance(),
         const SizedBox(height: 24),
         _buildDepartmentDebts(),
         const SizedBox(height: 24),
         _buildDepartmentTransactions(),
       ],
-    );
-  }
-
-  Widget _buildDepartmentStockLevels() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Department Stock Levels',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ..._departmentStockLevels.take(10).map((item) {
-              final name = item['name']?.toString() ?? 'Unknown';
-              final qty = item['current_stock']?.toString() ?? '0';
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(child: Text(name)),
-                    Text(qty, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              );
-            }),
-            if (_departmentStockLevels.length > 10)
-              Text(
-                'Showing 10 of ${_departmentStockLevels.length} items',
-                style: TextStyle(color: Colors.grey[600], fontSize: 12),
-              ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1050,61 +1098,208 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
   }
 
-  String? _getLocationNameForDepartment(String department) {
-    switch (department) {
-      case 'vip_bar':
-        return 'VIP Bar';
-      case 'outside_bar':
-        return 'Outside Bar';
-      case 'mini_mart':
-        return 'Mini Mart';
-      case 'kitchen':
-        return 'Kitchen';
-      case 'housekeeping':
-        return 'Housekeeping';
-      case 'laundry':
-        return 'Laundry';
-      case 'reception':
-        return 'Reception';
-      default:
-        return null;
-    }
+  int _getCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 600) return 2;
+    if (width < 1200) return 3;
+    return 4;
   }
 
-  Widget _buildStatsGrid(Map<String, dynamic> stats, {required bool isPersonal}) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.5,
-      children: [
-        _buildStatCard(
-          'Total Sales',
-          '₦${_formatKobo(stats['total_sales'] ?? 0)}',
-          Icons.attach_money,
-          Colors.green,
+  double _calculateTrend(num current, num previous) {
+    if (previous == 0) return current > 0 ? 100.0 : 0.0;
+    return ((current - previous) / previous) * 100;
+  }
+
+  Widget _buildKPICard(
+    BuildContext context,
+    String title,
+    num currentValue,
+    num previousValue,
+    IconData icon,
+    Color color,
+    bool isCurrency,
+  ) {
+    final trend = _calculateTrend(currentValue, previousValue);
+    final isPositive = trend >= 0;
+    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
+    final trendIcon = isPositive ? Icons.trending_up : Icons.trending_down;
+    final displayValue = isCurrency ? '₦${_formatKobo(currentValue)}' : '${currentValue.toInt()}';
+    final trendText = trend.abs() < 0.01 ? 'No change' : '${isPositive ? '+' : ''}${trend.toStringAsFixed(1)}%';
+    return AppAnimations.animatedCard(
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
+          ],
         ),
-        _buildStatCard(
-          'Transactions',
-          '${stats['transaction_count'] ?? 0}',
-          Icons.receipt,
-          Colors.blue,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                if (previousValue != 0 || currentValue != 0)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: trendColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(trendIcon, color: trendColor, size: 12),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(trendText, style: TextStyle(color: trendColor, fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const Spacer(),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                displayValue,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A), fontSize: 24, height: 1.2),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(title, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF666666), fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
         ),
-        _buildStatCard(
-          'Pending Debts',
-          '${stats['pending_debts'] ?? 0}',
-          Icons.money_off,
-          Colors.orange,
+      ),
+    );
+  }
+
+  Widget _buildKPICardWithInvertedTrend(
+    BuildContext context,
+    String title,
+    num currentValue,
+    num previousValue,
+    IconData icon,
+    Color color,
+    bool isCurrency,
+  ) {
+    final rawTrend = _calculateTrend(currentValue, previousValue);
+    final trend = -rawTrend;
+    final isPositive = trend >= 0;
+    final trendColor = isPositive ? Colors.green[700]! : Colors.red[700]!;
+    final trendIcon = isPositive ? Icons.trending_down : Icons.trending_up;
+    final displayValue = isCurrency ? '₦${_formatKobo(currentValue)}' : '${currentValue.toInt()}';
+    final trendText = rawTrend.abs() < 0.01 ? 'No change' : '${rawTrend.toStringAsFixed(1)}%';
+    return AppAnimations.animatedCard(
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
+          ],
         ),
-        _buildStatCard(
-          'Debt Amount',
-          '₦${_formatKobo(stats['total_debt_amount'] ?? 0)}',
-          Icons.account_balance_wallet,
-          Colors.red,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                if (previousValue != 0 || currentValue != 0)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(color: trendColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(trendIcon, color: trendColor, size: 12),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(trendText, style: TextStyle(color: trendColor, fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const Spacer(),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                displayValue,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A), fontSize: 24, height: 1.2),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(title, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF666666), fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid(Map<String, dynamic> stats, Map<String, dynamic> previousStats, {required bool isPersonal}) {
+    final crossAxisCount = _getCrossAxisCount(context);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final padding = screenWidth < 600 ? 16.0 : 24.0;
+    final spacing = 12.0;
+    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+    final allCards = <Widget>[
+      _buildKPICard(context, 'Total Sales', stats['total_sales'] ?? 0, previousStats['total_sales'] ?? 0, Icons.attach_money, Colors.green, true),
+      _buildKPICard(context, 'Transactions', stats['transaction_count'] ?? 0, previousStats['transaction_count'] ?? 0, Icons.receipt, Colors.blue, false),
+      _buildKPICardWithInvertedTrend(context, 'Pending Debts', stats['pending_debts'] ?? 0, previousStats['pending_debts'] ?? 0, Icons.money_off, Colors.orange, false),
+      _buildKPICardWithInvertedTrend(context, 'Debt Amount', stats['total_debt_amount'] ?? 0, previousStats['total_debt_amount'] ?? 0, Icons.account_balance_wallet, Colors.red, true),
+    ];
+    return RepaintBoundary(
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: spacing,
+          mainAxisSpacing: spacing,
+          childAspectRatio: cardWidth / 140,
+        ),
+        itemCount: allCards.length,
+        itemBuilder: (context, index) => allCards[index],
+      ),
     );
   }
 
@@ -1418,7 +1613,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final debt = _departmentDebts[index];
+              final hasPendingClaim = _debtIdsWithPendingClaim.contains(debt['id']?.toString());
+              final canRecord = (debt['status'] == 'outstanding' || debt['status'] == 'partially_paid') && !hasPendingClaim;
               return ListTile(
+                leading: hasPendingClaim
+                    ? Icon(Icons.schedule, size: 20, color: Colors.orange[700], semanticLabel: 'Pending approval')
+                    : null,
                 title: Text(debt['debtor_name'] ?? 'Unknown'),
                 subtitle: Text(debt['reason'] ?? ''),
                 trailing: Column(
@@ -1442,7 +1642,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     ),
                   ],
                 ),
-                onTap: debt['status'] == 'outstanding' || debt['status'] == 'partially_paid' 
+                onTap: canRecord
                     ? () => _showMarkDebtPaidDialog(debt, index)
                     : null,
               );
@@ -1509,68 +1709,98 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   void _showMarkDebtPaidDialog(Map<String, dynamic> debt, int index) {
+    final totalKobo = (debt['amount'] as int? ?? 0);
+    final paidKobo = (debt['paid_amount'] as int? ?? 0);
+    final remainingKobo = totalKobo - paidKobo;
+    final amountController = TextEditingController(
+      text: (remainingKobo / 100).toStringAsFixed(2),
+    );
+    String paymentMethod = 'cash';
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Mark Debt as Paid'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Debtor: ${debt['debtor_name']}'),
-            const SizedBox(height: 8),
-            Text('Amount: ₦${_formatKobo(debt['amount'] ?? 0)}'),
-            const SizedBox(height: 16),
-            const Text('Customer has paid this debt?'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Record Debt as Paid'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Debtor: ${debt['debtor_name']}'),
+                const SizedBox(height: 4),
+                Text('Remaining: ₦${_formatKobo(remainingKobo)}', style: TextStyle(color: Colors.grey[700])),
+                const SizedBox(height: 16),
+                const Text('Amount collected (partial or full):'),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    hintText: '0.00',
+                    border: OutlineInputBorder(),
+                    helperText: 'Enter the amount you collected. Management will approve.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: paymentMethod,
+                  decoration: const InputDecoration(labelText: 'Payment Method', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                    DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                    DropdownMenuItem(value: 'card', child: Text('Card')),
+                    DropdownMenuItem(value: 'other', child: Text('Other')),
+                  ],
+                  onChanged: (v) => setDialogState(() => paymentMethod = v ?? 'cash'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amountNaira = double.tryParse(amountController.text.trim());
+                if (amountNaira == null || amountNaira <= 0) {
+                  ErrorHandler.showWarningMessage(context, 'Enter a valid amount');
+                  return;
+                }
+                final amountKobo = PaymentService.nairaToKobo(amountNaira);
+                if (amountKobo > remainingKobo) {
+                  ErrorHandler.showWarningMessage(context, 'Amount exceeds remaining balance');
+                  return;
+                }
+                try {
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  final userId = authService.currentUser?.id ?? 'system';
+                  await _dataService.recordDebtPaymentClaim(
+                    debtId: debt['id'] as String,
+                    amount: amountKobo,
+                    paymentMethod: paymentMethod,
+                    recordedBy: userId,
+                    paymentDate: DateTime.now(),
+                  );
+                  if (context.mounted) Navigator.pop(context);
+                  if (mounted) {
+                    ErrorHandler.showSuccessMessage(context, 'Debt payment recorded. Awaiting management approval.');
+                    _loadData();
+                  }
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG record debt claim: $e\n$stackTrace');
+                  if (mounted) {
+                    ErrorHandler.handleError(context, e, customMessage: 'Failed to record payment. Please try again.', stackTrace: stackTrace);
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('Record Payment'),
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                // Use proper payment recording method instead of local state update
-                final debt = _departmentDebts[index];
-                final authService = Provider.of<AuthService>(context, listen: false);
-                final userId = authService.currentUser?.id ?? 'system';
-                
-                // Record full payment
-                await _dataService.recordDebtPayment(
-                  debtId: debt['id'] as String,
-                  amount: (debt['amount'] as int? ?? 0) - (debt['paid_amount'] as int? ?? 0), // Remaining amount
-                  paymentMethod: 'cash',
-                  collectedBy: userId,
-                  createdBy: userId,
-                  paymentDate: DateTime.now(),
-                );
-                
-                Navigator.pop(context);
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Debt payment recorded successfully!',
-                  );
-                  _loadData();
-                }
-              } catch (e, stackTrace) {
-                if (kDebugMode) debugPrint('DEBUG record payment: $e\n$stackTrace');
-                if (mounted) {
-                  ErrorHandler.handleError(
-                    context,
-                    e,
-                    customMessage: 'Failed to record payment. Please try again.',
-                    stackTrace: stackTrace,
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Mark as Paid'),
-          ),
-        ],
       ),
     );
   }

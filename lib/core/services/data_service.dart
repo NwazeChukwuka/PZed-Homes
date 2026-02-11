@@ -945,6 +945,79 @@ class DataService {
     });
   }
 
+  /// Record a debt payment claim (staff). Requires management approval before balance is updated.
+  Future<void> recordDebtPaymentClaim({
+    required String debtId,
+    required int amount,
+    required String paymentMethod,
+    required String recordedBy,
+    DateTime? paymentDate,
+    String? notes,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('debt_payment_claims').insert({
+        'debt_id': debtId,
+        'amount': amount,
+        'payment_method': paymentMethod.toLowerCase(),
+        'payment_date': paymentDate?.toIso8601String().split('T')[0] ?? DateTime.now().toIso8601String().split('T')[0],
+        'recorded_by': recordedBy,
+        'notes': notes,
+        'status': 'pending',
+      });
+    });
+  }
+
+  /// Get debt payment claims (optionally filtered by status)
+  Future<List<Map<String, dynamic>>> getDebtPaymentClaims({String? status}) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('debt_payment_claims')
+          .select('*, debts(id, debtor_name, debtor_phone, amount, paid_amount, department, source_department, reason), recorded_by_profile:profiles!recorded_by(full_name)');
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+      final response = await query.order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  /// Approve a debt payment claim: moves it to debt_payments (trigger updates debt)
+  Future<void> approveDebtPaymentClaim(String claimId, String approvedBy) async {
+    await _retryOperation(() async {
+      final claim = await _supabase.from('debt_payment_claims').select().eq('id', claimId).single();
+      if (claim['status'] != 'pending') {
+        throw Exception('Claim is no longer pending');
+      }
+      await _supabase.from('debt_payments').insert({
+        'debt_id': claim['debt_id'],
+        'amount': claim['amount'],
+        'payment_method': claim['payment_method'],
+        'payment_date': claim['payment_date'],
+        'collected_by': claim['recorded_by'],
+        'created_by': approvedBy,
+        'notes': claim['notes'],
+      });
+      await _supabase.from('debt_payment_claims').update({
+        'status': 'approved',
+        'approved_by': approvedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', claimId);
+    });
+  }
+
+  /// Reject a debt payment claim
+  Future<void> rejectDebtPaymentClaim(String claimId, String rejectedBy) async {
+    await _retryOperation(() async {
+      await _supabase.from('debt_payment_claims').update({
+        'status': 'rejected',
+        'approved_by': rejectedBy,
+        'rejected_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', claimId).eq('status', 'pending');
+    });
+  }
+
   /// Get payment history for a debt
   Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
     return await _retryOperation(() async {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -42,9 +43,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   final _saleQuantityController = TextEditingController();
   final _saleUnitPriceController = TextEditingController();
   final _saleCustomNameController = TextEditingController();
+  final _saleCreditCustomerNameController = TextEditingController();
+  final _saleCreditCustomerPhoneController = TextEditingController();
+  final _searchController = TextEditingController();
+  final ScrollController _currentSaleScrollController = ScrollController();
   int? _selectedSaleQuantity = 1; // Default quantity for kitchen sales
+  Timer? _filterDebounce;
 
   List<Map<String, dynamic>> _stockItems = [];
+  List<Map<String, dynamic>> _filteredItems = [];
+  List<Map<String, dynamic>> _currentSale = [];
+  double _saleTotal = 0.0;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
@@ -85,6 +94,436 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) _filterItems();
+    });
+  }
+
+  void _filterItems() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredItems = _stockItems.where((item) {
+        return item['name']?.toString().toLowerCase().contains(query) ?? false;
+      }).toList();
+    });
+  }
+
+  void _addItemToSale(Map<String, dynamic> item) {
+    final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+    final priceNaira = PaymentService.koboToNaira(priceKobo);
+    var addedNewItem = false;
+    final existingIndex = _currentSale.indexWhere((s) => s['id'] == item['id']);
+    setState(() {
+      if (existingIndex != -1) {
+        _currentSale[existingIndex]['quantity'] =
+            (_currentSale[existingIndex]['quantity'] ?? 0) + 1;
+      } else {
+        _currentSale.add({
+          'id': item['id'],
+          'name': item['name'] ?? 'Item',
+          'price': priceNaira,
+          'stock_item_id': item['stock_item_id'],
+          'quantity': 1,
+        });
+        addedNewItem = true;
+      }
+      _saleTotal = _currentSale.fold(
+        0.0,
+        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+      );
+    });
+    if (addedNewItem) _scrollCurrentSaleToEnd();
+  }
+
+  void _addCustomItemToSale() {
+    final name = _saleCustomNameController.text.trim();
+    if (name.isEmpty) return;
+    final priceNaira = double.tryParse(_saleUnitPriceController.text.trim()) ?? 0;
+    if (priceNaira <= 0) return;
+    setState(() {
+      _currentSale.add({
+        'id': null,
+        'name': name,
+        'price': priceNaira,
+        'stock_item_id': null,
+        'quantity': 1,
+      });
+      _saleTotal = _currentSale.fold(
+        0.0,
+        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+      );
+      _saleCustomNameController.clear();
+      _saleUnitPriceController.clear();
+    });
+    _scrollCurrentSaleToEnd();
+  }
+
+  void _scrollCurrentSaleToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_currentSaleScrollController.hasClients) {
+        final pos = _currentSaleScrollController.position;
+        _currentSaleScrollController.animateTo(
+          pos.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _removeItemFromSale(int index) {
+    setState(() {
+      _currentSale.removeAt(index);
+      _saleTotal = _currentSale.fold(
+        0.0,
+        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+      );
+    });
+  }
+
+  void _clearSale() {
+    setState(() {
+      _currentSale.clear();
+      _saleTotal = 0.0;
+      _selectedBookingId = null;
+      _chargeToRoom = false;
+      _saleCustomNameController.clear();
+      _saleUnitPriceController.clear();
+      _saleCreditCustomerNameController.clear();
+      _saleCreditCustomerPhoneController.clear();
+    });
+  }
+
+  Widget _buildKitchenSalesGrid() {
+    return Expanded(
+      flex: 2,
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search items...',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = MediaQuery.sizeOf(context).width;
+                        final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
+                        final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
+                        return GridView.builder(
+                          padding: const EdgeInsets.all(16),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            childAspectRatio: childAspectRatio,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                          ),
+                          itemCount: _filteredItems.length,
+                      itemBuilder: (context, index) {
+                        final item = _filteredItems[index];
+                        final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+                        final priceNaira = PaymentService.koboToNaira(priceKobo);
+                        final hasStockLink = item['stock_item_id'] != null;
+                        return Card(
+                          elevation: 2,
+                          child: InkWell(
+                            onTap: () => _addItemToSale(item),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: hasStockLink ? Colors.white : Colors.orange[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    height: 28,
+                                    width: double.infinity,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[200],
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(Icons.restaurant, size: 18),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    item['name']?.toString() ?? 'Unknown',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 11,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '₦${NumberFormat('#,##0.00').format(priceNaira)}',
+                                    style: TextStyle(
+                                      color: Colors.green[700],
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                      },
+                    ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Custom Order (not on menu)', style: TextStyle(fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: _saleCustomNameController,
+                          decoration: const InputDecoration(
+                            hintText: 'Item name',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _saleUnitPriceController,
+                          decoration: const InputDecoration(
+                            hintText: 'Price (₦)',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle),
+                        color: Colors.orange,
+                        onPressed: _addCustomItemToSale,
+                        tooltip: 'Add custom item',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKitchenCurrentSaleSection() {
+    return Expanded(
+      flex: 1,
+      child: Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Current Sale', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          Expanded(
+            child: _currentSale.isEmpty
+                ? const Center(child: Text('Tap items to add', style: TextStyle(color: Colors.grey)))
+                : ListView.builder(
+                    controller: _currentSaleScrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _currentSale.length,
+                    itemBuilder: (context, index) {
+                      final item = _currentSale[index];
+                      final name = item['name'] as String? ?? 'Item';
+                      final price = (item['price'] as num).toDouble();
+                      final qty = item['quantity'] as int? ?? 1;
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          title: Text(name),
+                          subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '₦${NumberFormat('#,##0.00').format(price * qty)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                onPressed: () => _removeItemFromSale(index),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _salePaymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Method',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                    DropdownMenuItem(value: 'card', child: Text('Card')),
+                    DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                    DropdownMenuItem(value: 'credit', child: Text('Credit (Pay Later)')),
+                  ],
+                  onChanged: (val) => setState(() => _salePaymentMethod = val ?? 'cash'),
+                ),
+                if (_salePaymentMethod == 'credit' && !_chargeToRoom) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _saleCreditCustomerNameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Customer Name *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _saleCreditCustomerPhoneController,
+                    textInputAction: TextInputAction.done,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Charge to Room'),
+                  value: _chargeToRoom,
+                  onChanged: (val) {
+                    setState(() {
+                      _chargeToRoom = val;
+                      if (!val) _selectedBookingId = null;
+                    });
+                  },
+                ),
+                if (_chargeToRoom) ...[
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: _selectedBookingId,
+                    decoration: const InputDecoration(
+                      labelText: 'Booking',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _bookings
+                        .map((booking) {
+                          final guestName = booking['guest_name'] as String? ??
+                              (booking['profiles'] as Map<String, dynamic>?)?['full_name'] as String? ??
+                              'Guest';
+                          final roomNumber = (booking['rooms'] as Map<String, dynamic>?)
+                                  ?['room_number']
+                                  ?.toString() ??
+                              booking['requested_room_type']?.toString() ??
+                              'Room';
+                          return DropdownMenuItem(
+                            value: booking['id'] as String,
+                            child: Text('$guestName • $roomNumber'),
+                          );
+                        })
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedBookingId = val),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ElevatedButton.icon(
+                        onPressed: _currentSale.isEmpty ? null : _recordKitchenSale,
+                        icon: const Icon(Icons.point_of_sale),
+                        label: const Text('Record Sale'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade800,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                if (_currentSale.isNotEmpty)
+                  TextButton(
+                    onPressed: _clearSale,
+                    child: const Text('Clear Sale'),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+    );
   }
 
   @override
@@ -102,7 +541,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
-    final isAssumedKitchenStaff = authService.isRoleAssumed && authService.assumedRole == AppRole.kitchen_staff;
+    final isAssumedKitchenStaff = authService.hasAssumedRole(AppRole.kitchen_staff);
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
     final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
     final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
@@ -166,6 +605,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
+        _filteredItems = List<Map<String, dynamic>>.from(stockResponse);
         _locations = List<Map<String, dynamic>>.from(locResponse);
         _departments = List<Map<String, dynamic>>.from(activeDepartments);
         _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
@@ -485,59 +925,115 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   }
 
   Future<void> _recordKitchenSale() async {
-    if (!_saleFormKey.currentState!.validate()) return;
+    if (_currentSale.isEmpty) return;
+    if (_chargeToRoom && _selectedBookingId == null) {
+      ErrorHandler.showWarningMessage(context, 'Select a booking to charge to room');
+      return;
+    }
+    if (_salePaymentMethod == 'credit' && !_chargeToRoom) {
+      final name = _saleCreditCustomerNameController.text.trim();
+      final phone = _saleCreditCustomerPhoneController.text.trim();
+      if (name.isEmpty || phone.isEmpty) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Customer name and phone are required for credit sales.',
+        );
+        return;
+      }
+    }
     setState(() => _isLoading = true);
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
-      final quantity = _selectedSaleQuantity ?? 1;
-      final unitPriceNaira = double.tryParse(_saleUnitPriceController.text.trim()) ?? 0;
-      final totalInKobo = PaymentService.nairaToKobo(unitPriceNaira) * quantity;
-
-      if (totalInKobo <= 0) {
-        throw Exception('Sale amount must be greater than 0');
-      }
-
-      if (_chargeToRoom && _selectedBookingId == null) {
-        throw Exception('Select a booking to charge to room');
-      }
-
-      final selectedItem = _stockItems.firstWhere(
-        (s) => s['id'] == _selectedSaleItemId,
-        orElse: () => <String, dynamic>{},
-      );
-      if (!_isCustomSale && selectedItem['stock_item_id'] == null) {
-        throw Exception('This menu item is not linked to a stock item. Link it before selling.');
-      }
-      final itemName = _isCustomSale
-          ? (_saleCustomNameController.text.trim().isEmpty
-              ? 'Custom Item'
-              : _saleCustomNameController.text.trim())
-          : (selectedItem['name'] as String? ?? 'Menu Item');
-
       final effectivePaymentMethod = _chargeToRoom ? 'credit' : _salePaymentMethod;
+      int totalSaleInKobo = 0;
+      String? firstSaleId;
 
-      final saleId = await _dataService.createKitchenSale({
-        'menu_item_id': _isCustomSale ? null : _selectedSaleItemId,
-        'item_name': itemName,
-        'quantity': quantity,
-        'unit_price': PaymentService.nairaToKobo(unitPriceNaira),
-        'total_amount': totalInKobo,
-        'payment_method': effectivePaymentMethod,
-        'booking_id': _selectedBookingId,
-        'sold_by': staffId,
-      });
+      for (final saleItem in _currentSale) {
+        final itemName = saleItem['name'] as String? ?? 'Item';
+        final quantity = saleItem['quantity'] as int? ?? 1;
+        final unitPriceNaira = (saleItem['price'] as num).toDouble();
+        final unitPriceKobo = PaymentService.nairaToKobo(unitPriceNaira);
+        final itemTotalKobo = unitPriceKobo * quantity;
 
-      if (!_chargeToRoom) {
+        if (saleItem['id'] != null) {
+          final selected = _stockItems.firstWhere(
+            (s) => s['id'] == saleItem['id'],
+            orElse: () => <String, dynamic>{},
+          );
+          if (selected.isNotEmpty && selected['stock_item_id'] == null) {
+            throw Exception('${selected['name']} is not linked to a stock item. Link it before selling.');
+          }
+        }
+
+        final saleId = await _dataService.createKitchenSale({
+          'menu_item_id': saleItem['id'],
+          'item_name': itemName,
+          'quantity': quantity,
+          'unit_price': unitPriceKobo,
+          'total_amount': itemTotalKobo,
+          'payment_method': effectivePaymentMethod,
+          'booking_id': _selectedBookingId,
+          'sold_by': staffId,
+        });
+        if (firstSaleId == null) firstSaleId = saleId;
+        totalSaleInKobo += itemTotalKobo;
+
+        if (_chargeToRoom && _selectedBookingId != null) {
+          await _dataService.addBookingCharge(
+            bookingId: _selectedBookingId!,
+            itemName: itemName,
+            priceKobo: unitPriceKobo,
+            quantity: quantity,
+            department: 'restaurant',
+            addedBy: staffId,
+          );
+        }
+
+        final stockItemId = saleItem['stock_item_id']?.toString();
+        if (stockItemId != null && _sourceLocationId != null) {
+          await _dataService.recordStockTransaction({
+            'stock_item_id': stockItemId,
+            'location_id': _sourceLocationId,
+            'staff_profile_id': staffId,
+            'transaction_type': 'Sale',
+            'quantity': -quantity,
+            'notes': 'Kitchen sale',
+          });
+        }
+      }
+
+      final isWalkInCredit = _salePaymentMethod == 'credit' && !_chargeToRoom;
+
+      if (!_chargeToRoom && !isWalkInCredit) {
         await _recordDepartmentSale(
           department: 'restaurant',
-          amountInKobo: totalInKobo,
+          amountInKobo: totalSaleInKobo,
           staffId: staffId,
           paymentMethod: effectivePaymentMethod,
         );
       }
 
-      if (_chargeToRoom && _selectedBookingId != null) {
+      if (isWalkInCredit) {
+        final customerName = _saleCreditCustomerNameController.text.trim();
+        final customerPhone = _saleCreditCustomerPhoneController.text.trim();
+        await _dataService.recordDebt({
+          'debtor_name': customerName,
+          'debtor_phone': customerPhone,
+          'debtor_type': 'customer',
+          'amount': totalSaleInKobo,
+          'owed_to': 'P-ZED Luxury Hotels & Suites',
+          'department': 'reception',
+          'source_department': 'restaurant',
+          'source_type': 'kitchen_sale',
+          'reference_id': firstSaleId,
+          'reason': 'Kitchen sale on credit (walk-in)',
+          'date': DateTime.now().toIso8601String().split('T')[0],
+          'status': 'outstanding',
+          'sold_by': staffId,
+          'sale_id': firstSaleId,
+        });
+      } else if (_chargeToRoom && _selectedBookingId != null) {
         final booking = _bookings.firstWhere(
           (b) => b['id'] == _selectedBookingId,
           orElse: () => <String, dynamic>{},
@@ -554,65 +1050,47 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           'debtor_name': guestName,
           'debtor_phone': guestPhone,
           'debtor_type': 'customer',
-          'amount': totalInKobo,
+          'amount': totalSaleInKobo,
           'owed_to': 'P-ZED Luxury Hotels & Suites',
           'department': 'reception',
           'source_department': 'restaurant',
           'source_type': 'kitchen_sale',
-          'reference_id': saleId,
+          'reference_id': firstSaleId,
           'reason': 'Kitchen sale charged to room',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
           'sold_by': staffId,
           'booking_id': _selectedBookingId,
-          'sale_id': saleId,
-        });
-
-        await _dataService.addBookingCharge(
-          bookingId: _selectedBookingId!,
-          itemName: itemName,
-          priceKobo: PaymentService.nairaToKobo(unitPriceNaira),
-          quantity: quantity,
-          department: 'restaurant',
-          addedBy: staffId,
-        );
-      }
-
-      // Optional stock deduction when menu item is linked to stock item
-      final stockItemId = selectedItem['stock_item_id']?.toString();
-      if (stockItemId != null && _sourceLocationId != null) {
-        await _dataService.recordStockTransaction({
-          'stock_item_id': stockItemId,
-          'location_id': _sourceLocationId,
-          'staff_profile_id': staffId,
-          'transaction_type': 'Sale',
-          'quantity': -quantity,
-          'notes': 'Kitchen sale',
+          'sale_id': firstSaleId,
         });
       }
 
-      _saleFormKey.currentState?.reset();
-      _saleQuantityController.clear();
-      _saleUnitPriceController.clear();
-      _saleCustomNameController.clear();
-      setState(() {
-        _selectedSaleItemId = null;
-        _selectedSaleQuantity = 1; // Reset to default quantity
-        _isCustomSale = false;
-        _selectedBookingId = null;
-        _chargeToRoom = false;
-      });
+      final firstItem = _currentSale.first;
+      final firstItemName = firstItem['name'] as String? ?? 'Item';
+      final firstQty = firstItem['quantity'] as int? ?? 1;
+      final firstPrice = (firstItem['price'] as num).toDouble();
+      final itemCount = _currentSale.length;
+      final displayName = itemCount == 1
+          ? firstItemName
+          : '$firstItemName + ${itemCount - 1} more';
+      final bookingIdForReceipt = _selectedBookingId;
+      _clearSale();
 
       if (mounted) {
         await _showKitchenReceiptDialog(
-          itemName: itemName,
-          quantity: quantity,
-          unitPriceNaira: unitPriceNaira,
-          totalNaira: PaymentService.koboToNaira(totalInKobo),
+          itemName: displayName,
+          quantity: firstQty,
+          unitPriceNaira: firstPrice,
+          totalNaira: PaymentService.koboToNaira(totalSaleInKobo),
           paymentMethod: effectivePaymentMethod,
-          bookingId: _selectedBookingId,
+          bookingId: bookingIdForReceipt,
         );
-        ErrorHandler.showSuccessMessage(context, 'Kitchen sale recorded successfully!');
+        ErrorHandler.showSuccessMessage(
+          context,
+          isWalkInCredit
+              ? 'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalSaleInKobo))} - Debt created'
+              : 'Kitchen sale recorded successfully!',
+        );
         // Reload stock and locations to refresh the food list with updated stock levels
         await _loadStockAndLocations();
         // Force UI rebuild to show updated stock
@@ -1288,11 +1766,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _currentSaleScrollController.dispose();
     _quantityController.dispose();
     _dispatchUnitPriceController.dispose();
     _saleQuantityController.dispose();
     _saleUnitPriceController.dispose();
     _saleCustomNameController.dispose();
+    _saleCreditCustomerNameController.dispose();
+    _saleCreditCustomerPhoneController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -1405,7 +1889,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   static bool _selectorShowFullFunctionality(AuthService auth) {
     final user = auth.currentUser;
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
-    final isAssumedKitchenStaff = auth.isRoleAssumed && auth.assumedRole == AppRole.kitchen_staff;
+    final isAssumedKitchenStaff = auth.hasAssumedRole(AppRole.kitchen_staff);
     final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
     final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
     return isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
@@ -1419,7 +1903,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         final destinations = _departments;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Kitchen'),
+            title: const Text('Kitchen', overflow: TextOverflow.ellipsis, maxLines: 1),
             backgroundColor: Colors.orange.shade800,
             leading: Navigator.of(context).canPop() ? IconButton(
               icon: const Icon(Icons.arrow_back),
@@ -1816,192 +2300,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           // Sales tab
                           Column(
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Form(
-                                  key: _saleFormKey,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                  SwitchListTile(
-                                    title: const Text('Custom Order (not on menu)'),
-                                    value: _isCustomSale,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _isCustomSale = value;
-                                        _selectedSaleItemId = null;
-                                        _saleUnitPriceController.clear();
-                                      });
-                                    },
-                                  ),
-                                  if (!_isCustomSale) ...[
-                                    DropdownButtonFormField<String>(
-                                      value: _selectedSaleItemId,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Menu Item',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.restaurant),
+                              Expanded(
+                                child: MediaQuery.sizeOf(context).width < 600
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          _buildKitchenSalesGrid(),
+                                          _buildKitchenCurrentSaleSection(),
+                                        ],
+                                      )
+                                    : Row(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          _buildKitchenSalesGrid(),
+                                          _buildKitchenCurrentSaleSection(),
+                                        ],
                                       ),
-                                      items: _stockItems
-                                          .map((item) => DropdownMenuItem(
-                                                value: item['id'] as String,
-                                                child: Text(item['name'] as String? ?? 'Item'),
-                                              ))
-                                          .toList(),
-                                      onChanged: (val) {
-                                        setState(() => _selectedSaleItemId = val);
-                                        _setSalePriceFromItem(val);
-                                      },
-                                      validator: (val) {
-                                        if (_isCustomSale) return null;
-                                        return val == null ? 'Please select an item' : null;
-                                      },
-                                    ),
-                                  ] else ...[
-                                    TextFormField(
-                                      controller: _saleCustomNameController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Custom Item Name',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.edit),
-                                      ),
-                                      validator: (val) {
-                                        if (!_isCustomSale) return null;
-                                        if (val == null || val.trim().isEmpty) {
-                                          return 'Enter item name';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ],
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: DropdownButtonFormField<int>(
-                                          value: _selectedSaleQuantity,
-                                          decoration: const InputDecoration(
-                                            labelText: 'Quantity',
-                                            border: OutlineInputBorder(),
-                                            prefixIcon: Icon(Icons.numbers),
-                                          ),
-                                          items: List.generate(20, (index) => index + 1)
-                                              .map((qty) => DropdownMenuItem(
-                                                    value: qty,
-                                                    child: Text('$qty'),
-                                                  ))
-                                              .toList(),
-                                          onChanged: (val) {
-                                            setState(() {
-                                              _selectedSaleQuantity = val;
-                                            });
-                                          },
-                                          validator: (val) {
-                                            if (val == null || val <= 0) return 'Select quantity';
-                                            return null;
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: _saleUnitPriceController,
-                                          decoration: const InputDecoration(
-                                            labelText: 'Unit Price (₦)',
-                                            border: OutlineInputBorder(),
-                                            prefixIcon: Icon(Icons.payments),
-                                          ),
-                                          keyboardType: const TextInputType.numberWithOptions(
-                                            decimal: true,
-                                          ),
-                                          validator: (val) {
-                                            if (val == null || val.isEmpty) return 'Enter price';
-                                            final price = double.tryParse(val);
-                                            if (price == null || price <= 0) return 'Enter valid price';
-                                            return null;
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  DropdownButtonFormField<String>(
-                                    value: _salePaymentMethod,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Payment Method',
-                                      border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.account_balance_wallet),
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                                      DropdownMenuItem(value: 'card', child: Text('Card')),
-                                      DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
-                                    ],
-                                    onChanged: (val) =>
-                                        setState(() => _salePaymentMethod = val ?? 'cash'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  SwitchListTile(
-                                    title: const Text('Charge to Guest Room'),
-                                    subtitle: const Text('Creates a debt for reception to collect at checkout'),
-                                    value: _chargeToRoom,
-                                    onChanged: (val) {
-                                      setState(() {
-                                        _chargeToRoom = val;
-                                        if (!val) _selectedBookingId = null;
-                                      });
-                                    },
-                                  ),
-                                  if (_chargeToRoom) ...[
-                                    const SizedBox(height: 8),
-                                    DropdownButtonFormField<String>(
-                                      value: _selectedBookingId,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Select Checked‑in Booking',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.meeting_room),
-                                      ),
-                                      items: _bookings
-                                          .map((booking) {
-                                            final guestProfile = booking['profiles'] as Map<String, dynamic>?;
-                                            final guestName = booking['guest_name'] as String? ??
-                                                guestProfile?['full_name'] as String? ??
-                                                'Guest';
-                                            final roomNumber = (booking['rooms'] as Map<String, dynamic>?)
-                                                    ?['room_number']
-                                                    ?.toString() ??
-                                                booking['requested_room_type']?.toString() ??
-                                                'Room';
-                                            return DropdownMenuItem(
-                                              value: booking['id'] as String,
-                                              child: Text('$guestName • $roomNumber'),
-                                            );
-                                          })
-                                          .toList(),
-                                      onChanged: (val) => setState(() => _selectedBookingId = val),
-                                      validator: (val) {
-                                        if (_chargeToRoom && val == null) {
-                                          return 'Select a booking';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ],
-                                  const SizedBox(height: 24),
-                                  _isLoading
-                                      ? const Center(child: CircularProgressIndicator())
-                                      : ElevatedButton.icon(
-                                          onPressed: _recordKitchenSale,
-                                          icon: const Icon(Icons.point_of_sale),
-                                          label: const Text('Record Sale'),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.orange.shade800,
-                                            padding: const EdgeInsets.symmetric(vertical: 16),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
                               ),
                               const Divider(thickness: 2),
                               const Padding(

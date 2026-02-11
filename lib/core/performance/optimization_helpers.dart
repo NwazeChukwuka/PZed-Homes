@@ -10,6 +10,7 @@ class OptimizationHelpers {
 
   /// Optimized asset image with downscaling (cacheWidth/cacheHeight) to reduce memory.
   /// Uses 2x display size for retina; caps at maxCacheDimension.
+  /// Optional [frameBuilder] for loading placeholder and fade-in transition.
   static Widget buildAssetImage({
     required String assetPath,
     double? width,
@@ -17,9 +18,11 @@ class OptimizationHelpers {
     BoxFit fit = BoxFit.contain,
     Color? color,
     Widget? errorWidget,
+    Widget Function(BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded)? frameBuilder,
   }) {
-    final w = width ?? 256;
-    final h = height ?? 256;
+    // Use finite values for cache calc; infinity causes "unsupported operation"
+    final w = (width != null && width.isFinite) ? width : 256.0;
+    final h = (height != null && height.isFinite) ? height : 256.0;
     final cacheW = (w * 2).round().clamp(1, maxCacheDimension);
     final cacheH = (h * 2).round().clamp(1, maxCacheDimension);
     return Image.asset(
@@ -31,6 +34,7 @@ class OptimizationHelpers {
       cacheWidth: cacheW,
       cacheHeight: cacheH,
       gaplessPlayback: true,
+      frameBuilder: frameBuilder,
       errorBuilder: (context, error, stackTrace) =>
           errorWidget ?? _buildErrorWidget(w, h),
     );

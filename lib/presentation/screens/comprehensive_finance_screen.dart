@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/auth_service.dart';
@@ -91,10 +92,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final _accountTypeController = TextEditingController();
   final _depositDescriptionController = TextEditingController();
 
+  List<Map<String, dynamic>> _debtPaymentClaims = [];
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 9, vsync: this);
+    _tabController = TabController(length: 10, vsync: this);
     final now = DateTime.now();
     _summaryRange = DateTimeRange(
       start: DateTime(now.year, now.month, 1),
@@ -177,6 +180,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         startDate: _summaryRange?.start,
         endDate: _summaryRange?.end,
       );
+      final debtClaims = await _dataService.getDebtPaymentClaims(status: 'pending');
       final performance = await _dataService.getDepartmentPerformance(
         startDate: _summaryRange?.start,
         endDate: _summaryRange?.end,
@@ -215,6 +219,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         _payrollRecords = payroll;
         _cashDeposits = deposits;
         _auditLogs = auditLogs;
+        _debtPaymentClaims = debtClaims;
         _departmentSales = {
           'VIP Bar': vipSales,
           'Outside Bar': outsideSales,
@@ -266,7 +271,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isAccountant = (user?.roles.any((role) => role.name == 'accountant') ?? false);
-    final isAssumedAccountant = authService.isRoleAssumed && authService.assumedRole?.name == 'accountant';
+    final isAssumedAccountant = authService.hasAssumedRole(AppRole.accountant);
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final canApprove = isOwnerOrManager || isAccountant || isAssumedAccountant;
     
@@ -275,7 +280,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Finance & Accounting'),
+        title: const Text('Finance & Accounting', overflow: TextOverflow.ellipsis, maxLines: 1),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
         leading: Navigator.of(context).canPop() ? IconButton(
@@ -290,8 +295,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           isScrollable: true,
           tabs: const [
             Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-            Tab(text: 'Debts', icon: Icon(Icons.money_off)),
-            Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
+          Tab(text: 'Debts', icon: Icon(Icons.money_off)),
+          Tab(text: 'Debt Claims', icon: Icon(Icons.pending_actions)),
+          Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
             Tab(text: 'Income', icon: Icon(Icons.trending_up)),
             Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
             Tab(text: 'Payroll', icon: Icon(Icons.payment)),
@@ -306,6 +312,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         children: [
           _buildOverviewTab(),
           _buildDebtsTab(canRecord),
+          _buildDebtClaimsTab(canApprove),
           _buildPurchasesTab(canRecord),
           _buildIncomeTab(canRecord),
           _buildExpensesTab(canRecord, canApprove),
@@ -945,6 +952,126 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ),
       ],
     );
+  }
+
+  Widget _buildDebtClaimsTab(bool canApprove) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    return _isLoadingData
+        ? const Center(child: CircularProgressIndicator())
+        : _debtPaymentClaims.isEmpty
+            ? const Center(child: Text('No pending debt payment claims.'))
+            : RefreshIndicator(
+                onRefresh: _loadFinancialData,
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _debtPaymentClaims.length,
+                  itemBuilder: (context, index) {
+                    final claim = _debtPaymentClaims[index];
+                    final debt = claim['debts'] as Map<String, dynamic>? ?? {};
+                    final debtorName = debt['debtor_name'] ?? claim['debtor_name'] ?? 'Unknown';
+                    final recProfile = claim['recorded_by_profile'];
+                    final recordedBy = recProfile is Map ? (recProfile['full_name'] ?? 'Staff') : 'Staff';
+                    final amount = PaymentService.koboToNaira(claim['amount'] as int? ?? 0);
+                    final method = (claim['payment_method'] ?? 'cash').toString();
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        title: Text(debtorName),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('₦${NumberFormat('#,##0.00').format(amount)} • ${method.toUpperCase()}', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
+                            Text('Recorded by: $recordedBy', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                            if (debt['reason'] != null) Text('${debt['reason']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                          ],
+                        ),
+                        trailing: canApprove
+                            ? isMobile
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.check_circle, color: Colors.green),
+                                        tooltip: 'Approve',
+                                        onPressed: () => _approveDebtClaim(claim['id'] as String),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.cancel, color: Colors.red),
+                                        tooltip: 'Reject',
+                                        onPressed: () => _rejectDebtClaim(claim['id'] as String),
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      TextButton.icon(
+                                        icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                                        label: const Text('Approve'),
+                                        onPressed: () => _approveDebtClaim(claim['id'] as String),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      TextButton.icon(
+                                        icon: const Icon(Icons.cancel, size: 18, color: Colors.red),
+                                        label: const Text('Reject'),
+                                        onPressed: () => _rejectDebtClaim(claim['id'] as String),
+                                      ),
+                                    ],
+                                  )
+                            : null,
+                      ),
+                    );
+                  },
+                ),
+              );
+  }
+
+  Future<void> _approveDebtClaim(String claimId) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      if (userId == null) return;
+      await _dataService.approveDebtPaymentClaim(claimId, userId);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Claim approved. Debt balance updated.');
+        _loadFinancialData();
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _approveDebtClaim: $e\n$stackTrace');
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to approve claim.', stackTrace: stackTrace);
+      }
+    }
+  }
+
+  Future<void> _rejectDebtClaim(String claimId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Claim'),
+        content: const Text('Are you sure you want to reject this debt payment claim?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reject', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.id;
+      if (userId == null) return;
+      await _dataService.rejectDebtPaymentClaim(claimId, userId);
+      if (mounted) {
+        ErrorHandler.showInfoMessage(context, 'Claim rejected.');
+        _loadFinancialData();
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _rejectDebtClaim: $e\n$stackTrace');
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to reject claim.', stackTrace: stackTrace);
+      }
+    }
   }
 
   Widget _buildPurchasesTab(bool canRecord) {

@@ -25,31 +25,46 @@ class ContextAwareRoleButton extends StatelessWidget {
     // Only show for owner/manager
     if (!isOwnerOrManager) return const SizedBox.shrink();
     
-    final isCurrentlyAssumed = authService.isRoleAssumed && authService.assumedRole == suggestedRole;
+    final isCurrentlyAssumed = authService.hasAssumedRole(suggestedRole);
     final roleName = customLabel ?? AuthService.getRoleDisplayName(suggestedRole);
-    
+    final tooltipText = isCurrentlyAssumed ? 'Drop $roleName' : 'Assume $roleName';
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
+    void onTap() {
+      if (isCurrentlyAssumed) {
+        authService.dropAssumedRole(suggestedRole);
+        ErrorHandler.showInfoMessage(context, 'Dropped $roleName');
+      } else {
+        authService.assumeRole(suggestedRole);
+        ErrorHandler.showSuccessMessage(context, 'Now assuming $roleName');
+      }
+    }
+
+    // Multi-role: tap adds or removes this role (no "return to owner")
+    final actionLabel = isCurrentlyAssumed ? 'Drop $roleName' : 'Assume $roleName';
+    if (isMobile) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: Tooltip(
+          message: actionLabel,
+          child: IconButton(
+            onPressed: onTap,
+            icon: Icon(isCurrentlyAssumed ? Icons.person_off : Icons.admin_panel_settings),
+            style: IconButton.styleFrom(
+              backgroundColor: isCurrentlyAssumed ? Colors.orange[700] : Colors.amber[700],
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: ElevatedButton.icon(
-        onPressed: () {
-          if (isCurrentlyAssumed) {
-            authService.returnToOriginalRole();
-            ErrorHandler.showInfoMessage(
-              context,
-              'Returned to ${user?.role.name.toUpperCase()} role',
-            );
-          } else {
-            authService.assumeRole(suggestedRole);
-            ErrorHandler.showSuccessMessage(
-              context,
-              'Now assuming $roleName role',
-            );
-          }
-        },
+        onPressed: onTap,
         icon: Icon(isCurrentlyAssumed ? Icons.person_off : Icons.person),
-        label: Text(
-          isCurrentlyAssumed ? 'Return to ${user?.role.name.toUpperCase()}' : 'Assume $roleName Role',
-        ),
+        label: Text(actionLabel),
         style: ElevatedButton.styleFrom(
           backgroundColor: isCurrentlyAssumed ? Colors.orange[700] : Colors.amber[700],
           foregroundColor: Colors.white,

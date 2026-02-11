@@ -567,6 +567,44 @@ BEGIN
       OR user_has_role(auth.uid(), 'accountant')
     )
   );
+
+  -- Staff can view debts they created or kitchen debts (vip_bartender, receptionist, kitchen_staff can all record kitchen credit)
+  DROP POLICY IF EXISTS "Staff can view relevant debts" ON public.debts;
+  CREATE POLICY "Staff can view relevant debts" ON public.debts FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND (
+        debts.sold_by = auth.uid()
+        OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+        OR (
+          COALESCE(debts.source_department, debts.department) = 'restaurant'
+          AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+        )
+      )
+    )
+  );
+
+  -- Staff can update kitchen debts: vip_bartender, receptionist, or kitchen_staff (any can record kitchen credit sales)
+  DROP POLICY IF EXISTS "Staff can update own debts" ON public.debts;
+  CREATE POLICY "Staff can update own debts" ON public.debts FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid()
+      AND p.status = 'Active'
+      AND (
+        debts.sold_by = auth.uid()
+        OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+        OR (
+          COALESCE(debts.source_department, debts.department) = 'restaurant'
+          AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+        )
+      )
+    )
+  );
 EXCEPTION
   WHEN OTHERS THEN
     NULL;
@@ -1637,10 +1675,10 @@ BEGIN
         'purchaser' = ANY(p.roles) OR
         'manager' = ANY(p.roles) OR
         'owner' = ANY(p.roles) OR
-        ('vip_bartender' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'VIP Bar')) OR
+        ('vip_bartender' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name IN ('VIP Bar', 'Kitchen'))) OR
         ('outside_bartender' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Outside Bar')) OR
         ('kitchen_staff' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Kitchen')) OR
-        ('receptionist' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name = 'Mini Mart'))
+        ('receptionist' = ANY(p.roles) AND location_id IN (SELECT id FROM public.locations WHERE name IN ('Mini Mart', 'Kitchen')))
       )
       AND (
         transaction_type <> 'Direct_Supply'
@@ -2005,6 +2043,7 @@ BEGIN
     AND (
       user_has_role(auth.uid(), 'receptionist')
       OR user_has_role(auth.uid(), 'kitchen_staff')
+      OR user_has_role(auth.uid(), 'vip_bartender')
       OR user_has_role(auth.uid(), 'manager')
       OR user_has_role(auth.uid(), 'owner')
     )
@@ -2522,15 +2561,16 @@ BEGIN
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.profiles p
+      INNER JOIN public.debts d ON d.id = debt_payments.debt_id
       WHERE p.id = auth.uid()
       AND p.status = 'Active'
       AND (
-        EXISTS (
-          SELECT 1 FROM public.debts d
-          WHERE d.id = debt_payments.debt_id
-          AND d.sold_by = auth.uid()
-        )
+        d.sold_by = auth.uid()
         OR (p.roles && ARRAY['manager', 'owner', 'accountant'])
+        OR (
+          COALESCE(d.source_department, d.department) = 'restaurant'
+          AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles))
+        )
       )
     )
   );
@@ -2554,6 +2594,74 @@ DROP TRIGGER IF EXISTS trg_finance_audit_debt_payments ON public.debt_payments;
 CREATE TRIGGER trg_finance_audit_debt_payments
 AFTER INSERT OR UPDATE OR DELETE ON public.debt_payments
 FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+-- debt_payment_claims: staff record collections; management approves to move into debt_payments
+CREATE TABLE IF NOT EXISTS public.debt_payment_claims (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  debt_id UUID REFERENCES public.debts(id) ON DELETE CASCADE NOT NULL,
+  amount INT8 NOT NULL,
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'transfer', 'card', 'other')),
+  payment_date DATE DEFAULT CURRENT_DATE NOT NULL,
+  recorded_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL NOT NULL,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  approved_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.debt_payment_claims ENABLE ROW LEVEL SECURITY;
+
+-- Management: full access
+DROP POLICY IF EXISTS "Management access debt payment claims" ON public.debt_payment_claims;
+CREATE POLICY "Management access debt payment claims" ON public.debt_payment_claims FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid() AND p.status = 'Active'
+    AND (p.roles && ARRAY['owner', 'manager', 'accountant'])
+  )
+);
+
+-- Staff: INSERT for debts where source_department matches their role
+DROP POLICY IF EXISTS "Staff can insert debt payment claims for department" ON public.debt_payment_claims;
+CREATE POLICY "Staff can insert debt payment claims for department" ON public.debt_payment_claims FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.profiles p
+    INNER JOIN public.debts d ON d.id = debt_id
+    WHERE p.id = auth.uid() AND p.status = 'Active'
+    AND recorded_by = auth.uid()
+    AND (
+      (COALESCE(d.source_department, d.department) = 'reception' AND 'receptionist' = ANY(p.roles))
+      OR (COALESCE(d.source_department, d.department) = 'mini_mart' AND 'receptionist' = ANY(p.roles))
+      OR (COALESCE(d.source_department, d.department) = 'restaurant' AND ('kitchen_staff' = ANY(p.roles) OR 'vip_bartender' = ANY(p.roles) OR 'receptionist' = ANY(p.roles)))
+      OR (COALESCE(d.source_department, d.department) = 'vip_bar' AND 'vip_bartender' = ANY(p.roles))
+      OR (COALESCE(d.source_department, d.department) = 'outside_bar' AND 'outside_bartender' = ANY(p.roles))
+      OR (COALESCE(d.source_department, d.department) = 'housekeeping' AND ('housekeeper' = ANY(p.roles) OR 'cleaner' = ANY(p.roles)))
+      OR (COALESCE(d.source_department, d.department) = 'laundry' AND 'laundry_attendant' = ANY(p.roles))
+    )
+  )
+);
+
+-- Staff: SELECT own claims
+DROP POLICY IF EXISTS "Staff can view own debt payment claims" ON public.debt_payment_claims;
+CREATE POLICY "Staff can view own debt payment claims" ON public.debt_payment_claims FOR SELECT
+USING (
+  recorded_by = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = auth.uid() AND p.status = 'Active'
+    AND (p.roles && ARRAY['owner', 'manager', 'accountant'])
+  )
+);
+
+DROP TRIGGER IF EXISTS trg_debt_payment_claims_updated ON public.debt_payment_claims;
+CREATE TRIGGER trg_debt_payment_claims_updated
+BEFORE UPDATE ON public.debt_payment_claims
+FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 ALTER TABLE public.purchase_budgets ENABLE ROW LEVEL SECURITY;
 

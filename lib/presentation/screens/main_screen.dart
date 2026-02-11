@@ -22,12 +22,12 @@ List<NavigationItem> _computeNavItems(AuthService auth) {
   for (var role in userRoles) {
     accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(role));
   }
-  if (auth.isRoleAssumed && auth.assumedRole != null) {
-    accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(auth.assumedRole!));
+  for (final role in auth.activeAssumedRoles) {
+    accessibleFeatures.addAll(PermissionManager.getAccessibleFeatures(role));
   }
   final featuresList = accessibleFeatures.toList();
   final isReceptionist = userRoles.contains(AppRole.receptionist) ||
-      (auth.isRoleAssumed && auth.assumedRole == AppRole.receptionist);
+      auth.hasAssumedRole(AppRole.receptionist);
 
   final items = <NavigationItem>[];
   if (featuresList.contains('dashboard')) {
@@ -554,107 +554,144 @@ void _showAssumeRoleSheet(BuildContext context) {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (context) {
-        final authService = Provider.of<AuthService>(context, listen: false);
-        final roles = <Map<String, dynamic>>[
-          {'label': 'VIP Bar Bartender', 'role': AppRole.vip_bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
-          {'label': 'Outside Bar Bartender', 'role': AppRole.outside_bartender, 'icon': Icons.local_bar_outlined, 'color': Colors.deepPurple},
-          {'label': 'Receptionist', 'role': AppRole.receptionist, 'icon': Icons.support_agent, 'color': Colors.indigo},
-          {'label': 'Storekeeper', 'role': AppRole.storekeeper, 'icon': Icons.inventory_2, 'color': Colors.teal},
-          {'label': 'Purchaser', 'role': AppRole.purchaser, 'icon': Icons.shopping_cart, 'color': Colors.blue},
-          {'label': 'Accountant', 'role': AppRole.accountant, 'icon': Icons.calculate, 'color': Colors.green},
-          {'label': 'Kitchen Staff', 'role': AppRole.kitchen_staff, 'icon': Icons.restaurant, 'color': Colors.orange},
-        ];
+        return Consumer<AuthService>(
+          builder: (context, authService, _) {
+            final roles = <Map<String, dynamic>>[
+              {'label': 'VIP Bar Bartender', 'role': AppRole.vip_bartender, 'icon': Icons.local_bar, 'color': Colors.purple},
+              {'label': 'Outside Bar Bartender', 'role': AppRole.outside_bartender, 'icon': Icons.local_bar_outlined, 'color': Colors.deepPurple},
+              {'label': 'Receptionist', 'role': AppRole.receptionist, 'icon': Icons.support_agent, 'color': Colors.indigo},
+              {'label': 'Storekeeper', 'role': AppRole.storekeeper, 'icon': Icons.inventory_2, 'color': Colors.teal},
+              {'label': 'Purchaser', 'role': AppRole.purchaser, 'icon': Icons.shopping_cart, 'color': Colors.blue},
+              {'label': 'Accountant', 'role': AppRole.accountant, 'icon': Icons.calculate, 'color': Colors.green},
+              {'label': 'Kitchen Staff', 'role': AppRole.kitchen_staff, 'icon': Icons.restaurant, 'color': Colors.orange},
+            ];
 
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.5,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
-          builder: (context, scrollController) => Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.55,
+              minChildSize: 0.4,
+              maxChildSize: 0.9,
+              builder: (context, scrollController) => Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.swap_horiz),
-                    const SizedBox(width: 8),
-                    const Text('Assume a Role', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const Spacer(),
-                    if (authService.isRoleAssumed)
-                      TextButton.icon(
-                        onPressed: () {
-                          authService.returnToOriginalRole();
-                          Navigator.pop(context);
-                        },
-                        icon: const Icon(Icons.undo),
-                        label: const Text('Return'),
+                    Row(
+                      children: [
+                        const Icon(Icons.admin_panel_settings),
+                        const SizedBox(width: 8),
+                        const Text('Multi-Role Session', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const Spacer(),
+                        if (authService.activeAssumedRoles.isNotEmpty)
+                          TextButton.icon(
+                            onPressed: () {
+                              authService.clearAssumedRoles();
+                              if (context.mounted) {
+                                ErrorHandler.showInfoMessage(context, 'Cleared all assumed roles');
+                              }
+                            },
+                            icon: const Icon(Icons.clear_all),
+                            label: const Text('Clear All'),
+                          ),
+                      ],
+                    ),
+                    if (authService.activeAssumedRoles.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: authService.activeAssumedRoles.map((role) {
+                          final r = roles.firstWhere(
+                            (m) => m['role'] == role,
+                            orElse: () => {'label': role.name, 'color': Colors.grey},
+                          );
+                          final Color base = r['color'] is Color ? r['color'] as Color : Colors.grey;
+                          return Chip(
+                            label: Text(AuthService.getRoleDisplayName(role)),
+                            deleteIcon: const Icon(Icons.close, size: 16),
+                            onDeleted: () {
+                              authService.dropAssumedRole(role);
+                              if (context.mounted) {
+                                ErrorHandler.showInfoMessage(context, 'Dropped ${AuthService.getRoleDisplayName(role)}');
+                              }
+                            },
+                            backgroundColor: base.withOpacity(0.2),
+                          );
+                        }).toList(),
                       ),
+                      const SizedBox(height: 16),
+                      const Text('Assume another role:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                    ],
+                    Expanded(
+                      child: GridView.builder(
+                        controller: scrollController,
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 1.1,
+                        ),
+                        itemCount: roles.length,
+                        itemBuilder: (context, i) {
+                          final r = roles[i];
+                          final Color base = r['color'] as Color;
+                          final AppRole role = r['role'] as AppRole;
+                          final bool selected = authService.hasAssumedRole(role);
+                          return InkWell(
+                            onTap: () {
+                              if (selected) {
+                                authService.dropAssumedRole(role);
+                                if (context.mounted) {
+                                  ErrorHandler.showInfoMessage(context, 'Dropped ${r['label']}');
+                                }
+                              } else {
+                                authService.assumeRole(role);
+                                if (context.mounted) {
+                                  ErrorHandler.showInfoMessage(context, 'Now assuming ${r['label']}');
+                                }
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                gradient: LinearGradient(
+                                  colors: [base.withOpacity(0.15), base.withOpacity(0.35)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                border: Border.all(color: selected ? base : base.withOpacity(0.3), width: selected ? 2 : 1),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: base.withOpacity(0.2),
+                                    child: Icon(r['icon'] as IconData, color: base),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    r['label'] as String,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  if (selected) const Text('Tap to drop', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: GridView.builder(
-                    controller: scrollController,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.1,
-                    ),
-                    itemCount: roles.length,
-                    itemBuilder: (context, i) {
-                      final r = roles[i];
-                      final Color base = r['color'] as Color;
-                      final bool selected = authService.isRoleAssumed && authService.assumedRole == r['role'];
-                      return InkWell(
-                        onTap: () {
-                          authService.assumeRole(r['role'] as AppRole);
-                          Navigator.pop(context);
-                          if (context.mounted) {
-                            ErrorHandler.showInfoMessage(
-                              context,
-                              'Now assuming ${r['label']}',
-                            );
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(14),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            gradient: LinearGradient(
-                              colors: [base.withOpacity(0.15), base.withOpacity(0.35)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            border: Border.all(color: selected ? base : base.withOpacity(0.3), width: selected ? 2 : 1),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: base.withOpacity(0.2),
-                                child: Icon(r['icon'] as IconData, color: base),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                r['label'] as String,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -677,59 +714,21 @@ class _AssumeRoleButtonContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isRoleAssumed = context.select<AuthService, bool>((a) => a.isRoleAssumed);
-    final assumedRole = context.select<AuthService, AppRole?>((a) => a.assumedRole);
+    final activeCount = context.select<AuthService, int>((a) => a.activeAssumedRoles.length);
     final authService = Provider.of<AuthService>(context, listen: false);
-    final currentRoute = GoRouterState.of(context).uri.toString();
-    final suggestedRole = AuthService.getSuggestedRoleForRoute(currentRoute);
-    final buttonLabel = suggestedRole != null
-        ? 'Assume ${AuthService.getRoleDisplayName(suggestedRole)}'
-        : 'Assume Role';
-    return Row(
-      children: [
-        if (isRoleAssumed && assumedRole != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.orange.shade400, Colors.orange.shade600]),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  AuthService.getRoleDisplayName(assumedRole),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
-                ),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: () => authService.returnToOriginalRole(),
-                  child: const Icon(Icons.close, color: Colors.white, size: 14),
-                ),
-              ],
-            ),
-          ),
-        if (isRoleAssumed && assumedRole != null) const SizedBox(width: 10),
-        ElevatedButton.icon(
-          onPressed: () => suggestedRole != null
-              ? _assumeSpecificRole(context, suggestedRole)
-              : _showAssumeRoleSheet(context),
-          icon: const Icon(Icons.person_outline, size: 18),
-          label: Text(buttonLabel),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: suggestedRole != null ? Colors.orange[700] : Colors.green[800],
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            textStyle: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+    final hasRoles = activeCount > 0;
+    return Badge(
+      isLabelVisible: hasRoles,
+      label: Text('$activeCount'),
+      child: IconButton(
+        onPressed: () => _showAssumeRoleSheet(context),
+        icon: const Icon(Icons.admin_panel_settings),
+        tooltip: hasRoles ? 'Manage assumed roles ($activeCount active)' : 'Assume role(s)',
+        style: IconButton.styleFrom(
+          backgroundColor: hasRoles ? Colors.orange[700] : Colors.green[800],
+          foregroundColor: Colors.white,
         ),
-      ],
+      ),
     );
   }
 }

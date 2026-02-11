@@ -48,6 +48,33 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   Map<String, List<String>> _roomImages = {}; // roomType -> list of image URLs
   List<Map<String, dynamic>> _roomTypes = []; // Room types loaded from database
   bool _isLoadingRoomTypes = false;
+  bool _hasPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasPrecached || !mounted) return;
+    _hasPrecached = true;
+    // Precache asynchronously - do NOT block UI
+    WidgetsBinding.instance.addPostFrameCallback((_) => _precachePriorityImages());
+  }
+
+  /// Precaches Hero images + first Facility card only (priority above-the-fold content)
+  Future<void> _precachePriorityImages() async {
+    if (!mounted) return;
+    final priorityPaths = [
+      ..._heroImages,
+      'assets/images/VIP Bar/VIP Bar 1.JPG', // First facility card user sees
+    ];
+    for (final path in priorityPaths) {
+      if (!mounted) return;
+      try {
+        await precacheImage(AssetImage(path), context);
+      } catch (e) {
+        if (kDebugMode) debugPrint('DEBUG precache $path: $e');
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -787,13 +814,38 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                               ),
                               errorWidget: (context, url, error) => const Icon(Icons.error),
                             )
-                          : Image.asset(
-                              item.url,
-                              fit: BoxFit.cover,
-                              cacheWidth: 800,
-                              cacheHeight: 600,
-                              gaplessPlayback: true,
-                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                final size = constraints.maxWidth.clamp(100.0, 400.0);
+                                return OptimizationHelpers.buildAssetImage(
+                                  assetPath: item.url,
+                                  width: size,
+                                  height: size,
+                                  fit: BoxFit.cover,
+                                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                    if (frame == null) {
+                                      return Shimmer.fromColors(
+                                        baseColor: Colors.grey[300]!,
+                                        highlightColor: Colors.grey[100]!,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[300],
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return TweenAnimationBuilder<double>(
+                                      tween: Tween(begin: 0, end: 1),
+                                      duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOut,
+                                      builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                                      child: child,
+                                    );
+                                  },
+                                  errorWidget: const Icon(Icons.error),
+                                );
+                              },
                             ),
                 ),
                 // Gradient overlay
@@ -1149,40 +1201,62 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Image.asset(
-              imageUrl,
+            SizedBox(
               height: 250,
               width: double.infinity,
-              fit: BoxFit.cover,
-              cacheWidth: 800,
-              cacheHeight: 500,
-              gaplessPlayback: true,
-              errorBuilder: (context, error, stackTrace) => Container(
+              child: OptimizationHelpers.buildAssetImage(
+                assetPath: imageUrl,
+                width: double.infinity,
                 height: 250,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.green[200]!, Colors.green[400]!],
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      name.toLowerCase().contains('bar') ? Icons.local_bar :
-                      name.toLowerCase().contains('restaurant') ? Icons.restaurant : Icons.hotel,
-                      color: Colors.white.withOpacity(0.8),
-                      size: 60,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      name,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
+                fit: BoxFit.cover,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  if (frame == null) {
+                    return Shimmer.fromColors(
+                      baseColor: Colors.grey[300]!,
+                      highlightColor: Colors.grey[100]!,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
+                    );
+                  }
+                  return TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                    builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                    child: child,
+                  );
+                },
+                errorWidget: Container(
+                  height: 250,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.green[200]!, Colors.green[400]!],
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        name.toLowerCase().contains('bar') ? Icons.local_bar :
+                        name.toLowerCase().contains('restaurant') ? Icons.restaurant : Icons.hotel,
+                        color: Colors.white.withOpacity(0.8),
+                        size: 60,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        name,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1273,73 +1347,116 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'Contact Us',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isMobile = ResponsiveHelper.isMobile(context);
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              const Text('+234 815 750 5978', style: TextStyle(color: Colors.white70)),
-                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
-                              const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
+                              const Text(
+                                'Contact Us',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              if (isMobile)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    const Text('+234 815 750 5978', style: TextStyle(color: Colors.white70)),
+                                    const SizedBox(height: 4),
+                                    const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
+                                    const SizedBox(height: 4),
+                                    const Text('Unity FM Junction, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
+                                  ],
+                                )
+                              else
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Text('+234 815 750 5978', style: TextStyle(color: Colors.white70)),
+                                        Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                        const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text('Unity FM Junction, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
+                                  ],
+                                ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          const Text('Unity FM Junction, Amike-Aba, Abakaliki', style: TextStyle(color: Colors.white70)),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'Quick Links',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              InkWell(
-                                onTap: () => context.push('/guest/about'),
-                                child: const Text('About Us', style: TextStyle(color: Colors.white70)),
+                              const Text(
+                                'Quick Links',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
-                              InkWell(
-                                onTap: () => context.push('/guest/services'),
-                                child: const Text('Services', style: TextStyle(color: Colors.white70)),
-                              ),
-                              Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
-                              InkWell(
-                                onTap: () => context.push('/guest/contact'),
-                                child: const Text('Contact', style: TextStyle(color: Colors.white70)),
-                              ),
+                              const SizedBox(height: 12),
+                              if (isMobile)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    InkWell(
+                                      onTap: () => context.push('/guest/about'),
+                                      child: const Text('About Us', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    InkWell(
+                                      onTap: () => context.push('/guest/services'),
+                                      child: const Text('Services', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    InkWell(
+                                      onTap: () => context.push('/guest/contact'),
+                                      child: const Text('Contact', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                  ],
+                                )
+                              else
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    InkWell(
+                                      onTap: () => context.push('/guest/about'),
+                                      child: const Text('About Us', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                    Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                    InkWell(
+                                      onTap: () => context.push('/guest/services'),
+                                      child: const Text('Services', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                    Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                    InkWell(
+                                      onTap: () => context.push('/guest/contact'),
+                                      child: const Text('Contact', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                  ],
+                                ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                  ],
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -1677,6 +1794,22 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                   cacheWidth: cacheW,
                   cacheHeight: cacheH,
                   gaplessPlayback: true,
+                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                    if (frame == null) {
+                      return Shimmer.fromColors(
+                        baseColor: Colors.grey[300]!,
+                        highlightColor: Colors.grey[100]!,
+                        child: Container(color: Colors.grey[300]),
+                      );
+                    }
+                    return TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                      builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                      child: child,
+                    );
+                  },
                   errorBuilder: (context, error, stackTrace) {
                     if (kDebugMode) {
                       print('Failed to load image: $imagePath');

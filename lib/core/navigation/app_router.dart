@@ -218,21 +218,17 @@ class AppRouter {
             path: '/dashboard',
             name: 'dashboard',
             builder: (context, state) {
-              final authService = Provider.of<AuthService>(context, listen: false);
-              final user = authService.currentUser;
-              final userRole = authService.isRoleAssumed 
-                  ? (authService.assumedRole ?? user?.role) 
-                  : user?.role;
-              
-              // Management roles get the full dashboard
-              final isManagement = userRole == AppRole.owner || 
-                                   userRole == AppRole.manager || 
-                                   userRole == AppRole.supervisor ||
-                                   userRole == AppRole.accountant ||
-                                   userRole == AppRole.hr;
-              
-              return isManagement 
-                  ? const DashboardScreen() 
+              final user = Provider.of<AuthService>(context, listen: false).currentUser;
+              // Persistent identity: dashboard type is ALWAYS based on primary role, never assumed roles
+              final primaryRole = user?.role;
+              final isManagement = primaryRole == AppRole.owner ||
+                  primaryRole == AppRole.manager ||
+                  primaryRole == AppRole.supervisor ||
+                  primaryRole == AppRole.accountant ||
+                  primaryRole == AppRole.hr;
+
+              return isManagement
+                  ? const DashboardScreen()
                   : const StaffDashboardScreen();
             },
           ),
@@ -286,8 +282,7 @@ class AppRouter {
               
               final roles = <AppRole>{
                 ...user.roles,
-                if (authService.isRoleAssumed && authService.assumedRole != null)
-                  authService.assumedRole!,
+                ...authService.activeAssumedRoles,
               };
               
               // Management should only see approval screen, not recording screen
@@ -357,20 +352,16 @@ class AppRouter {
         builder: (context, state) {
           final booking = state.extra as Booking?;
           if (booking == null) {
-            final authService = Provider.of<AuthService>(context, listen: false);
-            final user = authService.currentUser;
-            final userRole = authService.isRoleAssumed 
-                ? (authService.assumedRole ?? user?.role) 
-                : user?.role;
-            
-            final isManagement = userRole == AppRole.owner || 
-                                 userRole == AppRole.manager || 
-                                 userRole == AppRole.supervisor ||
-                                 userRole == AppRole.accountant ||
-                                 userRole == AppRole.hr;
-            
-            return isManagement 
-                ? const DashboardScreen() 
+            final user = Provider.of<AuthService>(context, listen: false).currentUser;
+            final primaryRole = user?.role;
+            final isManagement = primaryRole == AppRole.owner ||
+                primaryRole == AppRole.manager ||
+                primaryRole == AppRole.supervisor ||
+                primaryRole == AppRole.accountant ||
+                primaryRole == AppRole.hr;
+
+            return isManagement
+                ? const DashboardScreen()
                 : const StaffDashboardScreen();
           }
           return BookingDetailsScreen(booking: booking);
@@ -386,7 +377,7 @@ class AppRouter {
           if (userProfile == null || userProfile.isEmpty) {
             final authService = Provider.of<AuthService>(context, listen: false);
             final currentUser = authService.currentUser;
-            
+
             if (currentUser != null) {
               // Return a FutureBuilder to load profile from database
               return FutureBuilder<Map<String, dynamic>>(
@@ -482,22 +473,15 @@ class AppRouter {
           if (currentUser != null) {
             final authService = Provider.of<AuthService>(context, listen: false);
             
-            // Check assumed role first, then check all user roles
+            // Check user roles + assumed roles (view injection: assumed roles grant access)
             bool hasAccess = false;
             AppRole? checkedRole;
-            
-            if (authService.isRoleAssumed && authService.assumedRole != null) {
-              // Use assumed role
-              checkedRole = authService.assumedRole;
-              hasAccess = _hasAccessToRoute(authService.assumedRole!, location);
-            } else {
-              // Check if any of the user's roles have access
-              for (final role in currentUser.roles) {
-                if (_hasAccessToRoute(role, location)) {
-                  hasAccess = true;
-                  checkedRole = role;
-                  break;
-                }
+            final effectiveRoles = [...currentUser.roles, ...authService.activeAssumedRoles];
+            for (final role in effectiveRoles) {
+              if (_hasAccessToRoute(role, location)) {
+                hasAccess = true;
+                checkedRole = role;
+                break;
               }
             }
             
@@ -510,8 +494,7 @@ class AppRouter {
                 'userId': currentUser.id,
                 'userRoles': currentUser.roles.map((r) => r.name).toList(),
                 'primaryRole': currentUser.role.name,
-                'isRoleAssumed': authService.isRoleAssumed,
-                'assumedRole': authService.assumedRole?.name,
+                'activeAssumedRoles': authService.activeAssumedRoles.map((r) => r.name).toList(),
                 'checkedRole': checkedRole?.name,
                 'hasAccess': hasAccess
               },
@@ -928,18 +911,14 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             try {
-              final authService = Provider.of<AuthService>(context, listen: false);
-              final user = authService.currentUser;
-              final userRole = authService.isRoleAssumed 
-                  ? (authService.assumedRole ?? user?.role) 
-                  : user?.role;
-              
-              final isManagement = userRole == AppRole.owner || 
-                                   userRole == AppRole.manager || 
-                                   userRole == AppRole.supervisor ||
-                                   userRole == AppRole.accountant ||
-                                   userRole == AppRole.hr;
-              
+              final user = Provider.of<AuthService>(context, listen: false).currentUser;
+              final primaryRole = user?.role;
+              final isManagement = primaryRole == AppRole.owner ||
+                  primaryRole == AppRole.manager ||
+                  primaryRole == AppRole.supervisor ||
+                  primaryRole == AppRole.accountant ||
+                  primaryRole == AppRole.hr;
+
               context.go(isManagement ? '/dashboard' : '/dashboard');
             } catch (e, stackTrace) {
               if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');

@@ -49,8 +49,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
     final roles = <AppRole>{
       ...user.roles,
-      if (authService.isRoleAssumed && authService.assumedRole != null)
-        authService.assumedRole!,
+      ...authService.activeAssumedRoles,
     };
 
     _isManagement = roles.contains(AppRole.owner) ||
@@ -104,8 +103,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
     final roles = <AppRole>{
       ...user.roles,
-      if (authService.isRoleAssumed && authService.assumedRole != null)
-        authService.assumedRole!,
+      ...authService.activeAssumedRoles,
     };
 
     // Management should NOT be able to record stock counts - they only review

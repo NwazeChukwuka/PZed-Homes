@@ -36,7 +36,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     final authService = Provider.of<AuthService>(context, listen: true);
     final user = authService.currentUser;
     final isStorekeeper = (user?.roles.any((r) => r.name == 'storekeeper') ?? false);
-    final isAssumedStorekeeper = authService.isRoleAssumed && authService.assumedRole?.name == 'storekeeper';
+    final isAssumedStorekeeper = authService.hasAssumedRole(AppRole.storekeeper);
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final showFullFunctionality = isStorekeeper || isAssumedStorekeeper;
         
@@ -45,7 +45,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     if (isOwnerOrManager && !isAssumedStorekeeper) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Store View'),
+          title: const Text('Store View', overflow: TextOverflow.ellipsis, maxLines: 1),
           backgroundColor: Colors.green[700],
           foregroundColor: Colors.white,
           leading: Navigator.of(context).canPop() ? IconButton(
@@ -63,7 +63,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     if (!showFullFunctionality) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Storekeeper Dashboard'),
+          title: const Text('Storekeeper Dashboard', overflow: TextOverflow.ellipsis, maxLines: 1),
           backgroundColor: Colors.green[700],
           foregroundColor: Colors.white,
           leading: Navigator.of(context).canPop() ? IconButton(
@@ -80,7 +80,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Storekeeper Dashboard'),
+        title: const Text('Storekeeper Dashboard', overflow: TextOverflow.ellipsis, maxLines: 1),
         backgroundColor: Colors.green[700],
         foregroundColor: Colors.white,
         leading: Navigator.of(context).canPop() ? IconButton(

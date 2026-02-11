@@ -16,8 +16,8 @@ class AuthService with ChangeNotifier {
   bool _isClockedIn = false;
   DateTime? _clockInTime;
   String? _currentAttendanceId;
-  bool _isRoleAssumed = false;
-  AppRole? _assumedRole;
+  /// Session-only list of assumed roles. Never persisted; cleared on logout/refresh.
+  final List<AppRole> _activeAssumedRoles = [];
   StreamSubscription<AuthState>? _authStateSubscription;
   
   // Track if user data is currently loading to prevent concurrent loads
@@ -39,8 +39,14 @@ class AuthService with ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   bool get isClockedIn => _isClockedIn;
   DateTime? get clockInTime => _clockInTime;
-  bool get isRoleAssumed => _isRoleAssumed;
-  AppRole? get assumedRole => _assumedRole;
+  /// True if any roles are currently assumed (for backward compatibility).
+  bool get isRoleAssumed => _activeAssumedRoles.isNotEmpty;
+  /// First assumed role, or null. Kept for backward compat during migration.
+  AppRole? get assumedRole => _activeAssumedRoles.isNotEmpty ? _activeAssumedRoles.first : null;
+  /// Read-only list of all active assumed roles.
+  List<AppRole> get activeAssumedRoles => List.unmodifiable(_activeAssumedRoles);
+  /// Check if a specific role is currently assumed.
+  bool hasAssumedRole(AppRole role) => _activeAssumedRoles.contains(role);
   
   /// Set flag to ignore auth state changes during staff account creation
   /// This prevents the app from auto-logging in as the newly created staff member
@@ -152,6 +158,7 @@ class AuthService with ChangeNotifier {
               _clockInTime = null;
               _currentAttendanceId = null;
               _isLoading = false;
+              clearAssumedRoles();
               notifyListeners();
               return;
             } catch (e) {
@@ -184,6 +191,7 @@ class AuthService with ChangeNotifier {
           _clockInTime = null;
           _currentAttendanceId = null;
           _isLoading = false;
+          clearAssumedRoles();
           notifyListeners();
         }
       });
@@ -582,6 +590,7 @@ class AuthService with ChangeNotifier {
     _isLoadingUserData = false;
     _isLoggingIn = false;
     _isLoading = false;
+    clearAssumedRoles();
     notifyListeners();
   }
 
@@ -609,7 +618,7 @@ class AuthService with ChangeNotifier {
     if (_currentUser == null) return false;
     final roles = <AppRole>{
       ..._currentUser!.roles,
-      if (_isRoleAssumed && _assumedRole != null) _assumedRole!,
+      ..._activeAssumedRoles,
     };
     return roles.contains(AppRole.owner) ||
         roles.contains(AppRole.manager) ||
@@ -624,21 +633,34 @@ class AuthService with ChangeNotifier {
     return _currentUser != null;
   }
 
+  /// Add a role to the active assumed roles (stacking). Idempotent if already assumed.
   void assumeRole(AppRole role) {
-    _isRoleAssumed = true;
-    _assumedRole = role;
-    notifyListeners();
+    if (!_activeAssumedRoles.contains(role)) {
+      _activeAssumedRoles.add(role);
+      notifyListeners();
+    }
   }
 
-  void clearAssumedRole() {
-    _isRoleAssumed = false;
-    _assumedRole = null;
-    notifyListeners();
+  /// Remove a specific assumed role.
+  void dropAssumedRole(AppRole role) {
+    if (_activeAssumedRoles.remove(role)) {
+      notifyListeners();
+    }
   }
 
-  void returnToOriginalRole() {
-    clearAssumedRole();
+  /// Clear all assumed roles. Called on logout/refresh.
+  void clearAssumedRoles() {
+    if (_activeAssumedRoles.isNotEmpty) {
+      _activeAssumedRoles.clear();
+      notifyListeners();
+    }
   }
+
+  @Deprecated('Use dropAssumedRole or clearAssumedRoles instead')
+  void clearAssumedRole() => clearAssumedRoles();
+
+  @Deprecated('Use dropAssumedRole for specific role, or clearAssumedRoles for all')
+  void returnToOriginalRole() => clearAssumedRoles();
 
   static AppRole? getSuggestedRoleForRoute(String route) {
     if (route.contains('/inventory')) return null;
