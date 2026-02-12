@@ -186,6 +186,8 @@ class ReportingService {
   }
 
   // --- New Enhanced Profit & Loss Reporting with Supabase ---
+  // Unified: Room Bookings + Mini Mart + Kitchen/Restaurant + Bar Sales
+  // Expenses: Inventory Restocking + Staff Payroll + General Maintenance + Utility bills
   Future<PLData> getProfitAndLoss({
     required TimePeriod period,
     DateTime? customStart,
@@ -194,81 +196,180 @@ class ReportingService {
     try {
       final now = DateTime.now();
       final dateRange = _getDateRange(period, now, customStart, customEnd);
+      final startStr = dateRange.start.toIso8601String().split('T')[0];
+      final endStr = dateRange.end.toIso8601String().split('T')[0];
 
-      // 1. Fetch detailed revenue items (bookings)
+      // 1. Room Bookings (checked-out)
       final revenueResponse = await _supabase
           .from('bookings')
           .select('''
-            id,
-            created_at,
-            guest_profile_id,
-            room_id,
-            requested_room_type,
-            check_in_date,
-            check_out_date,
-            status,
-            total_amount,
-            paid_amount,
-            extra_charges,
-            notes,
-            created_by,
-            updated_at,
-            payment_method,
-            guest_name,
-            guest_email,
-            guest_phone,
-            rooms!inner(type),
-            profiles!guest_profile_id(full_name)
+            id, total_amount, paid_amount, extra_charges, status,
+            rooms!inner(type)
           ''')
           .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
           .gte('check_out_date', dateRange.start.toIso8601String())
           .lte('check_out_date', dateRange.end.toIso8601String());
-
       final revenueItemsRaw = revenueResponse as List<Map<String, dynamic>>;
       final revenueItems = revenueItemsRaw
           .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
           .toList();
 
-      // 2. Fetch detailed expense items
+      // 2. Department revenue: Mini Mart, Kitchen/Restaurant, VIP Bar, Outside Bar, Reception
+      // Primary: department_sales (aligned with dashboard). Fallback: income_records, mini_mart_sales, kitchen_sales
+      int miniMartSales = 0;
+      int kitchenSales = 0;
+      int vipBarSales = 0;
+      int outsideBarSales = 0;
+      int receptionSales = 0;
+
+      try {
+        final deptResp = await _supabase
+            .from('department_sales')
+            .select('department, total_sales')
+            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant', 'reception'])
+            .gte('date', startStr)
+            .lte('date', endStr);
+        for (final r in deptResp as List) {
+          final dept = r['department']?.toString() ?? '';
+          final amt = (r['total_sales'] as num?)?.toInt() ?? 0;
+          if (dept == 'vip_bar') vipBarSales += amt;
+          else if (dept == 'outside_bar') outsideBarSales += amt;
+          else if (dept == 'mini_mart') miniMartSales += amt;
+          else if (dept == 'restaurant') kitchenSales += amt;
+          else if (dept == 'reception') receptionSales += amt;
+        }
+      } catch (_) {}
+
+      if (miniMartSales == 0) {
+        try {
+          final mmResp = await _supabase
+              .from('mini_mart_sales')
+              .select('total_amount')
+              .gte('sale_date', startStr)
+              .lte('sale_date', endStr);
+          miniMartSales = (mmResp as List).fold<int>(0, (s, r) => s + ((r['total_amount'] as num?)?.toInt() ?? 0));
+        } catch (_) {}
+      }
+      if (kitchenSales == 0) {
+        try {
+          final kResp = await _supabase
+              .from('kitchen_sales')
+              .select('total_amount')
+              .gte('created_at', dateRange.start.toIso8601String())
+              .lte('created_at', dateRange.end.toIso8601String());
+          kitchenSales = (kResp as List).fold<int>(0, (s, r) => s + ((r['total_amount'] as num?)?.toInt() ?? 0));
+        } catch (_) {}
+      }
+      if (vipBarSales == 0 && outsideBarSales == 0) {
+        try {
+          final incResp = await _supabase
+              .from('income_records')
+              .select('department, amount')
+              .gte('date', startStr)
+              .lte('date', endStr);
+          for (final r in incResp as List) {
+            final dept = (r['department']?.toString() ?? '').toLowerCase();
+            var amt = (r['amount'] as num?)?.toInt() ?? 0;
+            if (amt == 0) amt = (r['amount'] as num?)?.toDouble()?.round() ?? 0;
+            if (amt > 0 && amt < 100000) amt = amt * 100;
+            if (dept == 'vip_bar') vipBarSales += amt;
+            else if (dept == 'outside_bar') outsideBarSales += amt;
+            else if (dept == 'mini_mart') miniMartSales += amt;
+            else if (dept == 'restaurant' || dept == 'kitchen') kitchenSales += amt;
+            else if (dept == 'reception') receptionSales += amt;
+          }
+        } catch (_) {}
+      }
+
+      // 5. Expenses
       final expenseResponse = await _supabase
           .from('expenses')
           .select('*')
-          .gte('transaction_date', dateRange.start.toIso8601String())
-          .lte('transaction_date', dateRange.end.toIso8601String());
-
+          .gte('transaction_date', startStr)
+          .lte('transaction_date', endStr);
       final expenseItems = expenseResponse as List<Map<String, dynamic>>;
 
-      // 3. Load room type prices if not cached
-      if (_roomTypePrices == null || 
-          _roomTypeCacheTime == null ||
+      // 6. Payroll
+      final payrollResponse = await _supabase
+          .from('payroll_records')
+          .select('amount')
+          .gte('month', startStr)
+          .lte('month', endStr);
+      final payrollTotal = (payrollResponse as List).fold<int>(0, (s, r) => s + ((r['amount'] as num?)?.toInt() ?? 0));
+
+      // 7. Load room type prices for breakdown
+      if (_roomTypePrices == null || _roomTypeCacheTime == null ||
           DateTime.now().difference(_roomTypeCacheTime!).inMinutes > _cacheExpiryMinutes) {
         await _loadRoomTypePrices();
       }
-      
-      // 4. Calculate totals from actual booking totals
-      final totalRevenue = revenueItems.fold<int>(0, (sum, booking) {
+
+      // 8. Room revenue from bookings
+      int roomRevenueTotal = revenueItems.fold<int>(0, (sum, booking) {
         final totalAmount = (booking['total_amount'] as num?)?.toInt();
         final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
-        final extras = ((booking['extra_charges'] ?? []) as List)
-            .fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
+        final extras = ((booking['extra_charges'] ?? []) as List).fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
         final baseTotal = totalAmount ?? paidAmount;
         final normalizedTotal = baseTotal >= extras ? baseTotal : baseTotal + extras;
         return sum + normalizedTotal;
       });
 
-      final totalExpenses = expenseItems.fold<int>(
-        0,
-        (sum, expense) => sum + ((expense['amount'] ?? 0) as int),
+      final totalRevenue = roomRevenueTotal + miniMartSales + kitchenSales + vipBarSales + outsideBarSales + receptionSales;
+      var totalExpenses = expenseItems.fold<int>(0, (s, e) => s + ((e['amount'] ?? 0) as int)) + payrollTotal;
+
+      // 9. Revenue breakdown (always include all categories, use ₦0 if zero)
+      final revenueBreakdown = _generateUnifiedRevenueBreakdown(
+        revenueItems,
+        miniMartSales,
+        kitchenSales,
+        vipBarSales,
+        outsideBarSales,
+        receptionSales,
       );
 
-      // Generate breakdown data (room prices are already loaded)
-      final revenueBreakdown = _generateRevenueBreakdown(revenueItems);
-      final expenseBreakdown = _generateExpenseBreakdown(expenseItems);
+      // 10. Inventory restocking (purchase orders) and maintenance
+      int inventoryRestocking = 0;
+      int maintenanceTotal = 0;
+      try {
+        final poResp = await _supabase
+            .from('purchase_orders')
+            .select('purchase_order_items(quantity, unit_price), total_cost')
+            .gte('created_at', dateRange.start.toIso8601String())
+            .lte('created_at', dateRange.end.toIso8601String());
+        for (final po in poResp as List) {
+          final items = po['purchase_order_items'] as List?;
+          if (items != null && items.isNotEmpty) {
+            for (final it in items) {
+              inventoryRestocking += ((it['quantity'] as num?) ?? 0).toInt() * ((it['unit_price'] as num?) ?? 0).toInt();
+            }
+          } else {
+            inventoryRestocking += ((po['total_cost'] as num?) ?? 0).toInt();
+          }
+        }
+      } catch (_) {}
+      try {
+        final mwoResp = await _supabase
+            .from('maintenance_work_orders')
+            .select('actual_cost')
+            .eq('status', 'Completed')
+            .gte('created_at', dateRange.start.toIso8601String())
+            .lte('created_at', dateRange.end.toIso8601String());
+        maintenanceTotal = (mwoResp as List).fold<int>(0, (s, r) => s + ((r['actual_cost'] as num?)?.toInt() ?? 0));
+      } catch (_) {}
+
+      final totalExpensesWithExtras = totalExpenses + inventoryRestocking + maintenanceTotal;
+
+      // 11. Expense breakdown (always include standard categories, use ₦0 if zero)
+      final expenseBreakdown = _generateUnifiedExpenseBreakdown(
+        expenseItems,
+        payrollTotal,
+        inventoryRestocking,
+        maintenanceTotal,
+      );
 
       return PLData(
         totalRevenue: totalRevenue,
-        totalExpenses: totalExpenses,
-        netProfit: totalRevenue - totalExpenses,
+        totalExpenses: totalExpensesWithExtras,
+        netProfit: totalRevenue - totalExpensesWithExtras,
         revenueItems: revenueItems,
         expenseItems: expenseItems,
         revenueBreakdown: revenueBreakdown,
@@ -279,46 +380,112 @@ class ReportingService {
     }
   }
 
-  List<CategoryAmount> _generateRevenueBreakdown(List<Map<String, dynamic>> revenueItems) {
+  List<CategoryAmount> _generateUnifiedRevenueBreakdown(
+    List<Map<String, dynamic>> revenueItems,
+    int miniMartSales,
+    int kitchenSales,
+    int vipBarSales,
+    int outsideBarSales,
+    int receptionSales,
+  ) {
     final breakdown = <String, int>{};
-    
-    // Room prices should already be loaded by the caller
-    // If not, use 0 as fallback
+
+    // Room bookings by type
     for (var booking in revenueItems) {
-      final roomType = booking['rooms']['type'] as String;
+      final rooms = booking['rooms'];
+      String roomType = 'Standard Room';
+      if (rooms is Map && rooms['type'] != null) {
+        roomType = rooms['type'] as String;
+      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
+        roomType = (rooms.first as Map)['type'] as String? ?? roomType;
+      }
       final totalAmount = (booking['total_amount'] as num?)?.toInt();
       final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
-      final extras = ((booking['extra_charges'] ?? []) as List);
-      final extrasSum = extras.fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
+      final extras = ((booking['extra_charges'] ?? []) as List).fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
       final baseTotal = totalAmount ?? paidAmount;
-      final roomRevenue = baseTotal >= extrasSum ? baseTotal - extrasSum : baseTotal;
-
+      final roomRevenue = baseTotal >= extras ? baseTotal - extras : baseTotal;
       breakdown[roomType] = (breakdown[roomType] ?? 0) + roomRevenue;
-
-      // Add extra charges (if present)
-      for (var charge in extras) {
-        final item = charge['item'] as String? ?? 'Extra Service';
-        breakdown[item] = (breakdown[item] ?? 0) + ((charge['price'] ?? 0) as int);
-      }
     }
-    
-    return breakdown.entries
-        .map((e) => CategoryAmount(category: e.key, amount: e.value))
-        .toList();
+
+    // Add fixed revenue categories (always show, even if zero - data safety)
+    breakdown['Mini Mart'] = miniMartSales;
+    breakdown['Kitchen/Restaurant'] = kitchenSales;
+    breakdown['VIP Bar'] = vipBarSales;
+    breakdown['Outside Bar'] = outsideBarSales;
+    breakdown['Reception'] = receptionSales;
+
+    const deptOrder = [
+      'Mini Mart',
+      'Kitchen/Restaurant',
+      'VIP Bar',
+      'Outside Bar',
+      'Reception',
+    ];
+    final result = <CategoryAmount>[];
+    final roomEntries = breakdown.entries.where((e) => !deptOrder.contains(e.key)).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    for (final e in roomEntries) {
+      result.add(CategoryAmount(category: e.key, amount: e.value));
+    }
+    for (final cat in deptOrder) {
+      result.add(CategoryAmount(category: cat, amount: breakdown[cat] ?? 0));
+    }
+    return result;
   }
 
-  List<CategoryAmount> _generateExpenseBreakdown(List<Map<String, dynamic>> expenseItems) {
+  List<CategoryAmount> _generateUnifiedExpenseBreakdown(
+    List<Map<String, dynamic>> expenseItems,
+    int payrollTotal,
+    int inventoryRestockingFromPO,
+    int maintenanceFromMWO,
+  ) {
+    const standardCategories = [
+      'Inventory Restocking',
+      'Staff Payroll',
+      'General Maintenance',
+      'Utility bills',
+    ];
     final breakdown = <String, int>{};
-    
-    for (var expense in expenseItems) {
-      final category = expense['category'] as String? ?? 'Other';
-      final amount = (expense['amount'] ?? 0) as int;
-      breakdown[category] = (breakdown[category] ?? 0) + amount;
+    for (final cat in standardCategories) {
+      breakdown[cat] = 0;
     }
-    
-    return breakdown.entries
-        .map((e) => CategoryAmount(category: e.key, amount: e.value))
-        .toList();
+    breakdown['Other'] = 0;
+
+    breakdown['Inventory Restocking'] = inventoryRestockingFromPO;
+    breakdown['General Maintenance'] = maintenanceFromMWO;
+
+    // Map expense category/department to standard categories
+    for (var expense in expenseItems) {
+      final category = (expense['category'] as String?)?.toLowerCase() ?? '';
+      final department = (expense['department'] as String?)?.toLowerCase() ?? '';
+      final amount = (expense['amount'] ?? 0) as int;
+
+      if (category.contains('inventory') || category.contains('restock') ||
+          department.contains('storekeeping') || department.contains('purchasing')) {
+        breakdown['Inventory Restocking'] = (breakdown['Inventory Restocking'] ?? 0) + amount;
+      } else if (category.contains('payroll') || category.contains('salary') || department.contains('hr')) {
+        breakdown['Staff Payroll'] = (breakdown['Staff Payroll'] ?? 0) + amount;
+      } else if (category.contains('maintenance') || category.contains('repair')) {
+        breakdown['General Maintenance'] = (breakdown['General Maintenance'] ?? 0) + amount;
+      } else if (category.contains('utility') || category.contains('electric') || category.contains('water')) {
+        breakdown['Utility bills'] = (breakdown['Utility bills'] ?? 0) + amount;
+      } else {
+        breakdown['Other'] = (breakdown['Other'] ?? 0) + amount;
+      }
+    }
+    breakdown['Staff Payroll'] = (breakdown['Staff Payroll'] ?? 0) + payrollTotal;
+
+    const allCategories = [
+      'Inventory Restocking',
+      'Staff Payroll',
+      'General Maintenance',
+      'Utility bills',
+      'Other',
+    ];
+    return allCategories.map((cat) => CategoryAmount(
+      category: cat,
+      amount: breakdown[cat] ?? 0,
+    )).toList();
   }
 
   // Helper to get room price from database

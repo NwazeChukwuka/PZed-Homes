@@ -88,11 +88,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           _buildHeader(context),
           Container(
             color: Colors.white,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 2,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
             child: TabBar(
               controller: _tabController,
-              labelColor: Colors.green[800],
-              unselectedLabelColor: Colors.grey[600],
-              indicatorColor: Colors.green[800],
+              labelColor: Colors.green[700],
+              unselectedLabelColor: Colors.grey[700],
+              indicatorColor: Colors.green[700],
               tabs: const [
                 Tab(text: 'Financial', icon: Icon(Icons.account_balance)),
                 Tab(text: 'Guest', icon: Icon(Icons.people)),
@@ -250,22 +260,42 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _buildPeriodSelector(),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: _generateReport,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Generate Report'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800],
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 400;
+              return isNarrow
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildPeriodSelector(),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _generateReport,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Generate Report'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[800],
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(child: _buildPeriodSelector()),
+                        const SizedBox(width: 16),
+                        ElevatedButton.icon(
+                          onPressed: _generateReport,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Generate Report'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[800],
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    );
+            },
           ),
         ],
       ),
@@ -279,7 +309,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(height: 8),
         Wrap(
-          spacing: 8,
+          spacing: 8.0,
+          runSpacing: 8.0,
           children: [
             ChoiceChip(
               label: const Text('This Month'),
@@ -349,20 +380,17 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       children: [
         _buildSummaryCard(revenue, expenses, netProfit),
         const SizedBox(height: 16),
-        if (_plData!.revenueBreakdown.isNotEmpty)
-          _buildBreakdownSection(
-            'Revenue Breakdown',
-            _plData!.revenueBreakdown,
-            Colors.green,
-          ),
-        if (_plData!.expenseBreakdown.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          _buildBreakdownSection(
-            'Expense Breakdown',
-            _plData!.expenseBreakdown,
-            Colors.red,
-          ),
-        ],
+        _buildBreakdownSection(
+          'Revenue Breakdown',
+          _plData!.revenueBreakdown,
+          Colors.green,
+        ),
+        const SizedBox(height: 16),
+        _buildBreakdownSection(
+          'Expense Breakdown',
+          _plData!.expenseBreakdown,
+          Colors.red,
+        ),
       ],
     );
   }
@@ -458,13 +486,27 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           const SizedBox(height: 16),
           ...items.map(
             (item) => ListTile(
-              title: Text(item.category),
-              trailing: Text(
-                currencyFormatter.format(PaymentService.koboToNaira(item.amount)),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+              title: Text(
+                item.category,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      currencyFormatter.format(PaymentService.koboToNaira(item.amount)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

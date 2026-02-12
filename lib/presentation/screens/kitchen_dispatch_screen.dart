@@ -54,6 +54,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   List<Map<String, dynamic>> _filteredItems = [];
   List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
+  bool _showMobileSaleSheet = false;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
@@ -237,7 +238,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       builder: (context, constraints) {
                         final width = MediaQuery.sizeOf(context).width;
                         final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                        final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
+                        final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
                         return GridView.builder(
                           padding: const EdgeInsets.all(16),
                           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -268,17 +269,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   SizedBox(
-                                    height: 28,
+                                    height: 90,
                                     width: double.infinity,
                                     child: Container(
                                       decoration: BoxDecoration(
                                         color: Colors.grey[200],
                                         borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: const Icon(Icons.restaurant, size: 18),
+                                      child: const Icon(Icons.restaurant, size: 32),
                                     ),
                                   ),
-                                  const SizedBox(height: 3),
+                                  const SizedBox(height: 4),
                                   Text(
                                     item['name']?.toString() ?? 'Unknown',
                                     style: const TextStyle(
@@ -296,6 +297,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                       fontWeight: FontWeight.bold,
                                       fontSize: 10,
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
                               ),
@@ -419,20 +422,31 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _salePaymentMethod,
-                  decoration: const InputDecoration(
-                    labelText: 'Payment Method',
-                    border: OutlineInputBorder(),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Text('Total: ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Flexible(
+                        child: Text(
+                          '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _salePaymentMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
                   items: const [
                     DropdownMenuItem(value: 'cash', child: Text('Cash')),
                     DropdownMenuItem(value: 'card', child: Text('Card')),
@@ -520,9 +534,257 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
               ],
             ),
           ),
+        ),
         ],
       ),
     ),
+    );
+  }
+
+  Widget _buildKitchenMobileSaleBar() {
+    return Material(
+      elevation: 8,
+      color: Colors.white,
+      child: InkWell(
+        onTap: () => setState(() => _showMobileSaleSheet = true),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                Icon(Icons.shopping_cart, color: Colors.orange.shade800),
+                const SizedBox(width: 12),
+                const Text('Total: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Flexible(
+                  child: Text(
+                    '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.orange.shade800,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Spacer(),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+                const SizedBox(width: 4),
+                const Text('View Cart', style: TextStyle(fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKitchenMobileSaleSheet() {
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _showMobileSaleSheet = false),
+            child: Container(color: Colors.black54),
+            behavior: HitTestBehavior.opaque,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) => GestureDetector(
+                onTap: () {},
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            Flexible(
+                              child: Text(
+                                '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange.shade800),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => setState(() => _showMobileSaleSheet = false),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _currentSale.isEmpty
+                            ? const Center(child: Text('Tap items to add', style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                controller: scrollController,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _currentSale.length,
+                                itemBuilder: (context, index) {
+                                  final item = _currentSale[index];
+                                  final name = item['name'] as String? ?? 'Item';
+                                  final price = (item['price'] as num).toDouble();
+                                  final qty = item['quantity'] as int? ?? 1;
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    child: ListTile(
+                                      title: Text(name),
+                                      subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            '₦${NumberFormat('#,##0.00').format(price * qty)}',
+                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                            onPressed: () => _removeItemFromSale(index),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildKitchenMobileSaleSheetActions(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKitchenMobileSaleSheetActions() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _salePaymentMethod,
+          decoration: const InputDecoration(
+            labelText: 'Payment Method',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          items: const [
+            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+            DropdownMenuItem(value: 'card', child: Text('Card')),
+            DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+            DropdownMenuItem(value: 'credit', child: Text('Credit (Pay Later)')),
+          ],
+          onChanged: (val) => setState(() => _salePaymentMethod = val ?? 'cash'),
+        ),
+        if (_salePaymentMethod == 'credit' && !_chargeToRoom) ...[
+          const SizedBox(height: 8),
+          TextField(
+            controller: _saleCreditCustomerNameController,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Customer Name *',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _saleCreditCustomerPhoneController,
+            textInputAction: TextInputAction.done,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Phone *',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Charge to Room'),
+          value: _chargeToRoom,
+          onChanged: (val) {
+            setState(() {
+              _chargeToRoom = val;
+              if (!val) _selectedBookingId = null;
+            });
+          },
+        ),
+        if (_chargeToRoom) ...[
+          const SizedBox(height: 4),
+          DropdownButtonFormField<String>(
+            value: _selectedBookingId,
+            decoration: const InputDecoration(
+              labelText: 'Booking',
+              border: OutlineInputBorder(),
+            ),
+            items: _bookings
+                .map((booking) {
+                  final guestName = booking['guest_name'] as String? ??
+                      (booking['profiles'] as Map<String, dynamic>?)?['full_name'] as String? ??
+                      'Guest';
+                  final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ??
+                      booking['requested_room_type']?.toString() ??
+                      'Room';
+                  return DropdownMenuItem(
+                    value: booking['id'] as String,
+                    child: Text('$guestName • $roomNumber'),
+                  );
+                })
+                .toList(),
+            onChanged: (val) => setState(() => _selectedBookingId = val),
+          ),
+        ],
+        const SizedBox(height: 16),
+        _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ElevatedButton.icon(
+                onPressed: _currentSale.isEmpty ? null : _recordKitchenSale,
+                icon: const Icon(Icons.point_of_sale),
+                label: const Text('Record Sale'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade800,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+        if (_currentSale.isNotEmpty)
+          TextButton(
+            onPressed: () {
+              _clearSale();
+              setState(() => _showMobileSaleSheet = false);
+            },
+            child: const Text('Clear Sale'),
+          ),
+      ],
     );
   }
 
@@ -1944,9 +2206,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           // Dispatch tab
                           Column(
                             children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Form(
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Form(
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2137,163 +2400,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     ),
                   ),
                 ),
-              const Divider(thickness: 2),
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Recent Dispatches',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                child: Column(
-                                  children: [
-                                    Row(
-                                      children: [
-          Expanded(
-                                          child: DropdownButtonFormField<String>(
-                                            value: _dispatchFilterPaymentStatus,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Payment Status',
-                                              border: OutlineInputBorder(),
-                                            ),
-                                            items: const [
-                                              DropdownMenuItem(value: 'all', child: Text('All')),
-                                              DropdownMenuItem(value: 'paid', child: Text('Paid')),
-                                              DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
-                                            ],
-                                            onChanged: (val) => setState(() {
-                                              _dispatchFilterPaymentStatus = val ?? 'all';
-                                              _invalidateFilteredCaches();
-                                            }),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: () async {
-                                              final now = DateTime.now();
-                                              final picked = await showDateRangePicker(
-                                                context: context,
-                                                firstDate: DateTime(now.year - 2),
-                                                lastDate: DateTime(now.year + 1),
-                                                initialDateRange: _dispatchFilterRange,
-                                              );
-                                              if (picked != null) {
-                                                setState(() {
-                                                _dispatchFilterRange = picked;
-                                                _invalidateFilteredCaches();
-                                              });
-                                              }
-                                            },
-                                            icon: const Icon(Icons.date_range),
-                                            label: Text(
-                                              _dispatchFilterRange == null
-                                                  ? 'Date range'
-                                                  : '${DateFormat('MMM dd').format(_dispatchFilterRange!.start)} - ${DateFormat('MMM dd').format(_dispatchFilterRange!.end)}',
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: DropdownButtonFormField<String>(
-                                            value: _dispatchFilterDepartment,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Destination Department',
-                                              border: OutlineInputBorder(),
-                                            ),
-                                            items: [
-                                              const DropdownMenuItem(value: 'all', child: Text('All')),
-                                              ..._departments.map((dept) => DropdownMenuItem(
-                                                    value: dept['name'] as String,
-                                                    child: Text(_formatDepartmentName(dept['name'] as String)),
-                                                  )),
-                                            ],
-                                            onChanged: (val) => setState(() {
-                                              _dispatchFilterDepartment = val ?? 'all';
-                                              _invalidateFilteredCaches();
-                                            }),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: DropdownButtonFormField<String>(
-                                            value: _dispatchFilterStaffId,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Dispatched By',
-                                              border: OutlineInputBorder(),
-                                            ),
-                                            items: [
-                                              const DropdownMenuItem(value: 'all', child: Text('All')),
-                                              ..._uniqueDispatchStaffItems(),
-                                            ],
-                                            onChanged: (val) => setState(() {
-                                              _dispatchFilterStaffId = val ?? 'all';
-                                              _invalidateFilteredCaches();
-                                            }),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (_dispatchFilterRange != null)
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton(
-                                          onPressed: () => setState(() {
-                                          _dispatchFilterRange = null;
-                                          _invalidateFilteredCaches();
-                                        }),
-                                          child: const Text('Clear date filter'),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: _filteredDispatchHistory.isEmpty
-                                    ? ErrorHandler.buildEmptyWidget(
-                    context,
-                                        message: 'No recent dispatches',
-                                      )
-                                    : ListView.builder(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        itemCount: _filteredDispatchHistory.length,
-                                        itemBuilder: (context, index) {
-                                          final transfer = _filteredDispatchHistory[index];
-                                          final menuItem =
-                                              transfer['menu_items'] as Map<String, dynamic>?;
-                                          final itemName = menuItem?['name'] ?? 'Unknown Item';
-                                          final destination = transfer['destination_department']?.toString() ?? 'Unknown';
-                                          final booking = transfer['bookings'] as Map<String, dynamic>?;
-                                          final bookingGuest = booking?['guest_name'] as String?;
-                                          return Card(
-                                            margin: const EdgeInsets.symmetric(vertical: 4),
-                                            child: ListTile(
-                                              leading:
-                                                  const Icon(Icons.send, color: Colors.orange),
-                                              title: Text(
-                                                'To: ${_formatDepartmentName(destination)}',
-                                              ),
-                                              subtitle: Text(
-                                                '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'
-                                                ' • Pay: ${transfer['payment_status'] ?? 'paid'}'
-                                                '${bookingGuest != null ? ' • $bookingGuest' : ''}',
-                                              ),
-                                              trailing: Text(
-                                                transfer['created_at'] != null
-                                                    ? _formatDate(transfer['created_at'] as String)
-                                                    : '',
-                                                style: const TextStyle(fontSize: 12),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
                               ),
                             ],
                           ),
@@ -2302,11 +2408,16 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                             children: [
                               Expanded(
                                 child: MediaQuery.sizeOf(context).width < 600
-                                    ? Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    ? Stack(
                                         children: [
-                                          _buildKitchenSalesGrid(),
-                                          _buildKitchenCurrentSaleSection(),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                                            children: [
+                                              Expanded(child: _buildKitchenSalesGrid()),
+                                              if (_currentSale.isNotEmpty) _buildKitchenMobileSaleBar(),
+                                            ],
+                                          ),
+                                          if (_showMobileSaleSheet) _buildKitchenMobileSaleSheet(),
                                         ],
                                       )
                                     : Row(
@@ -2315,120 +2426,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                           _buildKitchenSalesGrid(),
                                           _buildKitchenCurrentSaleSection(),
                                         ],
-                                      ),
-                              ),
-                              const Divider(thickness: 2),
-                              const Padding(
-                                padding: EdgeInsets.all(16.0),
-                                child: Text(
-                                  'Recent Kitchen Sales',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                child: Column(
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: DropdownButtonFormField<String>(
-                                            value: _salesFilterPaymentMethod,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Payment Method',
-                                              border: OutlineInputBorder(),
-                                            ),
-                                            items: const [
-                                              DropdownMenuItem(value: 'all', child: Text('All')),
-                                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                                              DropdownMenuItem(value: 'card', child: Text('Card')),
-                                              DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
-                                              DropdownMenuItem(value: 'credit', child: Text('Credit')),
-                                            ],
-                                            onChanged: (val) => setState(() {
-                                              _salesFilterPaymentMethod = val ?? 'all';
-                                              _invalidateFilteredCaches();
-                                            }),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: () async {
-                                              final now = DateTime.now();
-                                              final picked = await showDateRangePicker(
-                                                context: context,
-                                                firstDate: DateTime(now.year - 2),
-                                                lastDate: DateTime(now.year + 1),
-                                                initialDateRange: _salesFilterRange,
-                                              );
-                                              if (picked != null) {
-                                                setState(() {
-                                                _salesFilterRange = picked;
-                                                _invalidateFilteredCaches();
-                                              });
-                                              }
-                                            },
-                                            icon: const Icon(Icons.date_range),
-                                            label: Text(
-                                              _salesFilterRange == null
-                                                  ? 'Date range'
-                                                  : '${DateFormat('MMM dd').format(_salesFilterRange!.start)} - ${DateFormat('MMM dd').format(_salesFilterRange!.end)}',
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (_salesFilterRange != null)
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton(
-                                          onPressed: () => setState(() {
-                                          _salesFilterRange = null;
-                                          _invalidateFilteredCaches();
-                                        }),
-                                          child: const Text('Clear date filter'),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: _filteredSalesHistory.isEmpty
-                                    ? ErrorHandler.buildEmptyWidget(
-                    context,
-                                        message: 'No recent kitchen sales',
-                                      )
-                                    : ListView.builder(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        itemCount: _filteredSalesHistory.length,
-                                        itemBuilder: (context, index) {
-                                          final sale = _filteredSalesHistory[index];
-                                          final itemName = sale['item_name'] ??
-                                              (sale['menu_items'] as Map<String, dynamic>?)?['name'] ??
-                                              'Item';
-                                          final qty = sale['quantity'] ?? 0;
-                                          final total = sale['total_amount'] as int? ?? 0;
-                                          final bookingId = sale['booking_id'];
-                                          final booking = sale['bookings'] as Map<String, dynamic>?;
-                                          final bookingGuest = booking?['guest_name'] as String?;
-                                          return Card(
-                                            margin: const EdgeInsets.symmetric(vertical: 4),
-                                            child: ListTile(
-                                              leading: const Icon(Icons.receipt_long, color: Colors.orange),
-                                              title: Text('$itemName × $qty'),
-                                              subtitle: Text(
-                                                'Payment: ${sale['payment_method'] ?? 'cash'}'
-                                                '${bookingId != null ? ' • Room Charge' : ''}'
-                                                '${bookingGuest != null ? ' • $bookingGuest' : ''}',
-                                              ),
-                                              trailing: Text(
-                                                '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
-                                                style: const TextStyle(fontWeight: FontWeight.bold),
-                                              ),
-                                            ),
-                                          );
-                                        },
                                       ),
                               ),
                             ],

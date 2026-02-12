@@ -52,6 +52,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   // Sales state variables
   List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
+  bool _showMobileSaleSheet = false;
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit sales
@@ -301,15 +302,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               icon: const Icon(Icons.arrow_back),
               onPressed: () => context.pop(),
             ) : null,
-            bottom: TabBar(
-              controller: _tabController,
-              tabs: [
-                const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
-                const Tab(text: 'Stock Movements', icon: Icon(Icons.trending_up)),
-                if (isBartender)
-                  const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
-              ],
-            ),
             actions: [
               ContextAwareRoleButton(
                 suggestedRole: _selectedBar == 'outside_bar'
@@ -337,13 +329,44 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 ),
             ],
           ),
-          body: TabBarView(
-            controller: _tabController,
+          body: Column(
             children: [
-              _buildCurrentStockTab(),
-              _buildStockMovementsTab(),
-              if (isBartender)
-                _buildMakeSaleTab(),
+              Container(
+                color: Colors.white,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 2,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.green[800],
+                  unselectedLabelColor: Colors.grey[600],
+                  indicatorColor: Colors.green[800],
+                  tabs: [
+                    const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
+                    const Tab(text: 'History', icon: Icon(Icons.history)),
+                    if (isBartender)
+                      const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildCurrentStockTab(),
+                    _buildStockMovementsTab(),
+                    if (isBartender)
+                      _buildMakeSaleTab(),
+                  ],
+                ),
+              ),
             ],
           ),
           floatingActionButton: showAddItemButton
@@ -670,7 +693,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     final filteredItems = _filterItemsForSales(items);
                     final width = MediaQuery.sizeOf(context).width;
                     final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                    final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
+                    final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
 
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
@@ -696,9 +719,237 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       flex: 1,
       child: _buildCurrentSaleSection(),
     );
-    return isMobile
-        ? Column(children: [gridSection, saleSection])
-        : Row(children: [gridSection, saleSection]);
+    if (isMobile) {
+      return Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(child: gridSection),
+              if (_currentSale.isNotEmpty) _buildMobileSaleBar(),
+            ],
+          ),
+          if (_showMobileSaleSheet) _buildInventoryMobileSaleSheet(),
+        ],
+      );
+    }
+    return Row(children: [gridSection, saleSection]);
+  }
+
+  Widget _buildMobileSaleBar() {
+    return Material(
+      elevation: 8,
+      child: InkWell(
+        onTap: () => setState(() => _showMobileSaleSheet = true),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: Colors.white,
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                const Icon(Icons.shopping_cart, color: Colors.green),
+                const SizedBox(width: 12),
+                Text(
+                  'Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Colors.green,
+                  ),
+                ),
+                const Spacer(),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+                const SizedBox(width: 4),
+                const Text('View Cart', style: TextStyle(fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInventoryMobileSaleSheet() {
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _showMobileSaleSheet = false),
+            child: Container(color: Colors.black54),
+            behavior: HitTestBehavior.opaque,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) => GestureDetector(
+                onTap: () {},
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            Text(
+                              '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => setState(() => _showMobileSaleSheet = false),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _currentSale.isEmpty
+                            ? const Center(child: Text('No items selected', style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                controller: scrollController,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _currentSale.length,
+                                itemBuilder: (context, index) {
+                                  final saleItem = _currentSale[index];
+                                  return _buildCurrentSaleItem(saleItem);
+                                },
+                              ),
+                      ),
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildInventoryMobileSaleSheetActions(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInventoryMobileSaleSheetActions() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _paymentMethod,
+          decoration: const InputDecoration(
+            labelText: 'Payment Method',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+            DropdownMenuItem(value: 'card', child: Text('Card')),
+            DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+            DropdownMenuItem(value: 'credit', child: Text('Credit (Pay Later)')),
+          ],
+          onChanged: (value) => setState(() => _paymentMethod = value!),
+        ),
+        if (_paymentMethod == 'credit') ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              border: Border.all(color: Colors.orange[300]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Customer name and phone are required for credit sales.',
+                    style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _customerNameController,
+            decoration: const InputDecoration(
+              labelText: 'Customer Name *',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _customerPhoneController,
+            decoration: const InputDecoration(
+              labelText: 'Customer Phone *',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _approvedByController,
+            decoration: const InputDecoration(
+              labelText: 'Approved By (Optional)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _currentSale.isEmpty
+                    ? null
+                    : () {
+                        _clearSale();
+                        setState(() => _showMobileSaleSheet = false);
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[600],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Clear'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _currentSale.isEmpty ? null : _processSale,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[700],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Process Sale'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _buildBarSelectionForSales() {
@@ -797,17 +1048,17 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 28,
+                height: 90,
                 width: double.infinity,
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Icon(Icons.inventory, size: 18),
+                  child: const Icon(Icons.inventory, size: 32),
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 4),
               Text(
                 item['name']?.toString() ?? 'Unknown',
                 style: const TextStyle(
@@ -825,6 +1076,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   fontWeight: FontWeight.bold,
                   fontSize: 10,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 1),
               Text(
@@ -834,6 +1087,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   fontSize: 9,
                   fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),

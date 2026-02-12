@@ -44,6 +44,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   List<Map<String, dynamic>> _currentSale = [];
   List<Map<String, dynamic>> _salesHistory = [];
   double _saleTotal = 0.0;
+  bool _showMobileSaleSheet = false;
   bool _isLoading = true;
   
   // Customer info
@@ -962,7 +963,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           builder: (context, constraints) {
                             final width = MediaQuery.sizeOf(context).width;
                             final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                            final childAspectRatio = width < 600 ? 0.85 : (width < 1000 ? 0.9 : 0.95);
+                            final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
                             return GridView.builder(
                               padding: const EdgeInsets.all(16),
                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -993,17 +994,17 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       SizedBox(
-                                        height: 28,
+                                        height: 90,
                                         width: double.infinity,
                                         child: Container(
                                           decoration: BoxDecoration(
                                             color: Colors.grey[200],
                                             borderRadius: BorderRadius.circular(4),
                                           ),
-                                          child: const Icon(Icons.inventory, size: 18),
+                                          child: const Icon(Icons.inventory, size: 32),
                                         ),
                                       ),
-                                      const SizedBox(height: 3),
+                                      const SizedBox(height: 4),
                                       Text(
                                         item['name']?.toString() ?? 'Unknown',
                                         style: const TextStyle(
@@ -1021,6 +1022,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                           fontWeight: FontWeight.bold,
                                           fontSize: 10,
                                         ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 1),
                                       Text(
@@ -1030,6 +1033,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                           fontSize: 9,
                                           fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
                                         ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
                                   ),
@@ -1263,9 +1268,242 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             ),
           ),
     );
-    return isMobile
-        ? Column(children: [gridSection, saleSection])
-        : Row(children: [gridSection, saleSection]);
+    if (isMobile) {
+      return Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(child: gridSection),
+              if (_currentSale.isNotEmpty) _buildMiniMartMobileSaleBar(),
+            ],
+          ),
+          if (_showMobileSaleSheet) _buildMiniMartMobileSaleSheet(),
+        ],
+      );
+    }
+    return Row(children: [gridSection, saleSection]);
+  }
+
+  Widget _buildMiniMartMobileSaleBar() {
+    return Material(
+      elevation: 8,
+      child: InkWell(
+        onTap: () => setState(() => _showMobileSaleSheet = true),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: Colors.white,
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                const Icon(Icons.shopping_cart, color: Colors.green),
+                const SizedBox(width: 12),
+                Text(
+                  'Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Colors.green,
+                  ),
+                ),
+                const Spacer(),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
+                const SizedBox(width: 4),
+                const Text('View Cart', style: TextStyle(fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniMartMobileSaleSheet() {
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _showMobileSaleSheet = false),
+            child: Container(color: Colors.black54),
+            behavior: HitTestBehavior.opaque,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) => GestureDetector(
+                onTap: () {},
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            Text(
+                              '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => setState(() => _showMobileSaleSheet = false),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _currentSale.isEmpty
+                            ? const Center(child: Text('No items in cart', style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                controller: scrollController,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _currentSale.length,
+                                itemBuilder: (context, index) {
+                                  final item = _currentSale[index];
+                                  return ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: Colors.green[100],
+                                      child: Text(
+                                        '${item['quantity']}',
+                                        style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    title: Text(item['name']?.toString() ?? 'Unknown'),
+                                    subtitle: Text('₦${NumberFormat('#,##0.00').format(item['price'])} each'),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.remove, size: 16),
+                                          onPressed: () => _updateItemQuantity(index, (item['quantity'] as int) - 1),
+                                        ),
+                                        Text('${item['quantity']}'),
+                                        IconButton(
+                                          icon: const Icon(Icons.add, size: 16),
+                                          onPressed: () => _updateItemQuantity(index, (item['quantity'] as int) + 1),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildMiniMartMobileSaleSheetActions(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniMartMobileSaleSheetActions() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _paymentMethod,
+          decoration: const InputDecoration(
+            labelText: 'Payment Method',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          items: const [
+            DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+            DropdownMenuItem(value: 'Card', child: Text('Card')),
+            DropdownMenuItem(value: 'Transfer', child: Text('Transfer')),
+            DropdownMenuItem(value: 'Credit', child: Text('Credit (Pay Later)')),
+          ],
+          onChanged: (value) => setState(() => _paymentMethod = value!),
+        ),
+        if (_paymentMethod == 'Credit')
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 12),
+              TextField(
+                controller: _customerNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name *',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _customerPhoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Phone *',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _approvedByController,
+                decoration: const InputDecoration(
+                  labelText: 'Approved By (Optional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  _clearSale();
+                  setState(() => _showMobileSaleSheet = false);
+                },
+                child: const Text('Clear'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                onPressed: _processSale,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Process Sale'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _buildSalesHistory() {
