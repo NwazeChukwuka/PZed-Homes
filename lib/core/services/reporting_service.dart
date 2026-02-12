@@ -332,14 +332,14 @@ class ReportingService {
       try {
         final poResp = await _supabase
             .from('purchase_orders')
-            .select('purchase_order_items(quantity, unit_price), total_cost')
+            .select('purchase_order_items(quantity, unit_cost), total_cost')
             .gte('created_at', dateRange.start.toIso8601String())
             .lte('created_at', dateRange.end.toIso8601String());
         for (final po in poResp as List) {
           final items = po['purchase_order_items'] as List?;
           if (items != null && items.isNotEmpty) {
             for (final it in items) {
-              inventoryRestocking += ((it['quantity'] as num?) ?? 0).toInt() * ((it['unit_price'] as num?) ?? 0).toInt();
+              inventoryRestocking += ((it['quantity'] as num?) ?? 0).toInt() * ((it['unit_cost'] as num?) ?? 0).toInt();
             }
           } else {
             inventoryRestocking += ((po['total_cost'] as num?) ?? 0).toInt();

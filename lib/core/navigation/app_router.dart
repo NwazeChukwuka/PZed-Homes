@@ -648,8 +648,15 @@ Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
 }
 
 /// Root decider widget that determines initial route
-class RootDecider extends StatelessWidget {
+class RootDecider extends StatefulWidget {
   const RootDecider({super.key});
+
+  @override
+  State<RootDecider> createState() => _RootDeciderState();
+}
+
+class _RootDeciderState extends State<RootDecider> {
+  bool _navigationScheduled = false;
 
   @override
   Widget build(BuildContext context) {
@@ -698,23 +705,22 @@ class RootDecider extends StatelessWidget {
 
         // If user is logged in and fully loaded, navigate to dashboard route (which includes MainScreen with sidebar)
         // This ensures the sidebar/drawer is always available
-        // Use a post-frame callback with a small delay to ensure ShellRoute is ready
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (context.mounted && authService.isLoggedIn && authService.currentUser != null) {
-            try {
-                // Use go() to navigate to dashboard, which is inside ShellRoute
-                // This ensures MainScreen wrapper is applied
-              context.go('/dashboard');
-            } catch (e, stackTrace) {
-              if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
-              if (context.mounted) {
-                context.go('/guest');
+        // Only schedule once - prevents re-navigation on every AuthService notify
+        if (!_navigationScheduled) {
+          _navigationScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (context.mounted && authService.isLoggedIn && authService.currentUser != null) {
+                try {
+                  context.go('/dashboard');
+                } catch (e, stackTrace) {
+                  if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
+                  if (context.mounted) context.go('/guest');
+                }
               }
-            }
-          }
+            });
           });
-        });
+        }
         
         // Show a loading screen while navigating
         // This prevents showing the dashboard without sidebar

@@ -3203,3 +3203,19 @@ EXCEPTION
   WHEN OTHERS THEN
     NULL;
 END $$;
+
+-- ==============================================
+-- Kitchen History: Owner/Manager SELECT for kitchen_sales and department_transfers
+-- Allows management to view Transaction History without assuming role
+-- ==============================================
+DROP POLICY IF EXISTS "Owner and Manager can view kitchen sales" ON public.kitchen_sales;
+CREATE POLICY "Owner and Manager can view kitchen sales" ON public.kitchen_sales FOR SELECT
+USING (
+  user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager')
+);
+
+DROP POLICY IF EXISTS "Owner and Manager can view department transfers" ON public.department_transfers;
+CREATE POLICY "Owner and Manager can view department transfers" ON public.department_transfers FOR SELECT
+USING (
+  user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager')
+);

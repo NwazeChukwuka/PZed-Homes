@@ -130,11 +130,11 @@ class _ThemedMaterialApp extends StatelessWidget {
         return Stack(
           children: [
             child ?? const SizedBox.shrink(),
-            const Positioned(
+            Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: OfflineBanner(),
+              child: RepaintBoundary(child: const OfflineBanner()),
             ),
           ],
         );

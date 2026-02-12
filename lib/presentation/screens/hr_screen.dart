@@ -9,7 +9,6 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/config/app_config.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1384,9 +1383,9 @@ class _HrScreenState extends State<HrScreen>
           );
         }
 
-        final totalAmountKobo = staffTransactions.fold<int>(
+        final totalQuantity = staffTransactions.fold<int>(
           0,
-          (sum, t) => sum + ((t['total_amount'] as num?)?.toInt() ?? 0),
+          (sum, t) => sum + ((double.tryParse(t['quantity']?.toString() ?? '') ?? 0).abs().toInt()),
         );
 
         return Column(
@@ -1406,7 +1405,7 @@ class _HrScreenState extends State<HrScreen>
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   Text(
-                    'Total: ₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalAmountKobo))}',
+                    'Units: $totalQuantity',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.green[700],
@@ -1417,6 +1416,13 @@ class _HrScreenState extends State<HrScreen>
             ),
             const SizedBox(height: 12),
             ...staffTransactions.take(5).map((transaction) {
+              final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+              final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+              final quantity = (double.tryParse(transaction['quantity']?.toString() ?? '') ?? 0).abs().toInt();
+              final createdAt = transaction['created_at']?.toString() ?? '';
+              final timeStr = createdAt.isNotEmpty
+                  ? DateFormat('hh:mm a').format(DateTime.tryParse(createdAt) ?? DateTime.now())
+                  : '—';
               return ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
@@ -1426,18 +1432,15 @@ class _HrScreenState extends State<HrScreen>
                   size: 20,
                 ),
                 title: Text(
-                  transaction['item_name'] ?? 'Unknown Item',
+                  itemName,
                   style: const TextStyle(fontSize: 13),
                 ),
                 subtitle: Text(
-                  DateFormat('hh:mm a').format(
-                    DateTime.tryParse(transaction['date']?.toString() ?? '') ??
-                        DateTime.now(),
-                  ),
+                  timeStr,
                   style: const TextStyle(fontSize: 11),
                 ),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira((transaction['total_amount'] as num?)?.abs().toInt() ?? 0))}',
+                  '×$quantity',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -1473,17 +1476,19 @@ class _HrScreenState extends State<HrScreen>
             itemCount: transactions.length,
             itemBuilder: (context, index) {
               final transaction = transactions[index];
+              final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+              final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+              final quantity = (double.tryParse(transaction['quantity']?.toString() ?? '') ?? 0).abs().toInt();
+              final createdAt = transaction['created_at']?.toString() ?? '';
+              final timeStr = createdAt.isNotEmpty
+                  ? DateFormat('MMM dd, hh:mm a').format(DateTime.tryParse(createdAt) ?? DateTime.now())
+                  : '—';
               return ListTile(
                 leading: Icon(Icons.shopping_cart, color: Colors.green[700]),
-                title: Text(transaction['item_name'] ?? 'Unknown Item'),
-                subtitle: Text(
-                  DateFormat('MMM dd, hh:mm a').format(
-                    DateTime.tryParse(transaction['date']?.toString() ?? '') ??
-                        DateTime.now(),
-                  ),
-                ),
+                title: Text(itemName),
+                subtitle: Text(timeStr),
                 trailing: Text(
-                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira((transaction['total_amount'] as num?)?.abs().toInt() ?? 0))}',
+                  '×$quantity',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );

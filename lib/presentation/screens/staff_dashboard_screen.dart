@@ -257,33 +257,49 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Future<void> _loadPersonalData(String staffId, String? department) async {
     final range = _getDateRangeForFilter();
     final prevRange = _getPreviousDateRangeForFilter();
-    // Load all transactions
-    final allTransactions = await _dataService.getStockTransactions();
-    
-    // Filter to only this staff member's transactions
-    final myTransactionsRaw = allTransactions.where((t) => t['staff_id'] == staffId).toList();
+    // Load this staff member's stock transactions (stock_transactions schema: staff_profile_id, transaction_type, created_at)
+    final allTransactions = await _dataService.getStockTransactions(staffId: staffId);
+    final myTransactionsRaw = allTransactions;
     _myTransactions = _filterByTime(myTransactionsRaw);
-    
-    // Calculate current personal stats
+
+    // Stock_transactions do not have total_amount or payment_method. Load sales data for amount-based stats.
     double totalSales = 0;
     int transactionCount = 0;
     double cashSales = 0;
     double cardSales = 0;
     double transferSales = 0;
     double creditSales = 0;
-    
-    for (var transaction in _myTransactions) {
-      if (transaction['type'] == 'sale') {
-        final amount = (transaction['total_amount'] as num?)?.toDouble() ?? 0.0;
-        totalSales += amount.abs();
+
+    if (range != null) {
+      final miniMartSales = await _dataService.getMiniMartSales(
+        staffId: staffId,
+        startDate: range.start,
+        endDate: range.end,
+      );
+      final kitchenSales = await _dataService.getKitchenSalesHistory(
+        staffId: staffId,
+        startDate: range.start,
+        endDate: range.end,
+      );
+      for (var s in miniMartSales) {
+        final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
+        totalSales += amount;
         transactionCount++;
-        final paymentMethod = transaction['payment_method']?.toString().toLowerCase();
-        switch (paymentMethod) {
-          case 'cash': cashSales += amount.abs(); break;
-          case 'card': cardSales += amount.abs(); break;
-          case 'transfer': transferSales += amount.abs(); break;
-          case 'credit': creditSales += amount.abs(); break;
-        }
+        final pm = s['payment_method']?.toString().toLowerCase();
+        if (pm == 'cash') cashSales += amount;
+        else if (pm == 'card') cardSales += amount;
+        else if (pm == 'transfer') transferSales += amount;
+        else if (pm == 'credit') creditSales += amount;
+      }
+      for (var s in kitchenSales) {
+        final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
+        totalSales += amount;
+        transactionCount++;
+        final pm = s['payment_method']?.toString().toLowerCase();
+        if (pm == 'cash') cashSales += amount;
+        else if (pm == 'card') cardSales += amount;
+        else if (pm == 'transfer') transferSales += amount;
+        else if (pm == 'credit') creditSales += amount;
       }
     }
     
@@ -321,16 +337,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_debt_amount': totalDebtAmount,
     };
     
-    // Previous period stats for trend
+    // Previous period stats for trend (from sales tables, not stock_transactions)
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
     if (prevRange != null) {
-      final prevTxn = _filterTransactionsByRange(myTransactionsRaw, prevRange);
-      for (var t in prevTxn) {
-        if (t['type'] == 'sale') {
-          prevTotalSales += ((t['total_amount'] as num?)?.toDouble() ?? 0).abs();
-          prevTransactionCount++;
-        }
+      final prevMiniMart = await _dataService.getMiniMartSales(
+        staffId: staffId,
+        startDate: prevRange.start,
+        endDate: prevRange.end,
+      );
+      final prevKitchen = await _dataService.getKitchenSalesHistory(
+        staffId: staffId,
+        startDate: prevRange.start,
+        endDate: prevRange.end,
+      );
+      for (var s in prevMiniMart) {
+        prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
+        prevTransactionCount++;
+      }
+      for (var s in prevKitchen) {
+        prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
+        prevTransactionCount++;
       }
     }
     final prevSoldDebts = prevRange != null
@@ -358,29 +385,54 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     };
   }
 
+  /// Maps department (e.g. 'mini_mart') to location name(s) from stock_transactions.
+  static List<String> _locationNamesForDepartment(String department) {
+    switch (department.toLowerCase()) {
+      case 'mini_mart':
+        return ['Mini Mart'];
+      case 'vip_bar':
+        return ['VIP Bar'];
+      case 'outside_bar':
+        return ['Outside Bar'];
+      case 'restaurant':
+        return ['Kitchen', 'Restaurant'];
+      case 'reception':
+        return ['Reception', 'Mini Mart'];
+      case 'housekeeping':
+        return ['Housekeeping'];
+      case 'laundry':
+        return ['Laundry'];
+      case 'storekeeping':
+        return ['Storage', 'Store'];
+      default:
+        return [department.replaceAll('_', ' ').split(' ').map((s) => s.isEmpty ? '' : s[0].toUpperCase() + s.substring(1).toLowerCase()).join(' ')];
+    }
+  }
+
   Future<void> _loadDepartmentData(String department) async {
     final range = _getDateRangeForFilter();
     final prevRange = _getPreviousDateRangeForFilter();
-    // Load all transactions for the department
+    final locationNames = _locationNamesForDepartment(department);
     final allTransactions = await _dataService.getStockTransactions();
-    
-    final deptTransactionsRaw = allTransactions.where((t) =>
-      t['department'] == department || t['location'] == department,
-    ).toList();
+
+    final deptTransactionsRaw = allTransactions.where((t) {
+      final loc = t['locations'] as Map<String, dynamic>?;
+      final locName = loc?['name']?.toString();
+      return locName != null && locationNames.any((n) => n.toLowerCase() == locName.toLowerCase());
+    }).toList();
     _departmentTransactions = _filterByTime(deptTransactionsRaw);
-    
-    // Calculate department stats
+
     double totalSales = 0;
     int transactionCount = 0;
     Map<String, double> staffSales = {};
-    
+
     for (var transaction in _departmentTransactions) {
-      if (transaction['type'] == 'sale') {
-        final amount = (transaction['total_amount'] as num?)?.toDouble() ?? 0.0;
-        totalSales += amount.abs();
+      if ((transaction['transaction_type'] as String?)?.toLowerCase() == 'sale') {
+        final qty = (transaction['quantity'] as num?)?.toDouble() ?? 0;
+        totalSales += qty.abs();
         transactionCount++;
-        final sid = transaction['staff_id']?.toString() ?? 'unknown';
-        staffSales[sid] = (staffSales[sid] ?? 0) + amount.abs();
+        final sid = transaction['staff_profile_id']?.toString() ?? 'unknown';
+        staffSales[sid] = (staffSales[sid] ?? 0) + qty.abs();
       }
     }
     
@@ -429,8 +481,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     if (prevRange != null) {
       final prevTxn = _filterTransactionsByRange(deptTransactionsRaw, prevRange);
       for (var t in prevTxn) {
-        if (t['type'] == 'sale') {
-          prevTotalSales += ((t['total_amount'] as num?)?.toDouble() ?? 0).abs();
+        if ((t['transaction_type'] as String?)?.toLowerCase() == 'sale') {
+          prevTotalSales += ((t['quantity'] as num?)?.toDouble() ?? 0).abs();
           prevTransactionCount++;
         }
       }
@@ -661,9 +713,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
     
     return transactions.where((t) {
-      final timestamp = t['timestamp']?.toString() ?? t['date']?.toString();
+      final timestamp = t['timestamp']?.toString() ?? t['date']?.toString() ?? t['created_at']?.toString();
       if (timestamp == null) return false;
-      
+
       try {
         final date = DateTime.parse(timestamp);
         return date.isAfter(startDate);
@@ -724,7 +776,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     DateTimeRange range,
   ) {
     return transactions.where((t) {
-      final timestamp = t['timestamp']?.toString() ?? t['date']?.toString();
+      final timestamp = t['timestamp']?.toString() ?? t['date']?.toString() ?? t['created_at']?.toString();
       if (timestamp == null) return false;
       try {
         final date = DateTime.parse(timestamp);
@@ -1491,7 +1543,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
       );
     }
-    
+
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1510,18 +1562,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final transaction = _myTransactions[index];
+              final txType = (transaction['transaction_type'] as String?)?.toLowerCase();
+              final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+              final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+              final unit = stockItem?['unit']?.toString() ?? '';
+              final quantity = (transaction['quantity'] as num?)?.toInt() ?? 0;
+              final createdAt = transaction['created_at']?.toString() ?? '';
+              final timeStr = createdAt.isNotEmpty
+                  ? DateFormat('MMM dd, HH:mm').format(DateTime.parse(createdAt))
+                  : '';
               return ListTile(
                 leading: Icon(
-                  transaction['type'] == 'sale' ? Icons.shopping_cart : Icons.inventory,
+                  txType == 'sale' ? Icons.shopping_cart : Icons.inventory,
                   color: Colors.green[700],
                 ),
-                title: Text(transaction['item_name'] ?? 'Unknown Item'),
+                title: Text(itemName),
                 subtitle: Text(
-                  '${transaction['payment_method'] ?? 'N/A'} • ${transaction['timestamp'] ?? ''}',
+                  '$quantity ${unit.isNotEmpty ? unit : 'unit(s)'} • $timeStr',
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: Text(
-                  '₦${_formatKobo((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  txType == 'sale' ? '-$quantity' : '+$quantity',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );
@@ -1686,18 +1747,24 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final transaction = _departmentTransactions[index];
+              final profile = transaction['profiles'] as Map<String, dynamic>?;
+              final staffName = profile?['full_name']?.toString() ?? transaction['staff_profile_id']?.toString() ?? 'N/A';
+              final stockItem = transaction['stock_items'] as Map<String, dynamic>?;
+              final itemName = stockItem?['name']?.toString() ?? 'Unknown Item';
+              final txnType = (transaction['transaction_type'] as String?)?.toLowerCase() ?? '';
+              final qty = (transaction['quantity'] as num?)?.toInt() ?? 0;
               return ListTile(
                 leading: Icon(
-                  transaction['type'] == 'sale' ? Icons.shopping_cart : Icons.inventory,
+                  txnType == 'sale' ? Icons.shopping_cart : Icons.inventory,
                   color: Colors.green[700],
                 ),
-                title: Text(transaction['item_name'] ?? 'Unknown Item'),
+                title: Text(itemName),
                 subtitle: Text(
-                  'Staff: ${transaction['staff_id'] ?? 'N/A'} • ${transaction['payment_method'] ?? 'N/A'}',
+                  'Staff: $staffName • Qty: ${qty.abs()}',
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: Text(
-                  '₦${_formatKobo((transaction['total_amount'] as num?)?.abs() ?? 0)}',
+                  txnType == 'sale' ? '−${qty.abs()}' : (qty > 0 ? '+$qty' : '$qty'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               );

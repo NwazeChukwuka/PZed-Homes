@@ -14,6 +14,83 @@ import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+/// Wraps a tab child to preserve state and isolate errors so one broken tab doesn't crash the whole screen.
+class _KeepAliveTab extends StatefulWidget {
+  final Widget child;
+
+  const _KeepAliveTab({required this.child});
+
+  @override
+  State<_KeepAliveTab> createState() => _KeepAliveTabState();
+}
+
+class _KeepAliveTabState extends State<_KeepAliveTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
+
+/// Builds tab content only when the tab is first selected (lazy loading).
+class _LazyTab extends StatefulWidget {
+  final int index;
+  final TabController controller;
+  final Widget Function() builder;
+
+  const _LazyTab({
+    required this.index,
+    required this.controller,
+    required this.builder,
+  });
+
+  @override
+  State<_LazyTab> createState() => _LazyTabState();
+}
+
+class _LazyTabState extends State<_LazyTab> {
+  Widget? _built;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_check);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LazyTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_check);
+      widget.controller.addListener(_check);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    if (mounted && _built == null && widget.controller.index == widget.index) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_built == null && widget.controller.index != widget.index) {
+      return const SizedBox.shrink();
+    }
+    _built ??= _KeepAliveTab(child: widget.builder());
+    return _built!;
+  }
+}
+
 class ComprehensiveFinanceScreen extends StatefulWidget {
   const ComprehensiveFinanceScreen({super.key});
 
@@ -204,7 +281,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         endDate: today,
       );
       final kitchenSales = await _dataService.getDepartmentSales(
-        department: 'kitchen',
+        department: 'restaurant',
         startDate: today,
         endDate: today,
       );
@@ -278,50 +355,69 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     // Owner/Manager can only record if they assume accountant role
     final canRecord = (isAccountant || isAssumedAccountant) && !(isOwnerOrManager && !isAssumedAccountant);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Finance & Accounting', overflow: TextOverflow.ellipsis, maxLines: 1),
-        backgroundColor: Colors.green[700],
-        foregroundColor: Colors.white,
-        leading: Navigator.of(context).canPop() ? IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ) : null,
-        actions: const [
-          ContextAwareRoleButton(suggestedRole: AppRole.accountant),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-          Tab(text: 'Debts', icon: Icon(Icons.money_off)),
-          Tab(text: 'Debt Claims', icon: Icon(Icons.pending_actions)),
-          Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
-            Tab(text: 'Income', icon: Icon(Icons.trending_up)),
-            Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
-            Tab(text: 'Payroll', icon: Icon(Icons.payment)),
-            Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
-            Tab(text: 'Reports', icon: Icon(Icons.assessment)),
-            Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: Colors.green[700],
+          elevation: 4,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppBar(
+                  title: const Text('Finance & Accounting', overflow: TextOverflow.ellipsis, maxLines: 1),
+                  backgroundColor: Colors.green[700],
+                  foregroundColor: Colors.white,
+                  leading: Navigator.of(context).canPop()
+                      ? IconButton(
+                          icon: const Icon(Icons.arrow_back),
+                          onPressed: () => Navigator.of(context).pop(),
+                        )
+                      : null,
+                  actions: const [
+                    ContextAwareRoleButton(suggestedRole: AppRole.accountant),
+                  ],
+                  bottom: TabBar(
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabs: const [
+                      Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+                      Tab(text: 'Debts', icon: Icon(Icons.money_off)),
+                      Tab(text: 'Debt Claims', icon: Icon(Icons.pending_actions)),
+                      Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
+                      Tab(text: 'Income', icon: Icon(Icons.trending_up)),
+                      Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
+                      Tab(text: 'Payroll', icon: Icon(Icons.payment)),
+                      Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
+                      Tab(text: 'Reports', icon: Icon(Icons.assessment)),
+                      Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildOverviewTab(),
-          _buildDebtsTab(canRecord),
-          _buildDebtClaimsTab(canApprove),
-          _buildPurchasesTab(canRecord),
-          _buildIncomeTab(canRecord),
-          _buildExpensesTab(canRecord, canApprove),
-          _buildPayrollTab(canRecord, canApprove),
-          _buildCashDepositsTab(canRecord),
-          _buildReportsTab(),
-          _buildAuditTab(),
-        ],
-      ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
+              _LazyTab(index: 1, controller: _tabController, builder: () => _buildDebtsTab(canRecord)),
+              _LazyTab(index: 2, controller: _tabController, builder: () => _buildDebtClaimsTab(canApprove)),
+              _LazyTab(index: 3, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
+              _LazyTab(index: 4, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
+              _LazyTab(index: 5, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+              _LazyTab(index: 6, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
+              _LazyTab(index: 7, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
+              _LazyTab(index: 8, controller: _tabController, builder: _buildReportsTab),
+              _LazyTab(index: 9, controller: _tabController, builder: _buildAuditTab),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -360,8 +456,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 12),
             ..._departmentSales.entries.map((entry) {
-              final total = entry.value.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
-              final items = entry.value.fold<int>(0, (s, e) => s + (e['quantity'] as int));
+              final total = entry.value.fold<num>(0, (s, e) {
+                final v = e['total_sales'] ?? e['total_amount'] ?? 0;
+                return s + (v is num ? v : 0);
+              });
+              final items = entry.value.fold<int>(0, (s, e) {
+                final v = e['transaction_count'] ?? e['quantity'] ?? 0;
+                return s + (v is num ? v.toInt() : 0);
+              });
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -732,7 +834,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildDepartmentItem(Map<String, dynamic> dept) {
-    final performance = dept['performance'] as String;
+    final performance = dept['performance']?.toString() ?? 'fair';
     Color performanceColor = performance == 'excellent' ? Colors.green : 
                            performance == 'good' ? Colors.blue : Colors.orange;
     
@@ -905,10 +1007,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira(debt['amount'] as int? ?? 0)}'),
-                      if (debt['paid_amount'] != null && (debt['paid_amount'] as int? ?? 0) > 0)
+                      Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0))}'),
+                      if (debt['paid_amount'] != null && (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0) > 0)
                         Text(
-                          'Paid: ₦${PaymentService.koboToNaira(debt['paid_amount'] as int)} | Remaining: ₦${PaymentService.koboToNaira((debt['amount'] as int? ?? 0) - (debt['paid_amount'] as int? ?? 0))}',
+                          'Paid: ₦${PaymentService.koboToNaira(int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0)} | Remaining: ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0) - (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0))}',
                           style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
                         ),
                       Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -971,7 +1073,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     final debtorName = debt['debtor_name'] ?? claim['debtor_name'] ?? 'Unknown';
                     final recProfile = claim['recorded_by_profile'];
                     final recordedBy = recProfile is Map ? (recProfile['full_name'] ?? 'Staff') : 'Staff';
-                    final amount = PaymentService.koboToNaira(claim['amount'] as int? ?? 0);
+                    final amount = PaymentService.koboToNaira(int.tryParse(claim['amount']?.toString() ?? '') ?? 0);
                     final method = (claim['payment_method'] ?? 'cash').toString();
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -993,12 +1095,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                                       IconButton(
                                         icon: const Icon(Icons.check_circle, color: Colors.green),
                                         tooltip: 'Approve',
-                                        onPressed: () => _approveDebtClaim(claim['id'] as String),
+                                        onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
                                       ),
                                       IconButton(
                                         icon: const Icon(Icons.cancel, color: Colors.red),
                                         tooltip: 'Reject',
-                                        onPressed: () => _rejectDebtClaim(claim['id'] as String),
+                                        onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
                                       ),
                                     ],
                                   )
@@ -1008,13 +1110,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                                       TextButton.icon(
                                         icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
                                         label: const Text('Approve'),
-                                        onPressed: () => _approveDebtClaim(claim['id'] as String),
+                                        onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
                                       ),
                                       const SizedBox(width: 8),
                                       TextButton.icon(
                                         icon: const Icon(Icons.cancel, size: 18, color: Colors.red),
                                         label: const Text('Reject'),
-                                        onPressed: () => _rejectDebtClaim(claim['id'] as String),
+                                        onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
                                       ),
                                     ],
                                   )
@@ -2144,8 +2246,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             _paymentMethod = 'cash';
             _paymentDate = DateTime.now();
             
-            final totalAmount = debt['amount'] as int? ?? 0;
-            final paidAmount = debt['paid_amount'] as int? ?? 0;
+            final totalAmount = int.tryParse(debt['amount']?.toString() ?? '') ?? 0;
+            final paidAmount = int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0;
             final remaining = totalAmount - paidAmount;
             
             return SingleChildScrollView(
@@ -2236,8 +2338,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 return;
               }
               
-              final totalAmount = debt['amount'] as int? ?? 0;
-              final paidAmount = debt['paid_amount'] as int? ?? 0;
+              final totalAmount = int.tryParse(debt['amount']?.toString() ?? '') ?? 0;
+              final paidAmount = int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0;
               final remaining = totalAmount - paidAmount;
               
               if (amountInNaira > PaymentService.koboToNaira(remaining)) {
@@ -2250,7 +2352,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 final userId = authService.currentUser?.id ?? 'system';
                 
                 await _dataService.recordDebtPayment(
-                  debtId: debt['id'] as String,
+                  debtId: debt['id']?.toString() ?? '',
                   amount: PaymentService.nairaToKobo(amountInNaira),
                   paymentMethod: _paymentMethod,
                   collectedBy: userId,
@@ -2342,7 +2444,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       // Group by department
       final Map<String, Map<String, dynamic>> departmentSummary = {};
       for (final sale in departmentSales) {
-        final dept = sale['department'] as String? ?? 'Unknown';
+        final dept = sale['department']?.toString() ?? 'Unknown';
         if (!departmentSummary.containsKey(dept)) {
           departmentSummary[dept] = {
             'department': dept,
@@ -2350,12 +2452,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             'transaction_count': 0,
           };
         }
-        final totalSales = (sale['total_sales'] as int? ?? 0);
-        final transactionCount = (sale['transaction_count'] as int? ?? 0);
+        final totalSales = (int.tryParse(sale['total_sales']?.toString() ?? '') ?? 0);
+        final transactionCount = (int.tryParse(sale['transaction_count']?.toString() ?? '') ?? 0);
         departmentSummary[dept]!['total_sales'] = 
-            (departmentSummary[dept]!['total_sales'] as int) + totalSales;
+            (int.tryParse(departmentSummary[dept]!['total_sales']?.toString() ?? '') ?? 0) + totalSales;
         departmentSummary[dept]!['transaction_count'] = 
-            (departmentSummary[dept]!['transaction_count'] as int) + transactionCount;
+            (int.tryParse(departmentSummary[dept]!['transaction_count']?.toString() ?? '') ?? 0) + transactionCount;
       }
 
       setState(() => _isGeneratingReport = false);
@@ -2642,9 +2744,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         'total_income_records': incomeRecords.length,
         'total_expense_records': expenses.length,
         'income_total': incomeRecords.fold<int>(0, (sum, record) => 
-            sum + ((record['amount'] as num?)?.toInt() ?? 0)),
+            sum + ((double.tryParse(record['amount']?.toString() ?? '') ?? 0).toInt())),
         'expense_total': expenses.fold<int>(0, (sum, expense) => 
-            sum + ((expense['amount'] as num?)?.toInt() ?? 0)),
+            sum + ((double.tryParse(expense['amount']?.toString() ?? '') ?? 0).toInt())),
       };
 
       setState(() => _isGeneratingReport = false);
@@ -2688,7 +2790,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              dept['department'] as String? ?? 'Unknown',
+                              dept['department']?.toString() ?? 'Unknown',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -2696,7 +2798,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Total Sales: ₦${PaymentService.koboToNaira((dept['total_sales'] as int? ?? 0)).toStringAsFixed(2)}',
+                              'Total Sales: ₦${PaymentService.koboToNaira(int.tryParse(dept['total_sales']?.toString() ?? '') ?? 0).toStringAsFixed(2)}',
                             ),
                             Text(
                               'Transactions: ${dept['transaction_count'] ?? 0}',
@@ -2733,9 +2835,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildReportRow('Total Income', PaymentService.koboToNaira((summary['total_income'] as int?) ?? 0)),
-                _buildReportRow('Total Expenses', PaymentService.koboToNaira((summary['total_expenses'] as int?) ?? 0)),
-                _buildReportRow('Net Profit', PaymentService.koboToNaira((summary['net_profit'] as int?) ?? 0)),
+                _buildReportRow('Total Income', PaymentService.koboToNaira(int.tryParse(summary['total_income']?.toString() ?? '') ?? 0)),
+                _buildReportRow('Total Expenses', PaymentService.koboToNaira(int.tryParse(summary['total_expenses']?.toString() ?? '') ?? 0)),
+                _buildReportRow('Net Profit', PaymentService.koboToNaira(int.tryParse(summary['net_profit']?.toString() ?? '') ?? 0)),
                 const Divider(),
                 Text('Income Records: ${data['total_income_records']}'),
                 Text('Expense Records: ${data['total_expense_records']}'),

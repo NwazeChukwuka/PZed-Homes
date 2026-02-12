@@ -28,7 +28,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
         _workOrders.clear();
         _workOrders.addAll(orders.map((order) {
           final asset = order['assets'] as Map<String, dynamic>?;
-          final reportedBy = order['profiles'] as Map<String, dynamic>?;
+          final reportedBy = order['reported_by'] as Map<String, dynamic>?;
           return {
             'id': order['id'],
             'asset_name': asset?['name'] ?? 'Unknown Asset',

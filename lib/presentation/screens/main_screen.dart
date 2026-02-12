@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -40,34 +39,7 @@ List<NavigationItem> _computeNavItems(AuthService auth) {
     items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
   }
   if (featuresList.contains('inventory')) {
-    debugLog({
-      'location': 'main_screen.dart:811',
-      'message': 'Adding inventory menu item',
-      'data': {
-        'userRoles': userRoles.map((r) => r.name).toList(),
-        'accessibleFeatures': featuresList,
-        'hasInventory': true,
-      },
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'sessionId': 'debug-session',
-      'runId': 'run1',
-      'hypothesisId': 'V',
-    });
     items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));
-  } else {
-    debugLog({
-      'location': 'main_screen.dart:811',
-      'message': 'Inventory menu item NOT added',
-      'data': {
-        'userRoles': userRoles.map((r) => r.name).toList(),
-        'accessibleFeatures': featuresList,
-        'hasInventory': false,
-      },
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'sessionId': 'debug-session',
-      'runId': 'run1',
-      'hypothesisId': 'W',
-    });
   }
   if (featuresList.contains('kitchen')) {
     items.add(NavigationItem(icon: Icons.restaurant, label: 'Kitchen', route: '/kitchen'));
@@ -434,8 +406,8 @@ class _SidebarNavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSelected = GoRouterState.of(context).uri.toString() == item.route;
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final fontSize = screenWidth < 1000 ? 16.0 : 14.0;
-    final iconSize = screenWidth < 1000 ? 24.0 : 20.0;
+    final fontSize = screenWidth < 800 ? 16.0 : 14.0;
+    final iconSize = screenWidth < 800 ? 24.0 : 20.0;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
@@ -458,7 +430,7 @@ class _SidebarNavItem extends StatelessWidget {
         ),
         contentPadding: EdgeInsets.symmetric(
           horizontal: 16,
-          vertical: screenWidth < 1000 ? 12 : 8,
+          vertical: screenWidth < 800 ? 12 : 8,
         ),
         onTap: () => context.go(item.route),
         shape: RoundedRectangleBorder(

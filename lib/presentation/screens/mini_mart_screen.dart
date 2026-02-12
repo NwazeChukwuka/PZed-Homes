@@ -12,6 +12,8 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/product_card.dart';
+import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:flutter/services.dart';
 import 'dart:typed_data';
@@ -44,7 +46,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   List<Map<String, dynamic>> _currentSale = [];
   List<Map<String, dynamic>> _salesHistory = [];
   double _saleTotal = 0.0;
-  bool _showMobileSaleSheet = false;
   bool _isLoading = true;
   
   // Customer info
@@ -962,84 +963,27 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                       : LayoutBuilder(
                           builder: (context, constraints) {
                             final width = MediaQuery.sizeOf(context).width;
-                            final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                            final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
+                            final crossAxisCount = width < 800 ? 2 : (width < 1200 ? 3 : 4);
                             return GridView.builder(
                               padding: const EdgeInsets.all(16),
                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: crossAxisCount,
-                                childAspectRatio: childAspectRatio,
+                                childAspectRatio: 1.0,
                                 crossAxisSpacing: 10,
                                 mainAxisSpacing: 10,
                               ),
                               itemCount: _filteredItems.length,
                           itemBuilder: (context, index) {
                             final item = _filteredItems[index];
-                            final stock = item['stock_quantity'] as int? ?? 0; // Schema uses 'stock_quantity' not 'current_stock'
+                            final stock = item['stock_quantity'] as int? ?? 0;
                             final isOutOfStock = stock <= 0;
-                            
-                            return Card(
-                              elevation: 2,
-                              child: InkWell(
-                                onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
-                                    border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox(
-                                        height: 90,
-                                        width: double.infinity,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey[200],
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Icon(Icons.inventory, size: 32),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        item['name']?.toString() ?? 'Unknown',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 11,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '₦${NumberFormat('#,##0.00').format(item['price'])}',
-                                        style: TextStyle(
-                                          color: Colors.green[700],
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 10,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
-                                        style: TextStyle(
-                                          color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
-                                          fontSize: 9,
-                                          fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                            return ProductCard(
+                              name: item['name']?.toString() ?? 'Unknown',
+                              price: '₦${NumberFormat('#,##0.00').format(item['price'])}',
+                              icon: Icons.inventory,
+                              backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
+                              border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
+                              onTap: () => _addItemToSale(item),
                             );
                           },
                         );
@@ -1269,15 +1213,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           ),
     );
     if (isMobile) {
-      return Stack(
+      return Column(
         children: [
-          Column(
-            children: [
-              Expanded(child: gridSection),
-              if (_currentSale.isNotEmpty) _buildMiniMartMobileSaleBar(),
-            ],
-          ),
-          if (_showMobileSaleSheet) _buildMiniMartMobileSaleSheet(),
+          Expanded(child: gridSection),
+          if (_currentSale.isNotEmpty) _buildMiniMartMobileSaleBar(),
         ],
       );
     }
@@ -1288,7 +1227,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     return Material(
       elevation: 8,
       child: InkWell(
-        onTap: () => setState(() => _showMobileSaleSheet = true),
+        onTap: _showMiniMartCartModal,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           color: Colors.white,
@@ -1318,112 +1257,111 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildMiniMartMobileSaleSheet() {
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _showMobileSaleSheet = false),
-            child: Container(color: Colors.black54),
-            behavior: HitTestBehavior.opaque,
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) => GestureDetector(
-                onTap: () {},
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 8),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
+  void _showMiniMartCartModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Text(
+                          '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text(
-                              '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () => setState(() => _showMobileSaleSheet = false),
-                            ),
-                          ],
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                      ),
-                      Expanded(
-                        child: _currentSale.isEmpty
-                            ? const Center(child: Text('No items in cart', style: TextStyle(color: Colors.grey)))
-                            : ListView.builder(
-                                controller: scrollController,
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                itemCount: _currentSale.length,
-                                itemBuilder: (context, index) {
-                                  final item = _currentSale[index];
-                                  return ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: Colors.green[100],
-                                      child: Text(
-                                        '${item['quantity']}',
-                                        style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                    title: Text(item['name']?.toString() ?? 'Unknown'),
-                                    subtitle: Text('₦${NumberFormat('#,##0.00').format(item['price'])} each'),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.remove, size: 16),
-                                          onPressed: () => _updateItemQuantity(index, (item['quantity'] as int) - 1),
-                                        ),
-                                        Text('${item['quantity']}'),
-                                        IconButton(
-                                          icon: const Icon(Icons.add, size: 16),
-                                          onPressed: () => _updateItemQuantity(index, (item['quantity'] as int) + 1),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildMiniMartMobileSaleSheetActions(),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                  Expanded(
+                    child: _currentSale.isEmpty
+                        ? const Center(child: Text('No items in cart', style: TextStyle(color: Colors.grey)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _currentSale.length,
+                            itemBuilder: (context, index) {
+                              final item = _currentSale[index];
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.green[100],
+                                  child: Text(
+                                    '${item['quantity']}',
+                                    style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                title: Text(item['name']?.toString() ?? 'Unknown'),
+                                subtitle: Text('₦${NumberFormat('#,##0.00').format(item['price'])} each'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.remove, size: 16),
+                                      onPressed: () {
+                                        _updateItemQuantity(index, (item['quantity'] as int) - 1);
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                    Text('${item['quantity']}'),
+                                    IconButton(
+                                      icon: const Icon(Icons.add, size: 16),
+                                      onPressed: () {
+                                        _updateItemQuantity(index, (item['quantity'] as int) + 1);
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: _buildMiniMartMobileSaleSheetActions(
+                      onClose: () => Navigator.pop(context),
+                      onUpdate: () => setModalState(() {}),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildMiniMartMobileSaleSheetActions() {
+  Widget _buildMiniMartMobileSaleSheetActions({
+    VoidCallback? onClose,
+    VoidCallback? onUpdate,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1483,7 +1421,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               child: OutlinedButton(
                 onPressed: () {
                   _clearSale();
-                  setState(() => _showMobileSaleSheet = false);
+                  onUpdate?.call();
+                  onClose?.call();
                 },
                 child: const Text('Clear'),
               ),
@@ -1492,7 +1431,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             Expanded(
               flex: 2,
               child: ElevatedButton(
-                onPressed: _processSale,
+                onPressed: () {
+                  _processSale();
+                  onClose?.call();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[800],
                   foregroundColor: Colors.white,
@@ -1558,38 +1500,33 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               )
             else
               Expanded(
-                child: ScrollableListViewWithArrows(
-                  itemCount: _salesHistory.length,
-                  itemBuilder: (context, index) {
-                    final sale = _salesHistory[index];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.green[100],
-                        child: Icon(Icons.receipt, color: Colors.green[700]),
-                      ),
-                      title: Text(
-                        sale['customer_name']?.toString() ?? 'Walk-in Customer',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Payment: ${sale['payment_method']?.toString() ?? 'N/A'}'),
-                          Text(
-                            'Date: ${sale['sale_date'] != null ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(sale['sale_date'])) : 'N/A'}',
-                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                          ),
-                        ],
-                      ),
-                      trailing: Text(
-                        '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(sale['total_amount'] as int? ?? 0))}',
-                        style: TextStyle(
-                          color: Colors.green[700],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    );
-                  },
+                child: RefreshIndicator(
+                  onRefresh: _loadMiniMartData,
+                  child: ScrollableListViewWithArrows(
+                    itemCount: _salesHistory.length,
+                    itemBuilder: (context, index) {
+                      final sale = _salesHistory[index];
+                      final itemName = (sale['mini_mart_items'] as Map<String, dynamic>?)?['name']?.toString() ?? 'Item';
+                      final qty = sale['quantity'] as int? ?? 1;
+                      final staffName = (sale['sold_by_profile'] as Map<String, dynamic>?)?['full_name']?.toString() ?? 'Unknown Staff';
+                      final paymentMethod = sale['payment_method']?.toString() ?? 'N/A';
+                      final saleDate = sale['sale_date']?.toString();
+                      final timestamp = saleDate != null && saleDate.isNotEmpty
+                          ? DateFormat('MMM dd, yyyy HH:mm').format(DateTime.parse(saleDate))
+                          : 'N/A';
+                      final totalKobo = sale['total_amount'] as int? ?? 0;
+                      return SaleListItem(
+                        productName: itemName,
+                        quantity: qty,
+                        staffName: staffName,
+                        paymentMethod: paymentMethod,
+                        timestamp: timestamp,
+                        totalAmountKobo: totalKobo,
+                        icon: Icons.receipt,
+                        iconColor: Colors.green[700]!,
+                      );
+                    },
+                  ),
                 ),
               ),
           ],

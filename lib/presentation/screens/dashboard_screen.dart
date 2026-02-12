@@ -364,7 +364,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (saleDate != null && _isDateInRange(saleDate, range)) return true;
       return false;
     }).toList();
-    return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+    return filtered.fold<num>(0, (s, e) => s + (double.tryParse(e['total_sales']?.toString() ?? '') ?? 0));
   }
 
   bool _isDateInRange(DateTime date, DateTimeRange range) {
@@ -649,12 +649,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // Calculate department sales totals (using total_sales field from department_sales table)
         num sumDeptSales(List<Map<String, dynamic>> list) {
           final filtered = filterByBusinessDay(list);
-          return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+          return filtered.fold<num>(0, (s, e) => s + (double.tryParse(e['total_sales']?.toString() ?? '') ?? 0));
         }
         
         num sumPreviousDeptSales(List<Map<String, dynamic>> list) {
           final filtered = filterByPreviousBusinessDay(list);
-          return filtered.fold<num>(0, (s, e) => s + ((e['total_sales'] as num?) ?? 0));
+          return filtered.fold<num>(0, (s, e) => s + (double.tryParse(e['total_sales']?.toString() ?? '') ?? 0));
         }
         
         final vipBarTotal = sumDeptSales(vipSales);
@@ -671,18 +671,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final previousReceptionTotal = sumPreviousDeptSales(previousReceptionSales);
         
         // Calculate previous period income
-        num previousIncomeFromRecords = previousIncomeRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+        num previousIncomeFromRecords = previousIncomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num previousIncomeFromBookings = previousBookings.where((b) {
           final checkIn = _parseTimestamp(b['check_in_date']);
           if (checkIn == null) return false;
           return (checkIn.isAfter(previousRange.start) || checkIn.isAtSameMomentAs(previousRange.start)) 
               && (checkIn.isBefore(previousRange.end) || checkIn.isAtSameMomentAs(previousRange.end));
-        }).fold<num>(0, (s, b) => s + ((b['paid_amount'] as num?) ?? 0));
+        }).fold<num>(0, (s, b) => s + (double.tryParse(b['paid_amount']?.toString() ?? '') ?? 0));
         num previousIncomeFromDeptSales = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
         final previousIncome = previousIncomeFromRecords + previousIncomeFromBookings + previousIncomeFromDeptSales;
         
         // Calculate previous period expenses
-        num previousExpensesFromTable = previousExpensesList.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+        num previousExpensesFromTable = previousExpensesList.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num previousExpensesFromPurchases = previousPurchaseOrders.where((po) {
           final created = _parseTimestamp(po['created_at']);
           if (created == null) return false;
@@ -770,6 +770,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _bookings = bookings;
           _purchaseOrders = purchaseOrders;
           _maintenanceOrders = maintenanceOrders;
+          _stockTransactions = stockTransactions;
           
           _hasLoadedOnce = true;
         });
@@ -1518,7 +1519,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int _getCrossAxisCount(double screenWidth) {
-    if (screenWidth < 600) return 2;
+    if (screenWidth < 800) return 2;
     if (screenWidth < 1200) return 3;
     return 4;
   }
@@ -1531,7 +1532,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     
     // Calculate income from all sources (already filtered by date in query)
     // 1. Income records
-    num incomeFromRecords = _incomeRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+    num incomeFromRecords = _incomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
     
     // 2. Bookings (paid amounts)
     num incomeFromBookings = _bookings.where((b) {
@@ -1547,7 +1548,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     
     // Calculate expenses from all sources (already filtered by date in query)
     // 1. Expenses table
-    num expensesFromTable = _expenseRecords.fold<num>(0, (s, e) => s + ((e['amount'] as num?) ?? 0));
+    num expensesFromTable = _expenseRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
     
     // 2. Purchase orders (total_cost)
     num expensesFromPurchases = _purchaseOrders.where((po) {
@@ -3026,17 +3027,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ]);
   }
 
-  // Bartender metrics (sales from stock transactions)
+  // Bartender metrics (sales from stock transactions; schema: transaction_type, created_at, quantity)
   Widget _buildBartenderPanel(BuildContext context, double screenWidth) {
     final sales = _stockTransactions.where((t) {
-      final ts = _parseTimestamp(t['timestamp']);
-      return (t['type'] == 'sale') && ts != null && _isInRange(ts);
+      final ts = _parseTimestamp(t['created_at'] ?? t['timestamp']);
+      return (t['transaction_type']?.toString() == 'Sale') && ts != null && _isInRange(ts);
     }).toList();
-    final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as int).abs()));
-    final value = sales.fold<num>(0, (s, e) => s + (e['total_amount'] as num));
+    final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as num?)?.abs().toInt() ?? 0));
     return _inlineCards(context, screenWidth, [
-      ('Items Sold', '$qty', Icons.local_bar),
-      ('Sales Value', '₦${_formatKobo(value)}', Icons.point_of_sale),
+      ('Sales', '${sales.length}', Icons.local_bar),
+      ('Units Sold', '$qty', Icons.point_of_sale),
     ]);
   }
 
@@ -3056,10 +3056,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ]);
   }
 
-  // Storekeeper metrics
+  // Storekeeper metrics (schema: created_at)
   Widget _buildStorekeeperPanel(BuildContext context, double screenWidth) {
     final movements = _stockTransactions.where((t) {
-      final ts = _parseTimestamp(t['timestamp']);
+      final ts = _parseTimestamp(t['created_at'] ?? t['timestamp']);
       return ts != null && _isInRange(ts);
     }).length;
     return _inlineCards(context, screenWidth, [

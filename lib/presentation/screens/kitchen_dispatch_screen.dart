@@ -17,6 +17,8 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/product_card.dart';
+import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
@@ -54,7 +56,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   List<Map<String, dynamic>> _filteredItems = [];
   List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
-  bool _showMobileSaleSheet = false;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
@@ -88,13 +89,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   List<Map<String, dynamic>>? _cachedFilteredDispatchHistory;
   DateTimeRange? _historyFilterRange;
   String _historyFilterStaffId = 'all';
-  late TabController _tabController;
   bool _hasPerformedInitialLoad = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -237,13 +236,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         final width = MediaQuery.sizeOf(context).width;
-                        final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                        final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
+                        final crossAxisCount = width < 800 ? 2 : (width < 1200 ? 3 : 4);
                         return GridView.builder(
                           padding: const EdgeInsets.all(16),
                           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: crossAxisCount,
-                            childAspectRatio: childAspectRatio,
+                            childAspectRatio: 1.0,
                             crossAxisSpacing: 10,
                             mainAxisSpacing: 10,
                           ),
@@ -253,57 +251,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
                         final priceNaira = PaymentService.koboToNaira(priceKobo);
                         final hasStockLink = item['stock_item_id'] != null;
-                        return Card(
-                          elevation: 2,
-                          child: InkWell(
-                            onTap: () => _addItemToSale(item),
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: hasStockLink ? Colors.white : Colors.orange[50],
-                                borderRadius: BorderRadius.circular(8),
-                                border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    height: 90,
-                                    width: double.infinity,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[200],
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Icon(Icons.restaurant, size: 32),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item['name']?.toString() ?? 'Unknown',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 11,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '₦${NumberFormat('#,##0.00').format(priceNaira)}',
-                                    style: TextStyle(
-                                      color: Colors.green[700],
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 10,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        return ProductCard(
+                          name: item['name']?.toString() ?? 'Unknown',
+                          price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
+                          icon: Icons.restaurant,
+                          backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
+                          border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
+                          onTap: () => _addItemToSale(item),
                         );
                       },
                     );
@@ -546,7 +500,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       elevation: 8,
       color: Colors.white,
       child: InkWell(
-        onTap: () => setState(() => _showMobileSaleSheet = true),
+        onTap: _showKitchenCartModal,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: SafeArea(
@@ -580,114 +534,110 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     );
   }
 
-  Widget _buildKitchenMobileSaleSheet() {
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _showMobileSaleSheet = false),
-            child: Container(color: Colors.black54),
-            behavior: HitTestBehavior.opaque,
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) => GestureDetector(
-                onTap: () {},
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+  void _showKitchenCartModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Flexible(
+                          child: Text(
+                            '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange.shade800),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 8),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Flexible(
-                              child: Text(
-                                '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange.shade800),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () => setState(() => _showMobileSaleSheet = false),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: _currentSale.isEmpty
-                            ? const Center(child: Text('Tap items to add', style: TextStyle(color: Colors.grey)))
-                            : ListView.builder(
-                                controller: scrollController,
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                itemCount: _currentSale.length,
-                                itemBuilder: (context, index) {
-                                  final item = _currentSale[index];
-                                  final name = item['name'] as String? ?? 'Item';
-                                  final price = (item['price'] as num).toDouble();
-                                  final qty = item['quantity'] as int? ?? 1;
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    child: ListTile(
-                                      title: Text(name),
-                                      subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            '₦${NumberFormat('#,##0.00').format(price * qty)}',
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.remove_circle_outline, size: 20),
-                                            onPressed: () => _removeItemFromSale(index),
-                                          ),
-                                        ],
+                  Expanded(
+                    child: _currentSale.isEmpty
+                        ? const Center(child: Text('Tap items to add', style: TextStyle(color: Colors.grey)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _currentSale.length,
+                            itemBuilder: (context, index) {
+                              final item = _currentSale[index];
+                              final name = item['name'] as String? ?? 'Item';
+                              final price = (item['price'] as num).toDouble();
+                              final qty = item['quantity'] as int? ?? 1;
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(name),
+                                  subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '₦${NumberFormat('#,##0.00').format(price * qty)}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildKitchenMobileSaleSheetActions(),
-                      ),
-                    ],
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                        onPressed: () {
+                                          _removeItemFromSale(index);
+                                          setModalState(() {});
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                   ),
-                ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: _buildKitchenMobileSaleSheetActions(
+                      onClose: () => Navigator.pop(context),
+                      onUpdate: () => setModalState(() {}),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildKitchenMobileSaleSheetActions() {
+  Widget _buildKitchenMobileSaleSheetActions({
+    VoidCallback? onClose,
+    VoidCallback? onUpdate,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -765,25 +715,29 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ),
         ],
         const SizedBox(height: 16),
-        _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ElevatedButton.icon(
-                onPressed: _currentSale.isEmpty ? null : _recordKitchenSale,
-                icon: const Icon(Icons.point_of_sale),
-                label: const Text('Record Sale'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade800,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-        if (_currentSale.isNotEmpty)
-          TextButton(
-            onPressed: () {
-              _clearSale();
-              setState(() => _showMobileSaleSheet = false);
-            },
-            child: const Text('Clear Sale'),
-          ),
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ElevatedButton.icon(
+                        onPressed: _currentSale.isEmpty ? null : () {
+                          _recordKitchenSale();
+                          onClose?.call();
+                        },
+                        icon: const Icon(Icons.point_of_sale),
+                        label: const Text('Record Sale'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade800,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                if (_currentSale.isNotEmpty)
+                  TextButton(
+                    onPressed: () {
+                      _clearSale();
+                      onUpdate?.call();
+                      onClose?.call();
+                    },
+                    child: const Text('Clear Sale'),
+                  ),
       ],
     );
   }
@@ -2039,7 +1993,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _saleCustomNameController.dispose();
     _saleCreditCustomerNameController.dispose();
     _saleCreditCustomerPhoneController.dispose();
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -2132,37 +2085,39 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final items = <DropdownMenuItem<String>>[];
     final seen = <String>{};
     for (final transfer in _dispatchHistory) {
-      final profile = transfer['profiles'] as Map<String, dynamic>?;
-      if (profile == null) continue;
-      final id = profile['id']?.toString();
+      final profile = transfer['dispatched_by_profile'] as Map<String, dynamic>?;
+      final id = transfer['dispatched_by_id']?.toString();
       if (id == null || seen.contains(id)) continue;
       seen.add(id);
       items.add(
         DropdownMenuItem(
           value: id,
-          child: Text(profile['full_name'] as String? ?? 'Staff'),
+          child: Text(profile?['full_name'] as String? ?? 'Staff'),
         ),
       );
     }
     return items;
   }
 
-  /// Memoized: derive showFullFunctionality from auth (avoids repeated role checks in build).
-  static bool _selectorShowFullFunctionality(AuthService auth) {
+  /// Tab count: 3 for operational roles (Dispatch, Sales, History), 2 for Owner/Manager only (Menu, History).
+  /// Matches Inventory (2 tabs for management) and Mini Mart (2 tabs for management).
+  static int _selectorTabCount(AuthService auth) {
     final user = auth.currentUser;
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
     final isAssumedKitchenStaff = auth.hasAssumedRole(AppRole.kitchen_staff);
     final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
     final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
-    return isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
+    final isOperational = isKitchenStaff || isAssumedKitchenStaff || isReceptionist || isVipBartender;
+    return isOperational ? 3 : 2;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Selector<AuthService, bool>(
-      selector: (_, auth) => _selectorShowFullFunctionality(auth),
-      builder: (context, showFullFunctionality, _) {
+    return Selector<AuthService, int>(
+      selector: (_, auth) => _selectorTabCount(auth),
+      builder: (context, tabCount, _) {
         final destinations = _departments;
+        final isOperational = tabCount == 3;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Kitchen', overflow: TextOverflow.ellipsis, maxLines: 1),
@@ -2188,21 +2143,26 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     setState(() => _dismissedWarnings.add('missing_stock_linkage'));
                   },
                 ),
-              if (showFullFunctionality)
-                TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.orange.shade800,
-                  tabs: const [
-                    Tab(text: 'Dispatch', icon: Icon(Icons.send)),
-                    Tab(text: 'Sales', icon: Icon(Icons.point_of_sale)),
-                    Tab(text: 'History', icon: Icon(Icons.history)),
-                  ],
-                ),
-              Expanded(
-                child: showFullFunctionality
-                    ? TabBarView(
-                        controller: _tabController,
-                        children: [
+              DefaultTabController(
+                length: tabCount,
+                child: Column(
+                  children: [
+                    TabBar(
+                      labelColor: Colors.orange.shade800,
+                      tabs: isOperational
+                          ? const [
+                              Tab(text: 'Dispatch', icon: Icon(Icons.send)),
+                              Tab(text: 'Sales', icon: Icon(Icons.point_of_sale)),
+                              Tab(text: 'History', icon: Icon(Icons.history)),
+                            ]
+                          : const [
+                              Tab(text: 'Menu', icon: Icon(Icons.restaurant_menu)),
+                              Tab(text: 'History', icon: Icon(Icons.history)),
+                            ],
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        children: isOperational ? [
                           // Dispatch tab
                           Column(
                             children: [
@@ -2408,16 +2368,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                             children: [
                               Expanded(
                                 child: MediaQuery.sizeOf(context).width < 600
-                                    ? Stack(
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
                                         children: [
-                                          Column(
-                                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                                            children: [
-                                              Expanded(child: _buildKitchenSalesGrid()),
-                                              if (_currentSale.isNotEmpty) _buildKitchenMobileSaleBar(),
-                                            ],
-                                          ),
-                                          if (_showMobileSaleSheet) _buildKitchenMobileSaleSheet(),
+                                          Expanded(child: _buildKitchenSalesGrid()),
+                                          if (_currentSale.isNotEmpty) _buildKitchenMobileSaleBar(),
                                         ],
                                       )
                                     : Row(
@@ -2432,9 +2387,15 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           ),
                           // History tab - shows all transactions (sales + dispatch + restock)
                           _buildHistoryTab(),
-                        ],
-                      )
-                    : _buildReadOnlyDispatchList(),
+                        ]
+                        : [
+                            _buildKitchenMenuReadOnly(),
+                            _buildHistoryTab(),
+                          ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -2442,28 +2403,97 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       },
     );
   }
+
+  /// Read-only menu grid for Owner/Manager (2-tab view). No add-to-sale functionality.
+  Widget _buildKitchenMenuReadOnly() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search items...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = MediaQuery.sizeOf(context).width;
+                      final crossAxisCount = width < 800 ? 2 : (width < 1200 ? 3 : 4);
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          childAspectRatio: 1.0,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                        ),
+                        itemCount: _filteredItems.length,
+                        itemBuilder: (context, index) {
+                          final item = _filteredItems[index];
+                          final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+                          final priceNaira = PaymentService.koboToNaira(priceKobo);
+                          final hasStockLink = item['stock_item_id'] != null;
+                          return ProductCard(
+                            name: item['name']?.toString() ?? 'Unknown',
+                            price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
+                            icon: Icons.restaurant,
+                            backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
+                            border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
+                            onTap: () {}, // Read-only: no add to sale
+                          );
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
   
   Widget _buildHistoryTab() {
     // Combine sales history and dispatch history
     final allTransactions = <Map<String, dynamic>>[];
     
-    // Add sales with type and staff info
+    // Add sales with type and staff info (API returns sold_by_profile from profiles!sold_by join)
     for (var sale in _salesHistory) {
+      final profile = sale['sold_by_profile'] as Map<String, dynamic>?;
       allTransactions.add({
         ...sale,
         'transaction_type': 'Sale',
         'timestamp': sale['created_at'] ?? sale['sale_date'],
-        'staff_name': (sale['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown Staff',
+        'staff_name': profile?['full_name']?.toString() ?? 'Unknown Staff',
       });
     }
     
-    // Add dispatches with type and staff info
+    // Add dispatches with type and staff info (API returns dispatched_by_profile from profiles!dispatched_by_id join)
     for (var dispatch in _dispatchHistory) {
+      final profile = dispatch['dispatched_by_profile'] as Map<String, dynamic>?;
       allTransactions.add({
         ...dispatch,
         'transaction_type': 'Dispatch',
         'timestamp': dispatch['created_at'],
-        'staff_name': (dispatch['profiles'] as Map<String, dynamic>?)?['full_name'] ?? 'Unknown Staff',
+        'staff_name': profile?['full_name']?.toString() ?? 'Unknown Staff',
       });
     }
     
@@ -2618,103 +2648,56 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   context,
                   message: 'No transactions found',
                 )
-              : ScrollableListViewWithArrows(
-                  itemCount: filteredTransactions.length,
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  itemBuilder: (context, index) {
-                    final transaction = filteredTransactions[index];
-                    final isSale = transaction['transaction_type'] == 'Sale';
-                    final timestamp = transaction['timestamp']?.toString() ?? '';
-                    final time = timestamp.isNotEmpty
-                        ? DateFormat('MMM dd, yyyy HH:mm').format(_parseTimestamp(timestamp)!)
-                        : 'Unknown time';
-                    final staffName = transaction['staff_name'] ?? 'Unknown Staff';
-                    
-                    if (isSale) {
-                      final itemName = transaction['item_name'] ??
-                          (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ??
-                          'Item';
-                      final qty = transaction['quantity'] ?? 0;
-                      final total = transaction['total_amount'] as int? ?? 0;
-                      final paymentMethod = transaction['payment_method'] ?? 'cash';
-                      final booking = transaction['bookings'] as Map<String, dynamic>?;
-                      final bookingGuest = booking?['guest_name'] as String?;
-                      final roomNumber = booking?['rooms']?['room_number'] as String?;
+              : RefreshIndicator(
+                  onRefresh: _loadStockAndLocations,
+                  child: ScrollableListViewWithArrows(
+                    itemCount: filteredTransactions.length,
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    itemBuilder: (context, index) {
+                      final transaction = filteredTransactions[index];
+                      final isSale = transaction['transaction_type'] == 'Sale';
+                      final timestamp = transaction['timestamp']?.toString() ?? '';
+                      final time = timestamp.isNotEmpty
+                          ? DateFormat('MMM dd, yyyy HH:mm').format(_parseTimestamp(timestamp)!)
+                          : 'Unknown time';
+                      final staffName = transaction['staff_name'] ?? 'Unknown Staff';
                       
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: ListTile(
-                          leading: const Icon(Icons.point_of_sale, color: Colors.orange),
-                          title: Text('$itemName × $qty'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Staff: $staffName'),
-                              Text('Payment: ${paymentMethod.toUpperCase()}'),
-                              if (bookingGuest != null) 
-                                Text('Guest: $bookingGuest${roomNumber != null ? ' (Room $roomNumber)' : ''}'),
-                              Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                            ],
-                          ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(total))}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    } else {
-                      // Dispatch
-                      final itemName = (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ?? 'Item';
-                      final qty = transaction['quantity'] ?? 0;
-                      final destination = transaction['destination_department'] ?? 'Unknown';
-                      final status = transaction['status'] ?? 'Pending';
-                      final booking = transaction['bookings'] as Map<String, dynamic>?;
-                      final bookingGuest = booking?['guest_name'] as String?;
-                      final roomNumber = booking?['rooms']?['room_number'] as String?;
-                      final totalAmount = transaction['total_amount'] as int? ?? 0;
-                      
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: ListTile(
-                          leading: const Icon(Icons.send, color: Colors.blue),
-                          title: Text('$itemName × $qty'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Staff: $staffName'),
-                              Text('To: ${_formatDepartmentName(destination)}'),
-                              Text('Status: $status'),
-                              if (bookingGuest != null)
-                                Text('Guest: $bookingGuest${roomNumber != null ? ' (Room $roomNumber)' : ''}'),
-                              Text(time, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                            ],
-                          ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (totalAmount > 0)
-                                Text(
-                                  '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalAmount))}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                ),
-                              Icon(
-                                status == 'Completed' ? Icons.check_circle : Icons.pending,
-                                color: status == 'Completed' ? Colors.green : Colors.orange,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                  },
+                      if (isSale) {
+                        final itemName = transaction['item_name'] ??
+                            (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ??
+                            'Item';
+                        final qty = transaction['quantity'] ?? 0;
+                        final total = transaction['total_amount'] as int? ?? 0;
+                        final paymentMethod = transaction['payment_method'] ?? 'cash';
+                        return SaleListItem(
+                          productName: itemName,
+                          quantity: qty,
+                          staffName: staffName,
+                          paymentMethod: paymentMethod,
+                          timestamp: time,
+                          totalAmountKobo: total,
+                          icon: Icons.point_of_sale,
+                          iconColor: Colors.orange,
+                        );
+                      } else {
+                        // Dispatch - use same SaleListItem format
+                        final itemName = (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ?? 'Item';
+                        final qty = transaction['quantity'] ?? 0;
+                        final paymentMethod = transaction['payment_method']?.toString() ?? 'N/A';
+                        final totalAmount = transaction['total_amount'] as int? ?? 0;
+                        return SaleListItem(
+                          productName: itemName,
+                          quantity: qty,
+                          staffName: staffName,
+                          paymentMethod: paymentMethod,
+                          timestamp: time,
+                          totalAmountKobo: totalAmount > 0 ? totalAmount : null,
+                          icon: Icons.send,
+                          iconColor: Colors.blue,
+                        );
+                      }
+                    },
+                  ),
                 ),
         ),
       ],

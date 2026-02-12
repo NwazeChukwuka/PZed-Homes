@@ -1231,7 +1231,7 @@ class DataService {
     return await _retryOperation(() async {
       var query = _supabase
           .from('mini_mart_sales')
-          .select('*, mini_mart_items(name, price), profiles!sold_by(full_name)');
+          .select('*, mini_mart_items(name, price), sold_by_profile:profiles!sold_by(full_name)');
 
       if (startDate != null) {
         query = query.gte('sale_date', startDate.toIso8601String().split('T')[0]);

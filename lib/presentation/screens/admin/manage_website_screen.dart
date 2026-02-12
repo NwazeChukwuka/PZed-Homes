@@ -32,7 +32,7 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
       // 3. Update the database table with the new URL
       await _supabase
           .from('site_media')
-          .update({'media_url': newUrl, 'updated_at': DateTime.now().toIso8601String()})
+          .update({'media_url': newUrl})
           .eq('content_key', contentKey);
 
       if (mounted) {

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
-class ResponsiveLayout extends StatelessWidget {
+/// Layout mode for hysteresis - prevents flicker when width oscillates near breakpoints.
+enum _LayoutMode { mobile, tablet, desktop, largeDesktop }
+
+class ResponsiveLayout extends StatefulWidget {
   final Widget mobile;
   final Widget? tablet;
   final Widget desktop;
@@ -15,18 +18,60 @@ class ResponsiveLayout extends StatelessWidget {
   });
 
   @override
+  State<ResponsiveLayout> createState() => _ResponsiveLayoutState();
+}
+
+class _ResponsiveLayoutState extends State<ResponsiveLayout> {
+  _LayoutMode _mode = _LayoutMode.mobile;
+  static const _hysteresis = 15.0; // px buffer to prevent flip at breakpoint edges
+
+  Widget _selectLayout(double w) {
+    _LayoutMode next = _mode;
+    switch (_mode) {
+      case _LayoutMode.mobile:
+        if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
+        else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
+        else if (w >= 600 + _hysteresis) next = _LayoutMode.tablet;
+        break;
+      case _LayoutMode.tablet:
+        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
+        else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
+        else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
+        break;
+      case _LayoutMode.desktop:
+        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
+        else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
+        else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
+        break;
+      case _LayoutMode.largeDesktop:
+        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
+        else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
+        else if (w < 1200 - _hysteresis) next = _LayoutMode.desktop;
+        break;
+    }
+    if (next != _mode) _mode = next;
+    switch (_mode) {
+      case _LayoutMode.mobile:
+        return widget.mobile;
+      case _LayoutMode.tablet:
+        return widget.tablet ?? widget.mobile;
+      case _LayoutMode.desktop:
+        return widget.desktop;
+      case _LayoutMode.largeDesktop:
+        return widget.largeDesktop ?? widget.desktop;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth >= 1400) {
-          return largeDesktop ?? desktop;
-        } else if (constraints.maxWidth >= 1200) {
-          return desktop;
-        } else if (constraints.maxWidth >= 800) {
-          return tablet ?? mobile;
-        } else {
-          return mobile;
-        }
+        final w = constraints.maxWidth;
+        // Bootstrap: ensure correct mode on first layout
+        if (_mode == _LayoutMode.mobile && w >= 1200) _mode = _LayoutMode.largeDesktop;
+        else if (_mode == _LayoutMode.mobile && w >= 800) _mode = _LayoutMode.desktop;
+        else if (_mode == _LayoutMode.mobile && w >= 600) _mode = _LayoutMode.tablet;
+        return _selectLayout(w);
       },
     );
   }
@@ -60,17 +105,11 @@ class ResponsiveValue<T> {
   });
 
   T getValue(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    
-    if (screenWidth >= 1400) {
-      return largeDesktop ?? desktop ?? tablet ?? mobile;
-    } else if (screenWidth >= 1200) {
-      return desktop ?? tablet ?? mobile;
-    } else if (screenWidth >= 800) {
-      return tablet ?? mobile;
-    } else {
-      return mobile;
-    }
+    final w = MediaQuery.sizeOf(context).width;
+    if (w >= 1200) return largeDesktop ?? desktop ?? tablet ?? mobile;
+    if (w >= 800) return desktop ?? tablet ?? mobile;
+    if (w >= 600) return tablet ?? mobile;
+    return mobile;
   }
 }
 
@@ -92,19 +131,12 @@ class ResponsivePadding extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    
+    final w = MediaQuery.sizeOf(context).width;
     EdgeInsets padding;
-    if (screenWidth >= 1400) {
-      padding = largeDesktop ?? desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
-    } else if (screenWidth >= 1200) {
-      padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
-    } else if (screenWidth >= 800) {
-      padding = tablet ?? mobile ?? EdgeInsets.zero;
-    } else {
-      padding = mobile ?? EdgeInsets.zero;
-    }
-
+    if (w >= 1200) padding = largeDesktop ?? desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
+    else if (w >= 800) padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
+    else if (w >= 600) padding = tablet ?? mobile ?? EdgeInsets.zero;
+    else padding = mobile ?? EdgeInsets.zero;
     return Padding(
       padding: padding,
       child: child,
@@ -134,18 +166,12 @@ class ResponsiveGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    
+    final w = MediaQuery.sizeOf(context).width;
     int columns;
-    if (screenWidth >= 1400) {
-      columns = largeDesktopColumns ?? desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
-    } else if (screenWidth >= 1200) {
-      columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
-    } else if (screenWidth >= 800) {
-      columns = tabletColumns ?? mobileColumns ?? 1;
-    } else {
-      columns = mobileColumns ?? 1;
-    }
+    if (w >= 1200) columns = largeDesktopColumns ?? desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
+    else if (w >= 800) columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
+    else if (w >= 600) columns = tabletColumns ?? mobileColumns ?? 1;
+    else columns = mobileColumns ?? 1;
 
     return Wrap(
       spacing: spacing ?? 16.0,
@@ -181,18 +207,12 @@ class ResponsiveText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    
+    final w = MediaQuery.sizeOf(context).width;
     TextStyle? style;
-    if (screenWidth >= 1400) {
-      style = largeDesktopStyle ?? desktopStyle ?? tabletStyle ?? mobileStyle;
-    } else if (screenWidth >= 1200) {
-      style = desktopStyle ?? tabletStyle ?? mobileStyle;
-    } else if (screenWidth >= 800) {
-      style = tabletStyle ?? mobileStyle;
-    } else {
-      style = mobileStyle;
-    }
+    if (w >= 1200) style = largeDesktopStyle ?? desktopStyle ?? tabletStyle ?? mobileStyle;
+    else if (w >= 800) style = desktopStyle ?? tabletStyle ?? mobileStyle;
+    else if (w >= 600) style = tabletStyle ?? mobileStyle;
+    else style = mobileStyle;
 
     return Text(
       text,
@@ -222,18 +242,12 @@ class ResponsiveSpacing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    
+    final w = MediaQuery.sizeOf(context).width;
     double spacing;
-    if (screenWidth >= 1400) {
-      spacing = largeDesktop ?? desktop ?? tablet ?? mobile ?? 0.0;
-    } else if (screenWidth >= 1200) {
-      spacing = desktop ?? tablet ?? mobile ?? 0.0;
-    } else if (screenWidth >= 800) {
-      spacing = tablet ?? mobile ?? 0.0;
-    } else {
-      spacing = mobile ?? 0.0;
-    }
+    if (w >= 1200) spacing = largeDesktop ?? desktop ?? tablet ?? mobile ?? 0.0;
+    else if (w >= 800) spacing = desktop ?? tablet ?? mobile ?? 0.0;
+    else if (w >= 600) spacing = tablet ?? mobile ?? 0.0;
+    else spacing = mobile ?? 0.0;
 
     if (direction == Axis.vertical) {
       return Column(
@@ -255,12 +269,12 @@ class ResponsiveSpacing extends StatelessWidget {
   }
 }
 
-// Breakpoint constants
+// Breakpoint constants - standardized: 600 mobile, 800 tablet, 1200 desktop
 class Breakpoints {
   static const double mobile = 600;
   static const double tablet = 800;
   static const double desktop = 1200;
-  static const double largeDesktop = 1400;
+  static const double largeDesktop = 1200;
 }
 
 // Responsive helper functions
@@ -290,16 +304,10 @@ class ResponsiveHelper {
     T? desktop,
     T? largeDesktop,
   }) {
-    final width = MediaQuery.sizeOf(context).width;
-    
-    if (width >= Breakpoints.largeDesktop) {
-      return largeDesktop ?? desktop ?? tablet ?? mobile;
-    } else if (width >= Breakpoints.desktop) {
-      return desktop ?? tablet ?? mobile;
-    } else if (width >= Breakpoints.tablet) {
-      return tablet ?? mobile;
-    } else {
-      return mobile;
-    }
+    final w = MediaQuery.sizeOf(context).width;
+    if (w >= Breakpoints.desktop) return largeDesktop ?? desktop ?? tablet ?? mobile;
+    if (w >= Breakpoints.tablet) return desktop ?? tablet ?? mobile;
+    if (w >= Breakpoints.mobile) return tablet ?? mobile;
+    return mobile;
   }
 }

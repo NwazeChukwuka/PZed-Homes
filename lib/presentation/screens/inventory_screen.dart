@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -52,7 +54,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   // Sales state variables
   List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
-  bool _showMobileSaleSheet = false;
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit sales
@@ -63,6 +64,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   // Search controller
   final _searchController = TextEditingController();
+  Timer? _filterDebounce;
+  static const _searchDebounceMs = 300;
 
   @override
   void initState() {
@@ -73,6 +76,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _updateTabController();
     _loadInventory();
     _loadTransactions();
+    _searchController.addListener(_onSearchChanged);
     // Infinite scroll: load next page when user scrolls near bottom
     _transactionsScrollController.addListener(_onTransactionsScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,6 +98,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     });
   }
 
+  void _onSearchChanged() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: _searchDebounceMs), () {
+      if (mounted) setState(() {});
+    });
+  }
+
   void _onTransactionsScroll() {
     // Load next page when within 200px of bottom (infinite scroll)
     if (!_transactionsScrollController.hasClients) return;
@@ -105,6 +116,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
     _transactionsScrollController.removeListener(_onTransactionsScroll);
     _transactionsScrollController.dispose();
     _currentSaleScrollController.dispose();
@@ -611,7 +624,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     prefixIcon: Icon(Icons.search),
                     border: OutlineInputBorder(),
                   ),
-                  onChanged: (value) => setState(() {}),
                 ),
               ),
               // Bar selection for management
@@ -692,8 +704,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
                     final filteredItems = _filterItemsForSales(items);
                     final width = MediaQuery.sizeOf(context).width;
-                    final crossAxisCount = width < 600 ? 2 : (width < 1000 ? 4 : 6);
-                    final childAspectRatio = width < 600 ? 1.0 : (width < 1000 ? 1.05 : 1.1);
+                    final crossAxisCount = width < 800 ? 2 : (width < 1200 ? 3 : 4);
 
                     return GridView.builder(
                       padding: const EdgeInsets.all(16),
@@ -701,7 +712,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                         crossAxisCount: crossAxisCount,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
-                        childAspectRatio: childAspectRatio,
+                        childAspectRatio: 1.0,
                       ),
                       itemCount: filteredItems.length,
                       itemBuilder: (context, index) {
@@ -720,15 +731,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       child: _buildCurrentSaleSection(),
     );
     if (isMobile) {
-      return Stack(
+      return Column(
         children: [
-          Column(
-            children: [
-              Expanded(child: gridSection),
-              if (_currentSale.isNotEmpty) _buildMobileSaleBar(),
-            ],
-          ),
-          if (_showMobileSaleSheet) _buildInventoryMobileSaleSheet(),
+          Expanded(child: gridSection),
+          if (_currentSale.isNotEmpty) _buildMobileSaleBar(),
         ],
       );
     }
@@ -739,7 +745,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     return Material(
       elevation: 8,
       child: InkWell(
-        onTap: () => setState(() => _showMobileSaleSheet = true),
+        onTap: _showInventoryCartModal,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           color: Colors.white,
@@ -769,88 +775,81 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildInventoryMobileSaleSheet() {
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _showMobileSaleSheet = false),
-            child: Container(color: Colors.black54),
-            behavior: HitTestBehavior.opaque,
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) => GestureDetector(
-                onTap: () {},
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 8),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
+  void _showInventoryCartModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Text(
+                          '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Text('Current Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text(
-                              '₦${NumberFormat('#,##0.00').format(_saleTotal)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () => setState(() => _showMobileSaleSheet = false),
-                            ),
-                          ],
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                      ),
-                      Expanded(
-                        child: _currentSale.isEmpty
-                            ? const Center(child: Text('No items selected', style: TextStyle(color: Colors.grey)))
-                            : ListView.builder(
-                                controller: scrollController,
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                itemCount: _currentSale.length,
-                                itemBuilder: (context, index) {
-                                  final saleItem = _currentSale[index];
-                                  return _buildCurrentSaleItem(saleItem);
-                                },
-                              ),
-                      ),
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildInventoryMobileSaleSheetActions(),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                  Expanded(
+                    child: _currentSale.isEmpty
+                        ? const Center(child: Text('No items selected', style: TextStyle(color: Colors.grey)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _currentSale.length,
+                            itemBuilder: (context, index) {
+                              final saleItem = _currentSale[index];
+                              return _buildCurrentSaleItem(saleItem, onItemChanged: () => setModalState(() {}));
+                            },
+                          ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: _buildInventoryMobileSaleSheetActions(
+                      onClose: () => Navigator.pop(context),
+                      onUpdate: () => setModalState(() {}),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildInventoryMobileSaleSheetActions() {
+  Widget _buildInventoryMobileSaleSheetActions({
+    VoidCallback? onClose,
+    VoidCallback? onUpdate,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -926,7 +925,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ? null
                     : () {
                         _clearSale();
-                        setState(() => _showMobileSaleSheet = false);
+                        onUpdate?.call();
+                        onClose?.call();
                       },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey[600],
@@ -938,7 +938,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             const SizedBox(width: 8),
             Expanded(
               child: ElevatedButton(
-                onPressed: _currentSale.isEmpty ? null : _processSale,
+                onPressed: _currentSale.isEmpty ? null : () {
+                  _processSale();
+                  onClose?.call();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[700],
                   foregroundColor: Colors.white,
@@ -1031,69 +1034,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final price = _getItemPrice(item);
     final stock = _getCurrentStock(item);
     final isOutOfStock = stock <= 0;
-    
-    return Card(
-      elevation: 2,
-      child: InkWell(
-        onTap: () => _addItemToSale(item), // Always allow selection, even with zero stock
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: isOutOfStock ? Colors.orange[50] : Colors.white, // Warning color instead of disabled
-            border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null, // Visual indicator
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 90,
-                width: double.infinity,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Icon(Icons.inventory, size: 32),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                item['name']?.toString() ?? 'Unknown',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 11,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '₦${NumberFormat('#,##0.00').format(price)}',
-                style: TextStyle(
-                  color: Colors.green[700],
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 1),
-              Text(
-                'Stock: $stock${isOutOfStock ? ' (Low)' : ''}',
-                style: TextStyle(
-                  color: isOutOfStock ? Colors.orange[700] : Colors.grey[600], // Warning color
-                  fontSize: 9,
-                  fontWeight: isOutOfStock ? FontWeight.w600 : FontWeight.normal,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ProductCard(
+      name: item['name']?.toString() ?? 'Unknown',
+      price: '₦${NumberFormat('#,##0.00').format(price)}',
+      icon: Icons.inventory,
+      backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
+      border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
+      onTap: () => _addItemToSale(item),
     );
   }
 
@@ -1327,7 +1274,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           );
   }
 
-  Widget _buildCurrentSaleItem(Map<String, dynamic> saleItem) {
+  Widget _buildCurrentSaleItem(Map<String, dynamic> saleItem, {VoidCallback? onItemChanged}) {
     final item = saleItem['item'] as Map<String, dynamic>;
     final quantity = saleItem['quantity'] as int;
     final price = saleItem['price'] as double;
@@ -1353,7 +1300,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             Row(
               children: [
                 IconButton(
-                  onPressed: () => _updateItemQuantity(item['id'], quantity - 1),
+                  onPressed: () {
+                    _updateItemQuantity(item['id'], quantity - 1);
+                    onItemChanged?.call();
+                  },
                   icon: const Icon(Icons.remove, size: 16),
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
@@ -1362,12 +1312,18 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 IconButton(
-                  onPressed: () => _updateItemQuantity(item['id'], quantity + 1),
+                  onPressed: () {
+                    _updateItemQuantity(item['id'], quantity + 1);
+                    onItemChanged?.call();
+                  },
                   icon: const Icon(Icons.add, size: 16),
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
                 IconButton(
-                  onPressed: () => _removeItemFromSale(item['id']),
+                  onPressed: () {
+                    _removeItemFromSale(item['id']);
+                    onItemChanged?.call();
+                  },
                   icon: const Icon(Icons.delete, size: 16, color: Colors.red),
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                     ),

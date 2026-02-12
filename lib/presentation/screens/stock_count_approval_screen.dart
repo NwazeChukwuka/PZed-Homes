@@ -47,7 +47,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
       // Load approved counts
       final approved = await _supabase
           .from('pending_stock_counts')
-          .select('*, profiles!submitted_by(id, full_name), profiles!approved_by(id, full_name)')
+          .select('*, submitted_by_profile:profiles!submitted_by(id, full_name), approved_by_profile:profiles!approved_by(id, full_name)')
           .eq('status', 'approved')
           .order('submitted_at', ascending: false)
           .limit(25);
@@ -55,7 +55,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
       // Load rejected counts
       final rejected = await _supabase
           .from('pending_stock_counts')
-          .select('*, profiles!submitted_by(id, full_name), profiles!rejected_by(id, full_name)')
+          .select('*, submitted_by_profile:profiles!submitted_by(id, full_name), rejected_by_profile:profiles!rejected_by(id, full_name)')
           .eq('status', 'rejected')
           .order('submitted_at', ascending: false)
           .limit(25);
@@ -99,7 +99,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
       // Load pending stock counts
       final counts = await _supabase
           .from('pending_stock_counts')
-          .select('*, profiles!submitted_by(id, full_name)')
+          .select('*, submitted_by_profile:profiles!submitted_by(id, full_name)')
           .eq('status', 'pending')
           .order('submitted_at', ascending: false);
 
@@ -117,17 +117,17 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
         for (var item in stockItems) item['id'] as String: item as Map<String, dynamic>
       };
 
-      // Extract submitter info for pending counts
+      // Extract submitter info for pending counts (alias: submitted_by_profile)
       for (var count in _pendingCounts) {
-        final submitter = count['profiles'] as Map<String, dynamic>?;
+        final submitter = count['submitted_by_profile'] as Map<String, dynamic>?;
         if (submitter != null) {
           _submittersById[count['id'] as String] = submitter;
         }
       }
-      
-      // Extract submitter info for historical counts
+
+      // Extract submitter info for historical counts (alias: submitted_by_profile)
       for (var count in _historicalCounts) {
-        final submitter = count['profiles'] as Map<String, dynamic>?;
+        final submitter = count['submitted_by_profile'] as Map<String, dynamic>?;
         if (submitter != null && !_submittersById.containsKey(count['id'] as String)) {
           _submittersById[count['id'] as String] = submitter;
         }

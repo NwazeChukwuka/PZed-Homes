@@ -8,7 +8,10 @@ class AppConnectivity extends ChangeNotifier {
   bool _isOnline = true;
   ConnectivityResult _connectionStatus = ConnectivityResult.none;
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
-  
+  Timer? _debounceTimer;
+  ConnectivityResult? _pendingResult;
+  static const _debounceDuration = Duration(milliseconds: 500);
+
   bool get isOnline => _isOnline;
   ConnectivityResult get connectionStatus => _connectionStatus;
   
@@ -28,6 +31,8 @@ class AppConnectivity extends ChangeNotifier {
   void dispose() {
     _connectivitySubscription?.cancel();
     _connectivitySubscription = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
     super.dispose();
   }
 
@@ -38,13 +43,27 @@ class AppConnectivity extends ChangeNotifier {
     } catch (e) {
       result = ConnectivityResult.none;
     }
-    _updateConnectionStatus(result);
+    _applyConnectionStatus(result);
+  }
+
+  void _applyConnectionStatus(ConnectivityResult result) {
+    if (_connectionStatus != result) {
+      _connectionStatus = result;
+      _isOnline = result != ConnectivityResult.none;
+      notifyListeners();
+    }
   }
 
   void _updateConnectionStatus(ConnectivityResult result) {
-    _connectionStatus = result;
-    _isOnline = result != ConnectivityResult.none;
-    notifyListeners();
+    _pendingResult = result;
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceDuration, () {
+      if (_pendingResult != null) {
+        final r = _pendingResult!;
+        _pendingResult = null;
+        _applyConnectionStatus(r);
+      }
+    });
   }
 
   String get connectionTypeString {
