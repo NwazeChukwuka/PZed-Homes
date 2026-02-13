@@ -200,15 +200,18 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // #region agent log
       debugLog({"location":"inventory_screen.dart:139","message":"Calling getInventoryItems","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Y"});
       // #endregion
-      final inventory = await _dataService.getInventoryItems();
+      // Run independent fetches in parallel (Phase 1: no sequential await)
+      final results = await Future.wait([
+        _dataService.getInventoryItems(),
+        _dataService.getStockLevels(),
+        _dataService.supabase.from('stock_items').select('name').limit(2000),
+      ]);
+      final inventory = results[0] as List<Map<String, dynamic>>;
+      final stockLevels = results[1] as List<Map<String, dynamic>>;
+      final stockItems = results[2];
       // #region agent log
       debugLog({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"});
       // #endregion
-      final stockLevels = await _dataService.getStockLevels();
-      final stockItems = await _dataService.supabase
-          .from('stock_items')
-          .select('name')
-          .limit(2000);
       _stockByLocation.clear();
       for (final row in stockLevels) {
         final location = (row['location_name'] as String?)?.toLowerCase();

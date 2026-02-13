@@ -57,8 +57,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   // Search
   final _searchController = TextEditingController();
   final ScrollController _currentSaleScrollController = ScrollController();
+  final ScrollController _salesHistoryScrollController = ScrollController();
   List<Map<String, dynamic>> _filteredItems = [];
   Timer? _filterDebounce;
+
+  // Phase 4: Sales history pagination (load 50 per page, load more on scroll)
+  static const int _salesHistoryPageSize = 50;
+  int _salesHistoryOffset = 0;
+  bool _salesHistoryHasMore = true;
+  bool _salesHistoryLoadingMore = false;
 
   @override
   void initState() {
@@ -66,6 +73,16 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _tabController = TabController(length: 2, vsync: this);
     _loadMiniMartData();
     _searchController.addListener(_onSearchChanged);
+    _salesHistoryScrollController.addListener(_onSalesHistoryScroll);
+  }
+
+  void _onSalesHistoryScroll() {
+    if (_salesHistoryLoadingMore || !_salesHistoryHasMore) return;
+    if (!_salesHistoryScrollController.hasClients) return;
+    final pos = _salesHistoryScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      _loadMoreSalesHistory();
+    }
   }
 
   /// Debounced: avoid filtering on every keystroke; reduces main-thread workload during typing.
@@ -86,6 +103,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   void dispose() {
     _filterDebounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
+    _salesHistoryScrollController.removeListener(_onSalesHistoryScroll);
+    _salesHistoryScrollController.dispose();
     _searchController.dispose();
     _currentSaleScrollController.dispose();
     _tabController?.dispose();
@@ -97,11 +116,13 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   Future<void> _loadMiniMartData() async {
     try {
-      // Load mini mart items from mock data
-      final itemsResponse = await _dataService.getMiniMartItems();
-      
-      // Load sales history from mock data
-      final salesResponse = await _dataService.getMiniMartSales(limit: 1000);
+      // Run independent fetches in parallel (Phase 1); Phase 4: initial page of sales history
+      final results = await Future.wait([
+        _dataService.getMiniMartItems(),
+        _dataService.getMiniMartSales(limit: _salesHistoryPageSize, offset: 0),
+      ]);
+      final itemsResponse = results[0] as List<Map<String, dynamic>>;
+      final salesResponse = results[1] as List<Map<String, dynamic>>;
 
       if (mounted) {
         final items = List<Map<String, dynamic>>.from(itemsResponse)
@@ -117,6 +138,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           _miniMartItems = items;
           _filteredItems = items;
           _salesHistory = List<Map<String, dynamic>>.from(salesResponse);
+          _salesHistoryOffset = _salesHistoryPageSize;
+          _salesHistoryHasMore = salesResponse.length >= _salesHistoryPageSize;
           _isLoading = false;
         });
       }
@@ -132,6 +155,31 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           stackTrace: stackTrace,
         );
       }
+    }
+  }
+
+  Future<void> _loadMoreSalesHistory() async {
+    if (_salesHistoryLoadingMore || !_salesHistoryHasMore) return;
+    _salesHistoryLoadingMore = true;
+    if (mounted) setState(() {});
+    try {
+      final more = await _dataService.getMiniMartSales(
+        limit: _salesHistoryPageSize,
+        offset: _salesHistoryOffset,
+      );
+      if (!mounted) return;
+      setState(() {
+        _salesHistory.addAll(more);
+        _salesHistoryOffset += _salesHistoryPageSize;
+        _salesHistoryHasMore = more.length >= _salesHistoryPageSize;
+      });
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadMoreSalesHistory: $e\n$stackTrace');
+      if (mounted) {
+        ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+      }
+    } finally {
+      if (mounted) setState(() => _salesHistoryLoadingMore = false);
     }
   }
 
@@ -1512,8 +1560,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 child: RefreshIndicator(
                   onRefresh: _loadMiniMartData,
                   child: ScrollableListViewWithArrows(
-                    itemCount: _salesHistory.length,
+                    controller: _salesHistoryScrollController,
+                    itemCount: _salesHistory.length + (_salesHistoryLoadingMore ? 1 : 0),
                     itemBuilder: (context, index) {
+                      if (index >= _salesHistory.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
                       final sale = _salesHistory[index];
                       final itemName = (sale['mini_mart_items'] as Map<String, dynamic>?)?['name']?.toString() ?? 'Item';
                       final qty = sale['quantity'] as int? ?? 1;

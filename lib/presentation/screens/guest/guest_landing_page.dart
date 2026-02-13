@@ -31,8 +31,6 @@ class GuestLandingPage extends StatefulWidget {
 
 class _GuestLandingPageState extends State<GuestLandingPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  Future<Map<String, dynamic>>? _contentFuture;
-  Future<List<Map<String, dynamic>>>? _galleryFuture;
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
   int _guestCount = 1;
@@ -117,12 +115,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       ],
     };
 
-    // Defer Supabase fetches - don't block initial render
-    // Fetch in background after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _contentFuture = _fetchSiteContent();
-      _galleryFuture = _fetchGalleryItems();
-    });
   }
 
   /// Load room types from database to get accurate prices
@@ -176,102 +168,8 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     return fallbackPrices[roomTypeName] ?? 0;
   }
 
-  Future<Map<String, dynamic>> _fetchSiteContent() async {
-    // Always return empty map by default - use assets first
-    // Only fetch from Supabase if available (non-blocking)
-    try {
-      // Check if Supabase is initialized
-      try {
-        Supabase.instance.client;
-      } catch (e, stack) {
-        if (kDebugMode) debugPrint('DEBUG Supabase check: $e\n$stack');
-        return {};
-      }
-
-      final response = await Supabase.instance.client
-          .from('site_media')
-          .select()
-          .timeout(
-            const Duration(seconds: 2), // Shorter timeout - don't block UI
-            onTimeout: () => throw TimeoutException('Site content request timed out'),
-          );
-      
-      final content = <String, dynamic>{};
-      if (response != null) {
-        for (var item in response) {
-          if (item is Map) {
-            final key = item['content_key']?.toString();
-            final value = item['media_url']?.toString();
-            // Only use Supabase URLs if they're valid and non-empty
-            if (key != null && value != null && value.isNotEmpty && value.startsWith('http')) {
-              content[key] = value;
-            }
-          }
-        }
-      }
-      return content;
-    } on TimeoutException catch (e) {
-      debugPrint('Site content request timed out (using assets): $e');
-      return {}; // Return empty - will use assets
-    } catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG _fetchSiteContent: $e\n$stack');
-      return {}; // Return empty - will use assets
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchGalleryItems() async {
-    // Use assets by default, only fetch from Supabase if available
-    try {
-      // Check if Supabase is initialized
-      try {
-        Supabase.instance.client;
-      } catch (e, stack) {
-        if (kDebugMode) debugPrint('DEBUG Supabase check: $e\n$stack');
-        return _getFallbackGalleryItems();
-      }
-
-      // Try to get content first (with its own timeout)
-      final content = await (_contentFuture ?? Future.value(<String, dynamic>{})).timeout(
-        const Duration(seconds: 1),
-        onTimeout: () => <String, dynamic>{},
-      );
-
-      final response = await Supabase.instance.client
-          .from('gallery_media')
-          .select()
-          .order('sort_order')
-          .timeout(
-            const Duration(seconds: 2), // Shorter timeout - don't block UI
-            onTimeout: () => throw TimeoutException('Gallery request timed out'),
-          );
-
-      if (response == null) return _getFallbackGalleryItems();
-
-      // If we have content URLs, use them to enhance gallery items
-      if (content.isNotEmpty) {
-        return (response as List).map<Map<String, dynamic>>((item) {
-          if (item is! Map) return {};
-          final mediaUrl = item['media_url']?.toString() ?? '';
-          return {
-            ...item,
-            'media_url': mediaUrl.startsWith('content:')
-                ? content[mediaUrl.replaceFirst('content:', '')] ?? mediaUrl
-                : mediaUrl,
-          };
-        }).where((item) => item.isNotEmpty).toList();
-      }
-
-      return List<Map<String, dynamic>>.from(response);
-    } on TimeoutException catch (e) {
-      debugPrint('Gallery request timed out: $e');
-      return _getFallbackGalleryItems();
-    } catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG _fetchGalleryItems: $e\n$stack');
-      return _getFallbackGalleryItems();
-    }
-  }
-
-  List<Map<String, dynamic>> _getFallbackGalleryItems() {
+  /// Gallery items - loaded from assets only (no database)
+  List<Map<String, dynamic>> _getGalleryItems() {
     return [
       {
         'media_url': 'assets/images/Front View/Front View 1.JPG',
@@ -599,26 +497,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           ),
         ],
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _contentFuture ?? Future.value(<String, dynamic>{}),
-        builder: (context, contentSnapshot) {
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: _galleryFuture ?? Future.value(_getFallbackGalleryItems()),
-            builder: (context, gallerySnapshot) {
-              // CRITICAL: Don't wait for futures - show content immediately with fallback
-              // This ensures the page renders within 1-2 seconds instead of waiting for Supabase
-              
-              // Use fallback data immediately, update when Supabase data arrives
-              final content = contentSnapshot.hasData 
-                  ? (contentSnapshot.data ?? {}) 
-                  : {}; // Empty map is fine - we use asset images
-              
-              // Get gallery items with fallback - don't wait
-              final galleryItems = gallerySnapshot.hasData 
-                  ? (gallerySnapshot.data ?? _getFallbackGalleryItems())
-                  : _getFallbackGalleryItems(); // Always have fallback ready
-
-              return SingleChildScrollView(
+      body: SingleChildScrollView(
                 child: Column(
                   children: [
                     // == 1. Hero Section ==
@@ -743,7 +622,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     ),
                     AnimatedWrapper(
                       index: 0,
-                      child: _buildGallerySection(context, galleryItems),
+                      child: _buildGallerySection(context, _getGalleryItems()),
                     ),
 
                     // == 5. Footer ==
@@ -753,10 +632,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     ),
                   ],
                 ),
-              );
-            },
-          );
-        },
       ),
     );
   }

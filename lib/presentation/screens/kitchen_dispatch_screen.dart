@@ -92,11 +92,30 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   bool _hasPerformedInitialLoad = false;
   TabController? _tabController;
 
+  // Phase 4: History pagination (load 50 per page, load more on scroll)
+  static const int _historyPageSize = 50;
+  int _dispatchOffset = 0;
+  int _salesOffset = 0;
+  bool _dispatchHasMore = true;
+  bool _salesHasMore = true;
+  bool _historyLoadingMore = false;
+  final ScrollController _historyScrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _searchController.addListener(_onSearchChanged);
+    _historyScrollController.addListener(_onHistoryScroll);
+  }
+
+  void _onHistoryScroll() {
+    if (_historyLoadingMore || (!_dispatchHasMore && !_salesHasMore)) return;
+    if (!_historyScrollController.hasClients) return;
+    final pos = _historyScrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      _loadMoreHistory();
+    }
   }
 
   int _safePriceKobo(dynamic v) =>
@@ -191,6 +210,20 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void _removeItemFromSale(int index) {
     setState(() {
       _currentSale.removeAt(index);
+      _saleTotal = _currentSale.fold(
+        0.0,
+        (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
+      );
+    });
+  }
+
+  void _updateItemQuantity(int index, int quantity) {
+    if (quantity <= 0) {
+      _removeItemFromSale(index);
+      return;
+    }
+    setState(() {
+      _currentSale[index]['quantity'] = quantity;
       _saleTotal = _currentSale.fold(
         0.0,
         (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
@@ -366,7 +399,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
                           title: Text(name),
-                          subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
+                          subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} each'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -374,9 +407,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                 '₦${NumberFormat('#,##0.00').format(price * qty)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
+                              const SizedBox(width: 8),
                               IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                icon: const Icon(Icons.remove, size: 16),
+                                onPressed: () => _updateItemQuantity(index, qty - 1),
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              ),
+                              Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              IconButton(
+                                icon: const Icon(Icons.add, size: 16),
+                                onPressed: () => _updateItemQuantity(index, qty + 1),
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, size: 16, color: Colors.red),
                                 onPressed: () => _removeItemFromSale(index),
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                               ),
                             ],
                           ),
@@ -596,7 +642,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   title: Text(name),
-                                  subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} × $qty'),
+                                  subtitle: Text('₦${NumberFormat('#,##0.00').format(price)} each'),
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
@@ -604,12 +650,31 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                         '₦${NumberFormat('#,##0.00').format(price * qty)}',
                                         style: const TextStyle(fontWeight: FontWeight.bold),
                                       ),
+                                      const SizedBox(width: 8),
                                       IconButton(
-                                        icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                        icon: const Icon(Icons.remove, size: 16),
+                                        onPressed: () {
+                                          _updateItemQuantity(index, qty - 1);
+                                          setModalState(() {});
+                                        },
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                      ),
+                                      Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      IconButton(
+                                        icon: const Icon(Icons.add, size: 16),
+                                        onPressed: () {
+                                          _updateItemQuantity(index, qty + 1);
+                                          setModalState(() {});
+                                        },
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete, size: 16, color: Colors.red),
                                         onPressed: () {
                                           _removeItemFromSale(index);
                                           setModalState(() {});
                                         },
+                                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                                       ),
                                     ],
                                   ),
@@ -797,17 +862,26 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   Future<void> _loadStockAndLocations() async {
     setState(() => _isLoading = true);
     try {
-      final menuItems = await _dataService.getMenuItems();
+      // Run all independent fetches in parallel (Phase 1: no sequential await)
+      final results = await Future.wait([
+        _dataService.getMenuItems(),
+        _dataService.getLocations(),
+        _dataService.getDepartments(),
+        _dataService.getDepartmentTransfers(limit: _historyPageSize, offset: 0),
+        _dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: 0),
+        _dataService.getBookings(),
+      ]);
+      final menuItems = results[0] as List<Map<String, dynamic>>;
+      final locResponse = results[1] as List<Map<String, dynamic>>;
+      final deptResponse = results[2] as List<Map<String, dynamic>>;
+      final dispatchHistory = results[3] as List<Map<String, dynamic>>;
+      final salesHistory = results[4] as List<Map<String, dynamic>>;
+      final allBookings = results[5] as List<Map<String, dynamic>>;
+      if (!mounted) return;
+
       final stockResponse = menuItems
           .where((item) => (item['department']?.toString().toLowerCase() ?? '') == 'restaurant')
           .toList();
-      final locResponse = await _dataService.getLocations();
-      final deptResponse = await _dataService.getDepartments();
-      final dispatchHistory = await _dataService.getDepartmentTransfers(limit: 1000);
-      final salesHistory = await _dataService.getKitchenSalesHistory(limit: 1000);
-      final allBookings = await _dataService.getBookings();
-      if (!mounted) return;
-
       if (locResponse.isEmpty) {
         if (mounted) {
           ErrorHandler.showWarningMessage(
@@ -829,6 +903,21 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         return status == 'checked-in';
       }).toList();
 
+      final kitchen = locResponse.isEmpty
+          ? <String, dynamic>{}
+          : locResponse.firstWhere(
+              (l) => _safeStr(l['name']).toLowerCase() == 'kitchen',
+              orElse: () => <String, dynamic>{},
+            );
+      if (kitchen.isEmpty && mounted) {
+        ErrorHandler.showWarningMessage(
+          context,
+          'Warning: Kitchen location not found',
+        );
+      }
+      final sourceLocationId = kitchen.isNotEmpty ? _safeStr(kitchen['id']) : _sourceLocationId;
+
+      if (!mounted) return;
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
         _filteredItems = List<Map<String, dynamic>>.from(stockResponse);
@@ -836,6 +925,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _departments = List<Map<String, dynamic>>.from(activeDepartments);
         _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
         _salesHistory = List<Map<String, dynamic>>.from(salesHistory);
+        _dispatchOffset = _historyPageSize;
+        _salesOffset = _historyPageSize;
+        _dispatchHasMore = dispatchHistory.length >= _historyPageSize;
+        _salesHasMore = salesHistory.length >= _historyPageSize;
         _invalidateFilteredCaches();
         _bookings = List<Map<String, dynamic>>.from(checkedInBookings);
         _missingStockLinks = stockResponse
@@ -844,23 +937,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             .toSet()
             .toList()
           ..sort();
+        if (kitchen.isNotEmpty) _sourceLocationId = sourceLocationId;
       });
-
-      // Find Kitchen location id
-      final kitchen = _locations.firstWhere(
-        (l) => _safeStr(l['name']).toLowerCase() == 'kitchen',
-        orElse: () => <String, dynamic>{},
-      );
-      if (kitchen.isNotEmpty) {
-        setState(() => _sourceLocationId = _safeStr(kitchen['id']));
-      } else {
-        if (mounted) {
-          ErrorHandler.showWarningMessage(
-            context,
-            'Warning: Kitchen location not found',
-          );
-        }
-      }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG load data: $e\n$stackTrace');
       if (mounted) {
@@ -873,6 +951,42 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadMoreHistory() async {
+    if (_historyLoadingMore || (!_dispatchHasMore && !_salesHasMore)) return;
+    _historyLoadingMore = true;
+    if (mounted) setState(() {});
+    try {
+      final futures = <Future<List<Map<String, dynamic>>>>[];
+      if (_dispatchHasMore) futures.add(_dataService.getDepartmentTransfers(limit: _historyPageSize, offset: _dispatchOffset));
+      if (_salesHasMore) futures.add(_dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: _salesOffset));
+      final results = await Future.wait(futures);
+      int idx = 0;
+      final moreDispatch = _dispatchHasMore ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+      final moreSales = _salesHasMore ? results[idx] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+
+      if (!mounted) return;
+      final filteredMoreDispatch = moreDispatch.where((t) {
+        final source = t['source_department']?.toString().toLowerCase();
+        return source == 'restaurant' || source == 'kitchen';
+      }).toList();
+
+      setState(() {
+        _dispatchHistory.addAll(filteredMoreDispatch);
+        _salesHistory.addAll(moreSales);
+        _dispatchOffset += _historyPageSize;
+        _salesOffset += _historyPageSize;
+        _dispatchHasMore = moreDispatch.length >= _historyPageSize;
+        _salesHasMore = moreSales.length >= _historyPageSize;
+        _invalidateFilteredCaches();
+      });
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _loadMoreHistory: $e\n$stackTrace');
+      if (mounted) ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _historyLoadingMore = false);
     }
   }
 
@@ -1990,6 +2104,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void dispose() {
     _filterDebounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
+    _historyScrollController.removeListener(_onHistoryScroll);
+    _historyScrollController.dispose();
     _tabController?.dispose();
     _searchController.dispose();
     _currentSaleScrollController.dispose();
@@ -2658,7 +2774,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ),
         ),
         Expanded(
-          child: filteredTransactions.isEmpty
+          child: filteredTransactions.isEmpty && !_historyLoadingMore
               ? ErrorHandler.buildEmptyWidget(
                   context,
                   message: 'No transactions found',
@@ -2666,9 +2782,16 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
               : RefreshIndicator(
                   onRefresh: _loadStockAndLocations,
                   child: ScrollableListViewWithArrows(
-                    itemCount: filteredTransactions.length,
+                    controller: _historyScrollController,
+                    itemCount: filteredTransactions.length + (_historyLoadingMore ? 1 : 0),
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     itemBuilder: (context, index) {
+                      if (index >= filteredTransactions.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
                       final transaction = filteredTransactions[index];
                       final isSale = transaction['transaction_type'] == 'Sale';
                       final timestamp = transaction['timestamp']?.toString() ?? '';

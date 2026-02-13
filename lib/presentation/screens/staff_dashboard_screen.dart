@@ -90,27 +90,18 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     );
     
     try {
-      // Load personal data
-      await _loadPersonalData(staffId, department);
-      
-      // Load department data if applicable
-      if (department != null) {
-        await _loadDepartmentData(department);
-      }
-      
-      // Load booking data for receptionists
-      if (userRole == AppRole.receptionist) {
-        await _loadBookingData();
-      }
-      
-      // Load room data for housekeepers and cleaners
-      if (userRole == AppRole.housekeeper || userRole == AppRole.cleaner) {
-        await _loadRoomData(staffId);
-      }
-      
-      // Load attendance status
+      // Phase 2: Run all independent load sections in parallel
+      final loadFutures = <Future<void>>[
+        _loadPersonalData(staffId, department),
+        if (department != null) _loadDepartmentData(department),
+        if (userRole == AppRole.receptionist) _loadBookingData(),
+        if (userRole == AppRole.housekeeper || userRole == AppRole.cleaner) _loadRoomData(staffId),
+      ];
+      await Future.wait(loadFutures);
+
+      // Attendance last (quick, updates clock-in state)
       await _fetchLastAttendance();
-      
+
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -257,12 +248,35 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Future<void> _loadPersonalData(String staffId, String? department) async {
     final range = _getDateRangeForFilter();
     final prevRange = _getPreviousDateRangeForFilter();
-    // Load this staff member's stock transactions (stock_transactions schema: staff_profile_id, transaction_type, created_at)
-    final allTransactions = await _dataService.getStockTransactions(staffId: staffId);
+
+    // Phase 2: Run all independent fetches in parallel
+    final futures = <Future>[
+      _dataService.getStockTransactions(staffId: staffId),
+      _dataService.getDebts(soldBy: staffId, startDate: range?.start, endDate: range?.end),
+      _dataService.getDebts(createdBy: staffId, startDate: range?.start, endDate: range?.end),
+      if (range != null) _dataService.getMiniMartSales(staffId: staffId, startDate: range.start, endDate: range.end),
+      if (range != null) _dataService.getKitchenSalesHistory(staffId: staffId, startDate: range.start, endDate: range.end),
+      if (prevRange != null) _dataService.getMiniMartSales(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
+      if (prevRange != null) _dataService.getKitchenSalesHistory(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
+      if (prevRange != null) _dataService.getDebts(soldBy: staffId, startDate: prevRange.start, endDate: prevRange.end),
+      if (prevRange != null) _dataService.getDebts(createdBy: staffId, startDate: prevRange.start, endDate: prevRange.end),
+    ];
+    final results = await Future.wait(futures);
+
+    int idx = 0;
+    final allTransactions = results[idx++] as List<Map<String, dynamic>>;
+    final soldDebts = results[idx++] as List<Map<String, dynamic>>;
+    final createdDebts = results[idx++] as List<Map<String, dynamic>>;
+    final miniMartSales = range != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final kitchenSales = range != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevMiniMart = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevKitchen = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevSoldDebts = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevCreatedDebts = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+
     final myTransactionsRaw = allTransactions;
     _myTransactions = _filterByTime(myTransactionsRaw);
 
-    // Stock_transactions do not have total_amount or payment_method. Load sales data for amount-based stats.
     double totalSales = 0;
     int transactionCount = 0;
     double cashSales = 0;
@@ -270,50 +284,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     double transferSales = 0;
     double creditSales = 0;
 
-    if (range != null) {
-      final miniMartSales = await _dataService.getMiniMartSales(
-        staffId: staffId,
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final kitchenSales = await _dataService.getKitchenSalesHistory(
-        staffId: staffId,
-        startDate: range.start,
-        endDate: range.end,
-      );
-      for (var s in miniMartSales) {
-        final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
-        totalSales += amount;
-        transactionCount++;
-        final pm = s['payment_method']?.toString().toLowerCase();
-        if (pm == 'cash') cashSales += amount;
-        else if (pm == 'card') cardSales += amount;
-        else if (pm == 'transfer') transferSales += amount;
-        else if (pm == 'credit') creditSales += amount;
-      }
-      for (var s in kitchenSales) {
-        final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
-        totalSales += amount;
-        transactionCount++;
-        final pm = s['payment_method']?.toString().toLowerCase();
-        if (pm == 'cash') cashSales += amount;
-        else if (pm == 'card') cardSales += amount;
-        else if (pm == 'transfer') transferSales += amount;
-        else if (pm == 'credit') creditSales += amount;
-      }
+    for (var s in miniMartSales) {
+      final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
+      totalSales += amount;
+      transactionCount++;
+      final pm = s['payment_method']?.toString().toLowerCase();
+      if (pm == 'cash') cashSales += amount;
+      else if (pm == 'card') cardSales += amount;
+      else if (pm == 'transfer') transferSales += amount;
+      else if (pm == 'credit') creditSales += amount;
     }
-    
-    // Load debts created by this staff member (current period)
-    final soldDebts = await _dataService.getDebts(
-      soldBy: staffId,
-      startDate: range?.start,
-      endDate: range?.end,
-    );
-    final createdDebts = await _dataService.getDebts(
-      createdBy: staffId,
-      startDate: range?.start,
-      endDate: range?.end,
-    );
+    for (var s in kitchenSales) {
+      final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
+      totalSales += amount;
+      transactionCount++;
+      final pm = s['payment_method']?.toString().toLowerCase();
+      if (pm == 'cash') cashSales += amount;
+      else if (pm == 'card') cardSales += amount;
+      else if (pm == 'transfer') transferSales += amount;
+      else if (pm == 'credit') creditSales += amount;
+    }
+
     final mergedDebts = [...soldDebts, ...createdDebts];
     final uniqueIds = <String>{};
     _myDebts = mergedDebts.where((d) {
@@ -337,35 +328,17 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_debt_amount': totalDebtAmount,
     };
     
-    // Previous period stats for trend (from sales tables, not stock_transactions)
+    // Previous period stats (data already fetched in parallel above)
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
-    if (prevRange != null) {
-      final prevMiniMart = await _dataService.getMiniMartSales(
-        staffId: staffId,
-        startDate: prevRange.start,
-        endDate: prevRange.end,
-      );
-      final prevKitchen = await _dataService.getKitchenSalesHistory(
-        staffId: staffId,
-        startDate: prevRange.start,
-        endDate: prevRange.end,
-      );
-      for (var s in prevMiniMart) {
-        prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
-        prevTransactionCount++;
-      }
-      for (var s in prevKitchen) {
-        prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
-        prevTransactionCount++;
-      }
+    for (var s in prevMiniMart) {
+      prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
+      prevTransactionCount++;
     }
-    final prevSoldDebts = prevRange != null
-        ? await _dataService.getDebts(soldBy: staffId, startDate: prevRange.start, endDate: prevRange.end)
-        : <Map<String, dynamic>>[];
-    final prevCreatedDebts = prevRange != null
-        ? await _dataService.getDebts(createdBy: staffId, startDate: prevRange.start, endDate: prevRange.end)
-        : <Map<String, dynamic>>[];
+    for (var s in prevKitchen) {
+      prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
+      prevTransactionCount++;
+    }
     final prevMerged = [...prevSoldDebts, ...prevCreatedDebts];
     final prevUniqueIds = <String>{};
     final prevDebts = prevMerged.where((d) {
@@ -376,7 +349,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }).toList();
     final prevPending = prevDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');
     final prevDebtAmount = prevPending.fold<double>(0, (sum, d) => sum + ((d['amount'] as num?)?.toDouble() ?? 0));
-    
+
     _previousPersonalStats = {
       'total_sales': prevTotalSales,
       'transaction_count': prevTransactionCount,
@@ -413,7 +386,45 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final range = _getDateRangeForFilter();
     final prevRange = _getPreviousDateRangeForFilter();
     final locationNames = _locationNamesForDepartment(department);
-    final allTransactions = await _dataService.getStockTransactions();
+
+    // Phase 2: Run all independent fetches in parallel
+    final futures = <Future>[
+      _dataService.getStockTransactions(),
+      _dataService.getDebtPaymentClaims(status: 'pending'),
+    ];
+    if (department == 'mini_mart') {
+      futures.add(_dataService.getDebts(department: 'mini_mart', startDate: range?.start, endDate: range?.end));
+      futures.add(_dataService.getDebts(department: 'reception', startDate: range?.start, endDate: range?.end));
+    } else {
+      futures.add(_dataService.getDebts(department: department, startDate: range?.start, endDate: range?.end));
+    }
+    if (prevRange != null) {
+      if (department == 'mini_mart') {
+        futures.add(_dataService.getDebts(department: 'mini_mart', startDate: prevRange.start, endDate: prevRange.end));
+        futures.add(_dataService.getDebts(department: 'reception', startDate: prevRange.start, endDate: prevRange.end));
+      } else {
+        futures.add(_dataService.getDebts(department: department, startDate: prevRange.start, endDate: prevRange.end));
+      }
+    }
+    final results = await Future.wait(futures);
+
+    int idx = 0;
+    final allTransactions = results[idx++] as List<Map<String, dynamic>>;
+    final pendingClaims = results[idx++] as List<Map<String, dynamic>>;
+    List<Map<String, dynamic>> currentDebts;
+    List<Map<String, dynamic>> prevDeptDebts = [];
+    if (department == 'mini_mart') {
+      currentDebts = [...(results[idx++] as List<Map<String, dynamic>>), ...(results[idx++] as List<Map<String, dynamic>>)];
+    } else {
+      currentDebts = results[idx++] as List<Map<String, dynamic>>;
+    }
+    if (prevRange != null) {
+      if (department == 'mini_mart') {
+        prevDeptDebts = [...(results[idx++] as List<Map<String, dynamic>>), ...(results[idx++] as List<Map<String, dynamic>>)];
+      } else {
+        prevDeptDebts = results[idx++] as List<Map<String, dynamic>>;
+      }
+    }
 
     final deptTransactionsRaw = allTransactions.where((t) {
       final loc = t['locations'] as Map<String, dynamic>?;
@@ -435,30 +446,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         staffSales[sid] = (staffSales[sid] ?? 0) + qty.abs();
       }
     }
-    
-    // Load department debts (current period)
-    if (department == 'mini_mart') {
-      final miniMartDebts = await _dataService.getDebts(
-        department: 'mini_mart',
-        startDate: range?.start,
-        endDate: range?.end,
-      );
-      final receptionDebts = await _dataService.getDebts(
-        department: 'reception',
-        startDate: range?.start,
-        endDate: range?.end,
-      );
-      _departmentDebts = [...miniMartDebts, ...receptionDebts];
-    } else {
-      _departmentDebts = await _dataService.getDebts(
-        department: department,
-        startDate: range?.start,
-        endDate: range?.end,
-      );
-    }
-    
-    // Load pending debt payment claims to show clock icon and prevent duplicate recording
-    final pendingClaims = await _dataService.getDebtPaymentClaims(status: 'pending');
+
+    _departmentDebts = currentDebts;
     _debtIdsWithPendingClaim = {
       for (final c in pendingClaims)
         if (c['debt_id'] != null) c['debt_id'].toString()
@@ -475,7 +464,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_debt_amount': totalDeptDebt,
     };
     
-    // Previous period stats for trend
+    // Previous period stats for trend (prevDeptDebts already fetched in parallel above)
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
     if (prevRange != null) {
@@ -485,16 +474,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           prevTotalSales += ((t['quantity'] as num?)?.toDouble() ?? 0).abs();
           prevTransactionCount++;
         }
-      }
-    }
-    List<Map<String, dynamic>> prevDeptDebts = [];
-    if (prevRange != null) {
-      if (department == 'mini_mart') {
-        final pm = await _dataService.getDebts(department: 'mini_mart', startDate: prevRange.start, endDate: prevRange.end);
-        final rc = await _dataService.getDebts(department: 'reception', startDate: prevRange.start, endDate: prevRange.end);
-        prevDeptDebts = [...pm, ...rc];
-      } else {
-        prevDeptDebts = await _dataService.getDebts(department: department, startDate: prevRange.start, endDate: prevRange.end);
       }
     }
     final prevPendingDept = prevDeptDebts.where((d) => d['status'] == 'outstanding' || d['status'] == 'partially_paid');

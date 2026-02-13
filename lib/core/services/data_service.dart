@@ -1227,6 +1227,7 @@ class DataService {
     DateTime? endDate,
     String? staffId,
     int limit = 1000,
+    int offset = 0,
   }) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -1243,7 +1244,9 @@ class DataService {
         query = query.eq('sold_by', staffId);
       }
 
-      final response = await query.order('sale_date', ascending: false).limit(limit);
+      final response = await query
+          .order('sale_date', ascending: false)
+          .range(offset, offset + limit - 1);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -1415,6 +1418,7 @@ class DataService {
     String? destinationDepartment,
     String? paymentStatus,
     int limit = 1000,
+    int offset = 0,
   }) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -1437,7 +1441,9 @@ class DataService {
         query = query.eq('payment_status', paymentStatus);
       }
 
-      final response = await query.order('created_at', ascending: false).limit(limit);
+      final response = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -1469,6 +1475,7 @@ class DataService {
     String? staffId,
     String? paymentMethod,
     int limit = 1000,
+    int offset = 0,
   }) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -1488,7 +1495,9 @@ class DataService {
         query = query.eq('payment_method', paymentMethod);
       }
 
-      final response = await query.order('created_at', ascending: false).limit(limit);
+      final response = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
       return List<Map<String, dynamic>>.from(response);
     });
   }

@@ -428,12 +428,14 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Image.asset(
-                        'assets/images/PZED logo.png',
-                        height: 48,
-                        width: 48,
-                        fit: BoxFit.contain,
-                        color: Colors.grey,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          'assets/images/Executive Room/Executive 3.jpg',
+                          height: 96,
+                          width: 128,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       const Text(
@@ -529,11 +531,10 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                               color: Colors.grey[300],
                               alignment: Alignment.center,
                               child: Image.asset(
-                                'assets/images/PZED logo.png',
-                                height: 48,
-                                width: 48,
-                                fit: BoxFit.contain,
-                                color: Colors.grey,
+                                'assets/images/Executive Room/Executive 3.jpg',
+                                height: imageHeight,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
                               ),
                             ),
                           
