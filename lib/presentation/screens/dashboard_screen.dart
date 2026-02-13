@@ -104,6 +104,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Pagination state
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
+  DateTime? _lastPaginationSetState;
+  static const _paginationThrottleMs = 150;
 
   // Memoized activities: recompute only when source data or search changes
   List<Map<String, dynamic>>? _cachedFilteredActivities;
@@ -117,9 +119,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _onActivitiesScroll() {
     if (!_activitiesScrollController.hasClients) return;
+    final now = DateTime.now();
+    if (_lastPaginationSetState != null &&
+        now.difference(_lastPaginationSetState!).inMilliseconds < _paginationThrottleMs) {
+      return;
+    }
     if (_activitiesScrollController.position.pixels >=
         _activitiesScrollController.position.maxScrollExtent * 0.9) {
       if (_activitiesDisplayCount < _checkedInGuests.length) {
+        _lastPaginationSetState = now;
         setState(() {
           _activitiesDisplayCount = (_activitiesDisplayCount + 5).clamp(5, _checkedInGuests.length);
         });
@@ -134,21 +142,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadData();
     _activitiesSearchController.addListener(_filterActivitiesDebounced);
     _setupRealtimeSubscriptions();
-    // Set default focus by role and sync clock-in status
+    // Set default focus by role and sync clock-in status (single setState to avoid double rebuild)
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final auth = Provider.of<AuthService>(context, listen: false);
-      // Sync clock-in status with AuthService
-      if (mounted) {
-        setState(() {
-          _isClockedIn = auth.isClockedIn;
-        });
-      }
       final role = auth.userRole;
-      if (role == AppRole.owner || role == AppRole.accountant) {
-        setState(() { _focus = 'financial'; });
-      } else {
-        setState(() { _focus = 'performance'; });
-      }
+      final newFocus = (role == AppRole.owner || role == AppRole.accountant) ? 'financial' : 'performance';
+      setState(() {
+        _isClockedIn = auth.isClockedIn;
+        _focus = newFocus;
+      });
     });
   }
   

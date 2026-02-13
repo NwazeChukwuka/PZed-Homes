@@ -289,21 +289,41 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    // Use Consumer to rebuild when role changes
-    return Consumer<AuthService>(
-      builder: (context, authService, child) {
-        final user = authService.currentUser;
-        final isBartender = _hasBartenderRole(authService, user);
-        
-        final showAddItemButton = user?.roles.any((role) => role.name == 'owner' || role.name == 'manager') ?? false;
-
-        // Rebuild tab controller if bartender status changed
+    // Use Selector to avoid full rebuilds on every AuthService notify - only when role/tab config changes
+    return Selector<AuthService, ({bool isBartender, bool showAddItem})>(
+      selector: (_, auth) {
+        final u = auth.currentUser;
+        final bartender = _hasBartenderRole(auth, u);
+        final showAdd = u?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+        return (isBartender: bartender, showAddItem: showAdd);
+      },
+      builder: (context, data, child) {
+        final isBartender = data.isBartender;
+        final showAddItemButton = data.showAddItem;
         final expectedTabCount = isBartender ? 3 : 2;
-        if (_tabController.length != expectedTabCount) {
-          _tabController.dispose();
-          // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
-          final initialIndex = isBartender ? 2 : 0;
-          _tabController = TabController(length: expectedTabCount, initialIndex: initialIndex, vsync: this);
+        final tabCountMismatch = _tabController.length != expectedTabCount;
+
+        // Schedule tab controller update in post-frame to avoid mutation during build
+        if (tabCountMismatch) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _tabController.dispose();
+            final initialIndex = isBartender ? 2 : 0;
+            _tabController = TabController(length: expectedTabCount, initialIndex: initialIndex, vsync: this);
+            setState(() {});
+          });
+        }
+
+        // While controller is mismatched, show placeholder to avoid TabBar/TabBarView assertion
+        if (tabCountMismatch) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Inventory Management', overflow: TextOverflow.ellipsis, maxLines: 1),
+              backgroundColor: Colors.green[700],
+              foregroundColor: Colors.white,
+            ),
+            body: const Center(child: CircularProgressIndicator()),
+          );
         }
 
         return Scaffold(

@@ -32,17 +32,21 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Use Provider.of with listen: true but handle disposal properly
-    final authService = Provider.of<AuthService>(context, listen: true);
-    final user = authService.currentUser;
-    final isStorekeeper = (user?.roles.any((r) => r.name == 'storekeeper') ?? false);
-    final isAssumedStorekeeper = authService.hasAssumedRole(AppRole.storekeeper);
-    final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
-    final showFullFunctionality = isStorekeeper || isAssumedStorekeeper;
+    // Use context.select to avoid full rebuilds on every AuthService notify - only rebuild when role state changes
+    final selected = context.select<AuthService, ({bool showFull, bool ownerManager, bool isAssumed})>((auth) {
+      final u = auth.currentUser;
+      final isStorekeeper = u?.roles.any((r) => r.name == 'storekeeper') ?? false;
+      final isAssumed = auth.hasAssumedRole(AppRole.storekeeper);
+      final isOwnerOrManager = u?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
+      return (showFull: isStorekeeper || isAssumed, ownerManager: isOwnerOrManager, isAssumed: isAssumed);
+    });
+    final showFull = selected.showFull;
+    final ownerManager = selected.ownerManager;
+    final isAssumedStorekeeper = selected.isAssumed;
         
     // Owner/Manager can view store items without assuming role
     // But need to assume role for full functionality
-    if (isOwnerOrManager && !isAssumedStorekeeper) {
+    if (ownerManager && !isAssumedStorekeeper) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Store View', overflow: TextOverflow.ellipsis, maxLines: 1),
@@ -60,7 +64,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
       );
     }
 
-    if (!showFullFunctionality) {
+    if (!showFull) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Storekeeper Dashboard', overflow: TextOverflow.ellipsis, maxLines: 1),

@@ -793,17 +793,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, child) {
-        final user = authService.currentUser;
-        final isReceptionist = (user?.roles.any((r) => r.name == 'receptionist') ?? false) ||
-            authService.hasAssumedRole(AppRole.receptionist);
-
-        // Update tab controller if needed
+    return Selector<AuthService, bool>(
+      selector: (_, auth) =>
+          (auth.currentUser?.roles.any((r) => r.name == 'receptionist') ?? false) ||
+          auth.hasAssumedRole(AppRole.receptionist),
+      builder: (context, isReceptionist, child) {
         final tabCount = isReceptionist ? 3 : 2;
-        if (_tabController == null) {
-          _tabController = TabController(length: tabCount, vsync: this);
-        } else if (_tabController!.length != tabCount) {
+
+        // Update tab controller if needed - schedule in post-frame to avoid mutation during build
+        if (_tabController != null && _tabController!.length != tabCount) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
@@ -812,6 +810,17 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               });
             }
           });
+        }
+
+        final tabCountMismatch = _tabController!.length != tabCount;
+        if (tabCountMismatch) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Mini Mart', overflow: TextOverflow.ellipsis, maxLines: 1),
+              backgroundColor: Colors.green[700],
+            ),
+            body: const Center(child: CircularProgressIndicator()),
+          );
         }
 
         return Scaffold(
