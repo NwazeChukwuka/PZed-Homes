@@ -90,12 +90,24 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   DateTimeRange? _historyFilterRange;
   String _historyFilterStaffId = 'all';
   bool _hasPerformedInitialLoad = false;
+  TabController? _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _searchController.addListener(_onSearchChanged);
   }
+
+  int _safePriceKobo(dynamic v) =>
+      v is num ? v.round() : (int.tryParse(v?.toString() ?? '') ?? 0);
+  double _safeDouble(dynamic v) =>
+      v is num ? v.toDouble() : (double.tryParse(v?.toString() ?? '') ?? 0.0);
+  int _safeInt(dynamic v, [int fallback = 0]) =>
+      v is int ? v : (int.tryParse(v?.toString() ?? '') ?? fallback);
+  String _safeStr(dynamic v) => v?.toString() ?? '';
+  Map<String, dynamic>? _safeMap(dynamic v) =>
+      v is Map<String, dynamic> ? v : null;
 
   void _onSearchChanged() {
     _filterDebounce?.cancel();
@@ -114,7 +126,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   }
 
   void _addItemToSale(Map<String, dynamic> item) {
-    final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+    final priceKobo = _safePriceKobo(item['price']);
     final priceNaira = PaymentService.koboToNaira(priceKobo);
     var addedNewItem = false;
     final existingIndex = _currentSale.indexWhere((s) => s['id'] == item['id']);
@@ -134,7 +146,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
       _saleTotal = _currentSale.fold(
         0.0,
-        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+        (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
       );
     });
     if (addedNewItem) _scrollCurrentSaleToEnd();
@@ -155,7 +167,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       });
       _saleTotal = _currentSale.fold(
         0.0,
-        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+        (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
       );
       _saleCustomNameController.clear();
       _saleUnitPriceController.clear();
@@ -181,7 +193,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       _currentSale.removeAt(index);
       _saleTotal = _currentSale.fold(
         0.0,
-        (sum, s) => sum + ((s['price'] as num).toDouble() * ((s['quantity'] as int?) ?? 1)),
+        (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
       );
     });
   }
@@ -248,7 +260,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           itemCount: _filteredItems.length,
                       itemBuilder: (context, index) {
                         final item = _filteredItems[index];
-                        final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+                        final priceKobo = _safePriceKobo(item['price']);
                         final priceNaira = PaymentService.koboToNaira(priceKobo);
                         final hasStockLink = item['stock_item_id'] != null;
                         return ProductCard(
@@ -347,9 +359,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     itemCount: _currentSale.length,
                     itemBuilder: (context, index) {
                       final item = _currentSale[index];
-                      final name = item['name'] as String? ?? 'Item';
-                      final price = (item['price'] as num).toDouble();
-                      final qty = item['quantity'] as int? ?? 1;
+                      final name = _safeStr(item['name']).isEmpty ? 'Item' : _safeStr(item['name']);
+                      final price = _safeDouble(item['price']);
+                      final qty = _safeInt(item['quantity'], 1);
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
@@ -451,16 +463,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     ),
                     items: _bookings
                         .map((booking) {
-                          final guestName = booking['guest_name'] as String? ??
-                              (booking['profiles'] as Map<String, dynamic>?)?['full_name'] as String? ??
-                              'Guest';
-                          final roomNumber = (booking['rooms'] as Map<String, dynamic>?)
-                                  ?['room_number']
-                                  ?.toString() ??
-                              booking['requested_room_type']?.toString() ??
-                              'Room';
+                          final gn = _safeStr(booking['guest_name']);
+                          final pfn = _safeStr(_safeMap(booking['profiles'])?['full_name']);
+                          final guestName = gn.isNotEmpty ? gn : (pfn.isNotEmpty ? pfn : 'Guest');
+                          final rn = _safeStr(_safeMap(booking['rooms'])?['room_number']);
+                          final rrt = _safeStr(booking['requested_room_type']);
+                          final roomNumber = rn.isNotEmpty ? rn : (rrt.isNotEmpty ? rrt : 'Room');
                           return DropdownMenuItem(
-                            value: booking['id'] as String,
+                            value: _safeStr(booking['id']),
                             child: Text('$guestName • $roomNumber'),
                           );
                         })
@@ -579,9 +589,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                             itemCount: _currentSale.length,
                             itemBuilder: (context, index) {
                               final item = _currentSale[index];
-                              final name = item['name'] as String? ?? 'Item';
-                              final price = (item['price'] as num).toDouble();
-                              final qty = item['quantity'] as int? ?? 1;
+                              final name = _safeStr(item['name']).isEmpty ? 'Item' : _safeStr(item['name']);
+                              final price = _safeDouble(item['price']);
+                              final qty = _safeInt(item['quantity'], 1);
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
@@ -699,14 +709,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             ),
             items: _bookings
                 .map((booking) {
-                  final guestName = booking['guest_name'] as String? ??
-                      (booking['profiles'] as Map<String, dynamic>?)?['full_name'] as String? ??
-                      'Guest';
-                  final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ??
-                      booking['requested_room_type']?.toString() ??
-                      'Room';
+                  final gn = _safeStr(booking['guest_name']);
+                  final pfn = _safeStr(_safeMap(booking['profiles'])?['full_name']);
+                  final guestName = gn.isNotEmpty ? gn : (pfn.isNotEmpty ? pfn : 'Guest');
+                  final rn = _safeStr(_safeMap(booking['rooms'])?['room_number']);
+                  final rrt = _safeStr(booking['requested_room_type']);
+                  final roomNumber = rn.isNotEmpty ? rn : (rrt.isNotEmpty ? rrt : 'Room');
                   return DropdownMenuItem(
-                    value: booking['id'] as String,
+                    value: _safeStr(booking['id']),
                     child: Text('$guestName • $roomNumber'),
                   );
                 })
@@ -808,7 +818,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
 
       final activeDepartments = deptResponse
-          .where((d) => (d['name'] as String?)?.toLowerCase() != 'restaurant')
+          .where((d) => _safeStr(d['name']).toLowerCase() != 'restaurant')
           .toList();
       final filteredDispatchHistory = dispatchHistory.where((t) {
         final source = t['source_department']?.toString().toLowerCase();
@@ -830,7 +840,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _bookings = List<Map<String, dynamic>>.from(checkedInBookings);
         _missingStockLinks = stockResponse
             .where((item) => item['stock_item_id'] == null)
-            .map((item) => (item['name'] as String?) ?? 'Item')
+            .map((item) => _safeStr(item['name']).isEmpty ? 'Item' : _safeStr(item['name']))
             .toSet()
             .toList()
           ..sort();
@@ -838,11 +848,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
       // Find Kitchen location id
       final kitchen = _locations.firstWhere(
-        (l) => (l['name'] as String).toLowerCase() == 'kitchen',
+        (l) => _safeStr(l['name']).toLowerCase() == 'kitchen',
         orElse: () => <String, dynamic>{},
       );
       if (kitchen.isNotEmpty) {
-        setState(() => _sourceLocationId = kitchen['id'] as String);
+        setState(() => _sourceLocationId = _safeStr(kitchen['id']));
       } else {
         if (mounted) {
           ErrorHandler.showWarningMessage(
@@ -873,7 +883,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       orElse: () => <String, dynamic>{},
     );
     if (selected.isEmpty) return;
-    final priceInKobo = selected['price'] as int? ?? 0;
+    final priceInKobo = _safePriceKobo(selected['price']);
     final priceInNaira = PaymentService.koboToNaira(priceInKobo);
     _dispatchUnitPriceController.text = priceInNaira.toStringAsFixed(2);
   }
@@ -885,7 +895,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       orElse: () => <String, dynamic>{},
     );
     if (selected.isEmpty) return;
-    final priceInKobo = selected['price'] as int? ?? 0;
+    final priceInKobo = _safePriceKobo(selected['price']);
     final priceInNaira = PaymentService.koboToNaira(priceInKobo);
     _saleUnitPriceController.text = priceInNaira.toStringAsFixed(2);
   }
@@ -922,20 +932,20 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         .maybeSingle();
 
     if (existingSales != null) {
-      final existingStaffId = existingSales['staff_id'] as String?;
+      final sid = _safeStr(existingSales['staff_id']);
+      final existingStaffId = sid.isEmpty ? null : sid;
       if (existingStaffId == null || existingStaffId == staffId) {
         final currentBreakdown =
-            (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ??
-                <String, dynamic>{};
+            (_safeMap(existingSales['payment_method_breakdown']) ?? <String, dynamic>{});
         final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-        final currentMethodTotal = (updatedBreakdown[paymentMethod] as int? ?? 0);
+        final currentMethodTotal = _safeInt(updatedBreakdown[paymentMethod], 0);
         updatedBreakdown[paymentMethod] = currentMethodTotal + amountInKobo;
 
         await supabase
             .from('department_sales')
             .update({
-              'total_sales': (existingSales['total_sales'] as int) + amountInKobo,
-              'transaction_count': (existingSales['transaction_count'] as int) + 1,
+              'total_sales': _safeInt(existingSales['total_sales']) + amountInKobo,
+              'transaction_count': _safeInt(existingSales['transaction_count']) + 1,
               'payment_method_breakdown': updatedBreakdown,
               'staff_id': staffId,
               'recorded_by': staffId,
@@ -1037,13 +1047,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           (b) => b['id'] == bookingId,
           orElse: () => <String, dynamic>{},
         );
-        final guestProfile = booking['profiles'] as Map<String, dynamic>?;
-        final guestName = booking['guest_name'] as String? ??
-            guestProfile?['full_name'] as String? ??
-            'Guest';
-        final guestPhone = booking['guest_phone'] as String? ??
-            guestProfile?['phone'] as String? ??
-            '';
+        final guestProfile = _safeMap(booking['profiles']);
+        final gn = _safeStr(booking['guest_name']);
+        final guestName = gn.isNotEmpty ? gn : (_safeStr(guestProfile?['full_name']).isNotEmpty ? _safeStr(guestProfile?['full_name']) : 'Guest');
+        final gph = _safeStr(booking['guest_phone']);
+        final guestPhone = gph.isNotEmpty ? gph : (_safeStr(guestProfile?['phone']).isNotEmpty ? _safeStr(guestProfile?['phone']) : '');
 
         await _dataService.recordDebt({
           'debtor_name': guestName,
@@ -1065,7 +1073,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
         await _dataService.addBookingCharge(
           bookingId: bookingId,
-          itemName: selected['name'] as String? ?? 'Kitchen dispatch',
+          itemName: _safeStr(selected['name']).isEmpty ? 'Kitchen dispatch' : _safeStr(selected['name']),
           priceKobo: PaymentService.nairaToKobo(unitPriceNaira),
           quantity: quantity,
           department: 'restaurant',
@@ -1099,16 +1107,16 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       });
       
       if (mounted) {
-        final selectedItemName = selected['name'] as String? ?? 'Item';
+        final selectedItemName = _safeStr(selected['name']).isEmpty ? 'Item' : _safeStr(selected['name']);
         String? guestName;
         if (bookingId != null) {
           final booking = _bookings.firstWhere(
             (b) => b['id'] == bookingId,
             orElse: () => <String, dynamic>{},
           );
-          final guestProfile = booking['profiles'] as Map<String, dynamic>?;
-          guestName = booking['guest_name'] as String? ??
-              guestProfile?['full_name'] as String?;
+          final guestProfile = _safeMap(booking['profiles']);
+          final gn = _safeStr(booking['guest_name']);
+          guestName = gn.isNotEmpty ? gn : _safeStr(guestProfile?['full_name']);
         }
 
         await _showDispatchSlipDialog(
@@ -1166,9 +1174,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       String? firstSaleId;
 
       for (final saleItem in _currentSale) {
-        final itemName = saleItem['name'] as String? ?? 'Item';
-        final quantity = saleItem['quantity'] as int? ?? 1;
-        final unitPriceNaira = (saleItem['price'] as num).toDouble();
+        final itemName = _safeStr(saleItem['name']).isEmpty ? 'Item' : _safeStr(saleItem['name']);
+        final quantity = _safeInt(saleItem['quantity'], 1);
+        final unitPriceNaira = _safeDouble(saleItem['price']);
         final unitPriceKobo = PaymentService.nairaToKobo(unitPriceNaira);
         final itemTotalKobo = unitPriceKobo * quantity;
 
@@ -1254,13 +1262,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           (b) => b['id'] == _selectedBookingId,
           orElse: () => <String, dynamic>{},
         );
-        final guestProfile = booking['profiles'] as Map<String, dynamic>?;
-        final guestName = booking['guest_name'] as String? ??
-            guestProfile?['full_name'] as String? ??
-            'Guest';
-        final guestPhone = booking['guest_phone'] as String? ??
-            guestProfile?['phone'] as String? ??
-            '';
+        final guestProfile = _safeMap(booking['profiles']);
+        final gn = _safeStr(booking['guest_name']);
+        final guestName = gn.isNotEmpty ? gn : (_safeStr(guestProfile?['full_name']).isNotEmpty ? _safeStr(guestProfile?['full_name']) : 'Guest');
+        final gph = _safeStr(booking['guest_phone']);
+        final guestPhone = gph.isNotEmpty ? gph : (_safeStr(guestProfile?['phone']).isNotEmpty ? _safeStr(guestProfile?['phone']) : '');
 
         await _dataService.recordDebt({
           'debtor_name': guestName,
@@ -1282,9 +1288,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
 
       final firstItem = _currentSale.first;
-      final firstItemName = firstItem['name'] as String? ?? 'Item';
-      final firstQty = firstItem['quantity'] as int? ?? 1;
-      final firstPrice = (firstItem['price'] as num).toDouble();
+      final firstItemName = _safeStr(firstItem['name']).isEmpty ? 'Item' : _safeStr(firstItem['name']);
+      final firstQty = _safeInt(firstItem['quantity'], 1);
+      final firstPrice = _safeDouble(firstItem['price']);
       final itemCount = _currentSale.length;
       final displayName = itemCount == 1
           ? firstItemName
@@ -1343,9 +1349,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         (b) => b['id'] == bookingId,
         orElse: () => <String, dynamic>{},
       );
-      final guestProfile = booking['profiles'] as Map<String, dynamic>?;
-      guestName = booking['guest_name'] as String? ??
-          guestProfile?['full_name'] as String?;
+      final guestProfile = _safeMap(booking['profiles']);
+      final gn = _safeStr(booking['guest_name']);
+      guestName = gn.isNotEmpty ? gn : _safeStr(guestProfile?['full_name']);
     }
     final receiptText = StringBuffer()
       ..writeln('P-ZED Homes Kitchen Receipt')
@@ -1984,6 +1990,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void dispose() {
     _filterDebounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
+    _tabController?.dispose();
     _searchController.dispose();
     _currentSaleScrollController.dispose();
     _quantityController.dispose();
@@ -2085,14 +2092,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final items = <DropdownMenuItem<String>>[];
     final seen = <String>{};
     for (final transfer in _dispatchHistory) {
-      final profile = transfer['dispatched_by_profile'] as Map<String, dynamic>?;
+      final profile = _safeMap(transfer['dispatched_by_profile']);
       final id = transfer['dispatched_by_id']?.toString();
       if (id == null || seen.contains(id)) continue;
       seen.add(id);
       items.add(
         DropdownMenuItem(
           value: id,
-          child: Text(profile?['full_name'] as String? ?? 'Staff'),
+          child: Text(_safeStr(profile?['full_name']).isEmpty ? 'Staff' : _safeStr(profile?['full_name'])),
         ),
       );
     }
@@ -2113,11 +2120,24 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
   @override
   Widget build(BuildContext context) {
-    return Selector<AuthService, int>(
-      selector: (_, auth) => _selectorTabCount(auth),
-      builder: (context, tabCount, _) {
+    return Consumer<AuthService>(
+      builder: (context, authService, _) {
+        final tabCount = _selectorTabCount(authService);
         final destinations = _departments;
         final isOperational = tabCount == 3;
+
+        // Update tab controller if length changed (e.g. role assumption)
+        if (_tabController != null && _tabController!.length != tabCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _tabController?.dispose();
+                _tabController = TabController(length: tabCount, vsync: this);
+              });
+            }
+          });
+        }
+
         return Scaffold(
           appBar: AppBar(
             title: const Text('Kitchen', overflow: TextOverflow.ellipsis, maxLines: 1),
@@ -2143,11 +2163,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     setState(() => _dismissedWarnings.add('missing_stock_linkage'));
                   },
                 ),
-              DefaultTabController(
-                length: tabCount,
+              Expanded(
                 child: Column(
                   children: [
                     TabBar(
+                      controller: _tabController,
                       labelColor: Colors.orange.shade800,
                       tabs: isOperational
                           ? const [
@@ -2162,6 +2182,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     ),
                     Expanded(
                       child: TabBarView(
+                        controller: _tabController,
                         children: isOperational ? [
                           // Dispatch tab
                           Column(
@@ -2183,8 +2204,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                     ),
                     items: _stockItems
                         .map((item) => DropdownMenuItem(
-                              value: item['id'] as String,
-                                                  child: Text(item['name'] as String? ?? 'Item'),
+                              value: _safeStr(item['id']),
+                                                  child: Text(_safeStr(item['name']).isEmpty ? 'Item' : _safeStr(item['name'])),
                             ))
                         .toList(),
                                         onChanged: (val) {
@@ -2225,9 +2246,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           ),
                           items: destinations
                               .map((destination) => DropdownMenuItem(
-                                                        value: destination['name'] as String,
+                                                        value: _safeStr(destination['name']),
                                                         child: Text(
-                                                          _formatDepartmentName(destination['name'] as String),
+                                                          _formatDepartmentName(_safeStr(destination['name'])),
                                                         ),
                                   ))
                               .toList(),
@@ -2320,20 +2341,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                         ),
                                         items: _bookings
                                             .map((booking) {
-                                              final guestProfile =
-                                                  booking['profiles'] as Map<String, dynamic>?;
-                                              final guestName =
-                                                  booking['guest_name'] as String? ??
-                                                      guestProfile?['full_name'] as String? ??
-                                                      'Guest';
-                                              final roomNumber = (booking['rooms']
-                                                              as Map<String, dynamic>?)
-                                                          ?['room_number']
-                                                          ?.toString() ??
-                                                  booking['requested_room_type']?.toString() ??
-                                                  'Room';
+                                              final guestProfile = _safeMap(booking['profiles']);
+                                              final gn = _safeStr(booking['guest_name']);
+                                              final guestName = gn.isNotEmpty ? gn : (_safeStr(guestProfile?['full_name']).isNotEmpty ? _safeStr(guestProfile?['full_name']) : 'Guest');
+                                              final rn = _safeStr(_safeMap(booking['rooms'])?['room_number']);
+                                              final rrt = _safeStr(booking['requested_room_type']);
+                                              final roomNumber = rn.isNotEmpty ? rn : (rrt.isNotEmpty ? rrt : 'Room');
                                               return DropdownMenuItem(
-                                                value: booking['id'] as String,
+                                                value: _safeStr(booking['id']),
                                                 child: Text('$guestName • $roomNumber'),
                                               );
                                             })
@@ -2450,7 +2465,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         itemCount: _filteredItems.length,
                         itemBuilder: (context, index) {
                           final item = _filteredItems[index];
-                          final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
+                          final priceKobo = _safePriceKobo(item['price']);
                           final priceNaira = PaymentService.koboToNaira(priceKobo);
                           final hasStockLink = item['stock_item_id'] != null;
                           return ProductCard(
@@ -2477,7 +2492,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     
     // Add sales with type and staff info (API returns sold_by_profile from profiles!sold_by join)
     for (var sale in _salesHistory) {
-      final profile = sale['sold_by_profile'] as Map<String, dynamic>?;
+      final profile = _safeMap(sale['sold_by_profile']);
       allTransactions.add({
         ...sale,
         'transaction_type': 'Sale',
@@ -2488,7 +2503,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     
     // Add dispatches with type and staff info (API returns dispatched_by_profile from profiles!dispatched_by_id join)
     for (var dispatch in _dispatchHistory) {
-      final profile = dispatch['dispatched_by_profile'] as Map<String, dynamic>?;
+      final profile = _safeMap(dispatch['dispatched_by_profile']);
       allTransactions.add({
         ...dispatch,
         'transaction_type': 'Dispatch',
@@ -2663,11 +2678,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       final staffName = transaction['staff_name'] ?? 'Unknown Staff';
                       
                       if (isSale) {
-                        final itemName = transaction['item_name'] ??
-                            (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ??
-                            'Item';
-                        final qty = transaction['quantity'] ?? 0;
-                        final total = transaction['total_amount'] as int? ?? 0;
+                        final miName = _safeStr(_safeMap(transaction['menu_items'])?['name']);
+                        final itemName = transaction['item_name'] ?? (miName.isNotEmpty ? miName : 'Item');
+                        final qty = _safeInt(transaction['quantity'], 0);
+                        final total = _safeInt(transaction['total_amount'], 0);
                         final paymentMethod = transaction['payment_method'] ?? 'cash';
                         return SaleListItem(
                           productName: itemName,
@@ -2681,10 +2695,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         );
                       } else {
                         // Dispatch - use same SaleListItem format
-                        final itemName = (transaction['menu_items'] as Map<String, dynamic>?)?['name'] ?? 'Item';
-                        final qty = transaction['quantity'] ?? 0;
+                        final miName = _safeStr(_safeMap(transaction['menu_items'])?['name']);
+                        final itemName = miName.isNotEmpty ? miName : 'Item';
+                        final qty = _safeInt(transaction['quantity'], 0);
                         final paymentMethod = transaction['payment_method']?.toString() ?? 'N/A';
-                        final totalAmount = transaction['total_amount'] as int? ?? 0;
+                        final totalAmount = _safeInt(transaction['total_amount'], 0);
                         return SaleListItem(
                           productName: itemName,
                           quantity: qty,
@@ -2791,8 +2806,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       items: [
                         const DropdownMenuItem(value: 'all', child: Text('All')),
                         ..._departments.map((dept) => DropdownMenuItem(
-                              value: dept['name'] as String,
-                              child: Text(_formatDepartmentName(dept['name'] as String)),
+                              value: _safeStr(dept['name']),
+                              child: Text(_formatDepartmentName(_safeStr(dept['name']))),
                             )),
                       ],
                       onChanged: (val) => setState(
@@ -2850,11 +2865,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   itemCount: _filteredDispatchHistory.length,
                   itemBuilder: (context, index) {
                     final transfer = _filteredDispatchHistory[index];
-                    final menuItem = transfer['menu_items'] as Map<String, dynamic>?;
+                    final menuItem = _safeMap(transfer['menu_items']);
                     final itemName = menuItem?['name'] ?? 'Unknown Item';
                     final destination = transfer['destination_department']?.toString() ?? 'Unknown';
-                    final booking = transfer['bookings'] as Map<String, dynamic>?;
-                    final bookingGuest = booking?['guest_name'] as String?;
+                    final booking = _safeMap(transfer['bookings']);
+                    final bookingGuest = _safeStr(booking?['guest_name']);
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
@@ -2867,7 +2882,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         ),
                         trailing: Text(
                           transfer['created_at'] != null
-                              ? _formatDate(transfer['created_at'] as String)
+                              ? _formatDate(_safeStr(transfer['created_at']))
                               : '',
                           style: const TextStyle(fontSize: 12),
                         ),

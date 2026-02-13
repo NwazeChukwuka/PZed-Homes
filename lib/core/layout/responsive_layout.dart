@@ -25,7 +25,8 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
   _LayoutMode _mode = _LayoutMode.mobile;
   static const _hysteresis = 15.0; // px buffer to prevent flip at breakpoint edges
 
-  Widget _selectLayout(double w) {
+  /// Pure computation: derive next layout mode from current mode and width (hysteresis).
+  _LayoutMode _computeNextMode(double w) {
     _LayoutMode next = _mode;
     switch (_mode) {
       case _LayoutMode.mobile:
@@ -49,8 +50,11 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
         else if (w < 1200 - _hysteresis) next = _LayoutMode.desktop;
         break;
     }
-    if (next != _mode) _mode = next;
-    switch (_mode) {
+    return next;
+  }
+
+  Widget _widgetForMode(_LayoutMode mode) {
+    switch (mode) {
       case _LayoutMode.mobile:
         return widget.mobile;
       case _LayoutMode.tablet:
@@ -67,11 +71,17 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        // Bootstrap: ensure correct mode on first layout
-        if (_mode == _LayoutMode.mobile && w >= 1200) _mode = _LayoutMode.largeDesktop;
-        else if (_mode == _LayoutMode.mobile && w >= 800) _mode = _LayoutMode.desktop;
-        else if (_mode == _LayoutMode.mobile && w >= 600) _mode = _LayoutMode.tablet;
-        return _selectLayout(w);
+        // Ignore invalid/transitional constraints to prevent Mobile flash on startup
+        if (w <= 0) return _widgetForMode(_mode);
+
+        final next = _computeNextMode(w);
+        // Update state in post-frame callback to keep build pure (no mutation during build)
+        if (next != _mode) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _mode = next);
+          });
+        }
+        return _widgetForMode(next);
       },
     );
   }

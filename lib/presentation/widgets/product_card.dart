@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Universal square product card for Inventory, Mini Mart, and Kitchen grids.
-/// - Icon area: 50% of card height
+/// - Icon area: 65% of card height
 /// - Product name and price centered in text area, with FittedBox for dynamic scaling
 class ProductCard extends StatelessWidget {
   final String name;
@@ -36,7 +36,7 @@ class ProductCard extends StatelessWidget {
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final iconHeight = constraints.maxHeight * 0.50;
+              final iconHeight = constraints.maxHeight * 0.65;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
