@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Universal square product card for Inventory, Mini Mart, and Kitchen grids.
 /// - Icon area: 65% of card height
-/// - Product name and price centered in text area, with FittedBox for dynamic scaling
+/// - Text area: name (max 2 lines, scales down if too long) + price on next line
 class ProductCard extends StatelessWidget {
   final String name;
   final String price;
@@ -55,33 +55,36 @@ class ProductCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w500,
-                              fontSize: 11,
+                        // Name: max 2 lines, uniform base font; scales down if too long
+                        SizedBox(
+                          height: 28,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 11,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.clip,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            price,
-                            style: TextStyle(
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.bold,
-                              fontSize: 10,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        const SizedBox(height: 2),
+                        // Price: fixed size, line 2 (short names) or line 3 (long names)
+                        Text(
+                          price,
+                          style: TextStyle(
+                            color: Colors.green[700],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
