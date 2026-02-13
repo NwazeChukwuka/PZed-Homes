@@ -199,11 +199,11 @@ class ReportingService {
       final startStr = dateRange.start.toIso8601String().split('T')[0];
       final endStr = dateRange.end.toIso8601String().split('T')[0];
 
-      // 1. Room Bookings (checked-out)
+      // 1. Room Bookings (checked-out) - room type from rooms.type or requested_room_type
       final revenueResponse = await _supabase
           .from('bookings')
           .select('''
-            id, total_amount, paid_amount, extra_charges, status,
+            id, total_amount, paid_amount, extra_charges, status, requested_room_type,
             rooms!inner(type)
           ''')
           .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
@@ -214,19 +214,18 @@ class ReportingService {
           .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
           .toList();
 
-      // 2. Department revenue: Mini Mart, Kitchen/Restaurant, VIP Bar, Outside Bar, Reception
+      // 2. Department revenue: Mini Mart, Kitchen/Restaurant, VIP Bar, Outside Bar (Reception removed - room sales tracked by room type)
       // Primary: department_sales (aligned with dashboard). Fallback: income_records, mini_mart_sales, kitchen_sales
       int miniMartSales = 0;
       int kitchenSales = 0;
       int vipBarSales = 0;
       int outsideBarSales = 0;
-      int receptionSales = 0;
 
       try {
         final deptResp = await _supabase
             .from('department_sales')
             .select('department, total_sales')
-            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant', 'reception'])
+            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
             .gte('date', startStr)
             .lte('date', endStr);
         for (final r in deptResp as List) {
@@ -236,7 +235,6 @@ class ReportingService {
           else if (dept == 'outside_bar') outsideBarSales += amt;
           else if (dept == 'mini_mart') miniMartSales += amt;
           else if (dept == 'restaurant') kitchenSales += amt;
-          else if (dept == 'reception') receptionSales += amt;
         }
       } catch (_) {}
 
@@ -276,7 +274,6 @@ class ReportingService {
             else if (dept == 'outside_bar') outsideBarSales += amt;
             else if (dept == 'mini_mart') miniMartSales += amt;
             else if (dept == 'restaurant' || dept == 'kitchen') kitchenSales += amt;
-            else if (dept == 'reception') receptionSales += amt;
           }
         } catch (_) {}
       }
@@ -313,17 +310,16 @@ class ReportingService {
         return sum + normalizedTotal;
       });
 
-      final totalRevenue = roomRevenueTotal + miniMartSales + kitchenSales + vipBarSales + outsideBarSales + receptionSales;
+      final totalRevenue = roomRevenueTotal + miniMartSales + kitchenSales + vipBarSales + outsideBarSales;
       var totalExpenses = expenseItems.fold<int>(0, (s, e) => s + ((e['amount'] ?? 0) as int)) + payrollTotal;
 
-      // 9. Revenue breakdown (always include all categories, use ₦0 if zero)
+      // 9. Revenue breakdown (always include all room types + departments, use ₦0 if zero; Reception removed)
       final revenueBreakdown = _generateUnifiedRevenueBreakdown(
         revenueItems,
         miniMartSales,
         kitchenSales,
         vipBarSales,
         outsideBarSales,
-        receptionSales,
       );
 
       // 10. Inventory restocking (purchase orders) and maintenance
@@ -380,56 +376,88 @@ class ReportingService {
     }
   }
 
+  /// Canonical room types - always displayed in Revenue Breakdown (show ₦0.00 if no revenue)
+  static const _roomTypes = [
+    'Standard Room',
+    'Classic Room',
+    'Diplomatic Room',
+    'Deluxe Room',
+    'Executive Room',
+  ];
+
+  /// Normalize room type for matching (handles requested_room_type, rooms.type, case variants)
+  String _normalizeRoomType(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return 'Standard Room';
+    final s = raw.trim();
+    for (final rt in _roomTypes) {
+      if (s.toLowerCase() == rt.toLowerCase()) return rt;
+    }
+    // Partial match (e.g. "Standard" -> "Standard Room")
+    final lower = s.toLowerCase();
+    if (lower.contains('standard')) return 'Standard Room';
+    if (lower.contains('classic')) return 'Classic Room';
+    if (lower.contains('diplomatic')) return 'Diplomatic Room';
+    if (lower.contains('deluxe')) return 'Deluxe Room';
+    if (lower.contains('executive')) return 'Executive Room';
+    return s; // Unknown type - will go to "Other Room Types"
+  }
+
   List<CategoryAmount> _generateUnifiedRevenueBreakdown(
     List<Map<String, dynamic>> revenueItems,
     int miniMartSales,
     int kitchenSales,
     int vipBarSales,
     int outsideBarSales,
-    int receptionSales,
   ) {
-    final breakdown = <String, int>{};
+    // Initialize all room types with 0 (always show each, even if ₦0.00)
+    final roomRevenue = <String, int>{};
+    for (final rt in _roomTypes) {
+      roomRevenue[rt] = 0;
+    }
+    int otherRoomRevenue = 0;
 
-    // Room bookings by type
+    // Aggregate room revenue from bookings (from room_bookings / bookings + rooms join)
     for (var booking in revenueItems) {
+      String rawType = 'Standard Room';
       final rooms = booking['rooms'];
-      String roomType = 'Standard Room';
       if (rooms is Map && rooms['type'] != null) {
-        roomType = rooms['type'] as String;
+        rawType = rooms['type'] as String;
       } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
-        roomType = (rooms.first as Map)['type'] as String? ?? roomType;
+        rawType = (rooms.first as Map)['type'] as String? ?? rawType;
+      } else {
+        rawType = booking['requested_room_type']?.toString() ?? rawType;
       }
       final totalAmount = (booking['total_amount'] as num?)?.toInt();
       final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
       final extras = ((booking['extra_charges'] ?? []) as List).fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
       final baseTotal = totalAmount ?? paidAmount;
-      final roomRevenue = baseTotal >= extras ? baseTotal - extras : baseTotal;
-      breakdown[roomType] = (breakdown[roomType] ?? 0) + roomRevenue;
+      final rev = baseTotal >= extras ? baseTotal - extras : baseTotal;
+      final normalized = _normalizeRoomType(rawType);
+      if (_roomTypes.contains(normalized)) {
+        roomRevenue[normalized] = (roomRevenue[normalized] ?? 0) + rev;
+      } else {
+        otherRoomRevenue += rev;
+      }
     }
 
-    // Add fixed revenue categories (always show, even if zero - data safety)
-    breakdown['Mini Mart'] = miniMartSales;
-    breakdown['Kitchen/Restaurant'] = kitchenSales;
-    breakdown['VIP Bar'] = vipBarSales;
-    breakdown['Outside Bar'] = outsideBarSales;
-    breakdown['Reception'] = receptionSales;
-
+    // Build result: room types first (fixed order), then department categories
     const deptOrder = [
       'Mini Mart',
       'Kitchen/Restaurant',
       'VIP Bar',
       'Outside Bar',
-      'Reception',
     ];
     final result = <CategoryAmount>[];
-    final roomEntries = breakdown.entries.where((e) => !deptOrder.contains(e.key)).toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    for (final e in roomEntries) {
-      result.add(CategoryAmount(category: e.key, amount: e.value));
+    for (final rt in _roomTypes) {
+      result.add(CategoryAmount(category: rt, amount: roomRevenue[rt] ?? 0));
     }
-    for (final cat in deptOrder) {
-      result.add(CategoryAmount(category: cat, amount: breakdown[cat] ?? 0));
+    if (otherRoomRevenue > 0) {
+      result.add(CategoryAmount(category: 'Other Room Types', amount: otherRoomRevenue));
     }
+    result.add(CategoryAmount(category: 'Mini Mart', amount: miniMartSales));
+    result.add(CategoryAmount(category: 'Kitchen/Restaurant', amount: kitchenSales));
+    result.add(CategoryAmount(category: 'VIP Bar', amount: vipBarSales));
+    result.add(CategoryAmount(category: 'Outside Bar', amount: outsideBarSales));
     return result;
   }
 

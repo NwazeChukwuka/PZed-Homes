@@ -2,7 +2,14 @@
 -- NON-DESTRUCTIVE UPGRADE SCRIPT (TEST PERIOD)
 -- ==============================================
 -- This script applies the latest fixes without dropping tables or data.
--- Safe to run multiple times.
+-- Safe to run multiple times (idempotent).
+--
+-- Includes merged migrations:
+-- - Kitchen sales RLS (booking_charges, stock_transactions)
+-- - Kitchen history (Owner/Manager SELECT on kitchen_sales, department_transfers)
+-- - App config (app_config table for Paystack public key)
+--
+-- After running: Set paystack_public_key in app_config via Supabase Dashboard.
 -- ==============================================
 
 -- 1) RLS helper functions
@@ -3219,3 +3226,27 @@ CREATE POLICY "Owner and Manager can view department transfers" ON public.depart
 USING (
   user_has_role(auth.uid(), 'owner') OR user_has_role(auth.uid(), 'manager')
 );
+
+-- ==============================================
+-- App Config (Paystack keys, runtime config)
+-- Merged from migration 20250205000003
+-- Keys are read by the Dart app; PAYSTACK_SECRET_KEY stays in Edge Function secrets only
+-- ==============================================
+CREATE TABLE IF NOT EXISTS public.app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow read app_config for all" ON public.app_config;
+CREATE POLICY "Allow read app_config for all"
+  ON public.app_config FOR SELECT
+  USING (true);
+
+INSERT INTO public.app_config (key, value)
+VALUES ('paystack_public_key', '')
+ON CONFLICT (key) DO NOTHING;
+
+COMMENT ON TABLE public.app_config IS 'Runtime app configuration. paystack_public_key: set in Supabase dashboard. PAYSTACK_SECRET_KEY: set in Edge Function secrets.';

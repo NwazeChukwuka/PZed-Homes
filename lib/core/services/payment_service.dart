@@ -1,55 +1,72 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Service for handling Paystack payment processing
-/// All amounts are handled in KOBO (smallest currency unit)
-/// 
-/// Note: This implementation uses Paystack's payment link API
-/// For production, consider using Paystack's Flutter SDK or web-based checkout
+/// Service for handling Paystack payment processing.
+/// All amounts are in KOBO (smallest currency unit).
+///
+/// Keys and API calls are managed via Supabase:
+/// - Public key: stored in app_config table (paystack_public_key)
+/// - Secret key: PAYSTACK_SECRET_KEY in Edge Function secrets only
+/// - Payment link creation: create_paystack_payment Edge Function
+/// - Verification: verify_guest_booking_payment Edge Function
 class PaymentService {
   static final PaymentService _instance = PaymentService._internal();
   factory PaymentService() => _instance;
   PaymentService._internal();
 
-  String? _publicKey;
-  String? _secretKey;
   bool _isInitialized = false;
 
-  /// Initialize Paystack with public key from environment
+  /// Initialize by fetching Paystack config from Supabase app_config table.
+  /// Payment is configured when paystack_public_key is set in Supabase.
   Future<void> initialize() async {
     if (_isInitialized) return;
-    
-    // Get Paystack keys from environment
-    const publicKey = String.fromEnvironment('PAYSTACK_PUBLIC_KEY', defaultValue: '');
-    const secretKey = String.fromEnvironment('PAYSTACK_SECRET_KEY', defaultValue: '');
-    
-    if (publicKey.isEmpty) {
-      if (kDebugMode) {
-        print('⚠️ PAYSTACK_PUBLIC_KEY not set. Payment will not work.');
-      }
-      return;
-    }
 
-    _publicKey = publicKey;
-    _secretKey = secretKey;
-    _isInitialized = true;
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('app_config')
+          .select('value')
+          .eq('key', 'paystack_public_key')
+          .maybeSingle();
+
+      final value = response?['value']?.toString().trim() ?? '';
+      if (value.isNotEmpty) {
+        _isInitialized = true;
+        if (kDebugMode) {
+          // Don't log the key
+          debugPrint('Paystack: initialized (config from Supabase)');
+        }
+      } else {
+        if (kDebugMode) {
+          debugPrint(
+            'Paystack: not configured. Set paystack_public_key in app_config table and PAYSTACK_SECRET_KEY in Supabase Edge Function secrets.',
+          );
+        }
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('Paystack init error: $e\n$stack');
+      }
+      // app_config table may not exist yet - treat as not configured
+      _isInitialized = false;
+    }
   }
 
-  /// Check if Paystack is initialized
-  bool get isInitialized => _isInitialized && _publicKey != null && _publicKey!.isNotEmpty;
+  /// Whether payment is configured (public key present in Supabase app_config).
+  bool get isInitialized => _isInitialized;
 
-  /// Process payment using Paystack Payment Link API
-  /// 
+  /// Process payment: create link via Edge Function, launch Paystack, await user confirmation.
+  /// Verification is done by verify_guest_booking_payment when the caller confirms the booking.
+  ///
   /// [context] - BuildContext for showing payment UI
   /// [amountInKobo] - Amount in kobo (smallest currency unit)
   /// [email] - Customer email
   /// [reference] - Unique transaction reference
-  /// [metadata] - Additional metadata for the transaction
-  /// 
-  /// Returns true if payment is successful, false otherwise
+  /// [metadata] - Additional metadata (e.g. booking_id, guest_name)
+  ///
+  /// Returns true when user indicates payment is complete (caller must then verify via Edge Function).
   Future<bool> processPayment({
     required BuildContext context,
     required int amountInKobo,
@@ -58,118 +75,73 @@ class PaymentService {
     Map<String, dynamic>? metadata,
   }) async {
     if (!isInitialized) {
-      throw Exception('Paystack is not initialized. Please set PAYSTACK_PUBLIC_KEY environment variable.');
-    }
-
-    if (_secretKey == null || _secretKey!.isEmpty) {
-      throw Exception('PAYSTACK_SECRET_KEY is required for payment processing. Please set it in environment variables.');
+      throw Exception(
+        'Payment system is not configured. Set paystack_public_key in Supabase app_config and PAYSTACK_SECRET_KEY in Edge Function secrets.',
+      );
     }
 
     try {
-      // Convert amount from kobo to naira for Paystack API (Paystack API expects amount in kobo)
-      // Note: Paystack Payment Link API expects amount in the smallest currency unit (kobo for NGN)
-      
-      // Create payment link via Paystack API
-      final response = await http.post(
-        Uri.parse('https://api.paystack.co/paymentrequest'),
-        headers: {
-          'Authorization': 'Bearer $_secretKey',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'amount': amountInKobo, // Amount in kobo
+      final supabase = Supabase.instance.client;
+      final response = await supabase.functions.invoke(
+        'create_paystack_payment',
+        body: {
+          'amount_in_kobo': amountInKobo,
           'email': email,
           'reference': reference,
-          'currency': 'NGN',
-          'metadata': {
-            'booking_reference': reference,
-            ...?metadata,
-          },
-        }),
-      ).timeout(const Duration(seconds: 30));
+          if (metadata != null) 'metadata': metadata,
+        },
+      );
 
-      if (response.statusCode == 201) {
-        final responseData = jsonDecode(response.body);
-        final paymentLink = responseData['data']['link'] as String?;
-        
-        if (paymentLink != null) {
-          // Launch payment link in browser
-          final uri = Uri.parse(paymentLink);
-          final launched = await launchUrl(
-            uri,
-            mode: LaunchMode.externalApplication,
-          );
-
-          if (launched) {
-            // Show dialog to user to confirm payment completion
-            final result = await showDialog<bool>(
-              context: context,
-              barrierDismissible: false,
-              builder: (context) => AlertDialog(
-                title: const Text('Complete Payment'),
-                content: const Text(
-                  'You will be redirected to Paystack to complete your payment.\n\n'
-                  'After completing the payment, please return to this app and click "Payment Completed".',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    child: const Text('Payment Completed'),
-                  ),
-                ],
-              ),
-            );
-
-            if (result == true) {
-              // Verify payment status
-              return await _verifyPayment(reference);
-            }
-          }
-        }
+      if (response.status != 200) {
+        final err = response.data is Map
+            ? (response.data as Map)['error']?.toString()
+            : response.data?.toString();
+        throw Exception(err ?? 'Failed to create payment link. Check Supabase PAYSTACK_SECRET_KEY.');
       }
 
-      if (kDebugMode) {
-        debugPrint('DEBUG: Payment API error - status: ${response.statusCode}, body: ${response.body}');
+      final link = response.data is Map
+          ? (response.data as Map)['link']?.toString()
+          : null;
+
+      if (link == null || link.isEmpty) {
+        throw Exception('Payment system did not return a valid payment URL.');
       }
-      throw Exception('Payment request failed. Please try again.');
+
+      final uri = Uri.parse(link);
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+      if (!launched) {
+        throw Exception('Could not open payment page. Please try again.');
+      }
+
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Complete Payment'),
+          content: const Text(
+            'You will be redirected to Paystack to complete your payment.\n\n'
+            'After completing the payment, please return to this app and click "Payment Completed".',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Payment Completed'),
+            ),
+          ],
+        ),
+      );
+
+      return result == true;
     } catch (e) {
       if (kDebugMode) {
-        print('Payment error: $e');
+        debugPrint('Payment error: $e');
       }
       rethrow;
-    }
-  }
-
-  /// Verify payment status with Paystack
-  Future<bool> _verifyPayment(String reference) async {
-    if (_secretKey == null || _secretKey!.isEmpty) {
-      return false;
-    }
-
-    try {
-      final response = await http.get(
-        Uri.parse('https://api.paystack.co/transaction/verify/$reference'),
-        headers: {
-          'Authorization': 'Bearer $_secretKey',
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        final status = responseData['data']['status'] as String?;
-        return status == 'success';
-      }
-
-      return false;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Payment verification error: $e');
-      }
-      return false;
     }
   }
 
@@ -190,4 +162,3 @@ class PaymentService {
     return kobo / 100.0;
   }
 }
-

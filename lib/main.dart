@@ -53,12 +53,12 @@ Future<void> main() async {
     }
   }
 
-  // Initialize Paystack payment service
-  PaymentService().initialize().catchError((e, stack) {
+  // Initialize Paystack payment service (reads config from Supabase app_config)
+  await PaymentService().initialize().catchError((e, stack) {
     if (kDebugMode) debugPrint('DEBUG Paystack init: $e\n$stack');
+    return; // Swallow - payment will show "not configured" when used
   });
 
-  // Start app immediately - don't wait for Supabase
   runApp(const PzedHomesApp());
 }
 
