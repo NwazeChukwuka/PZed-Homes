@@ -403,11 +403,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                '₦${NumberFormat('#,##0.00').format(price * qty)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(width: 8),
                               IconButton(
                                 icon: const Icon(Icons.remove, size: 16),
                                 onPressed: () => _updateItemQuantity(index, qty - 1),
@@ -646,11 +641,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(
-                                        '₦${NumberFormat('#,##0.00').format(price * qty)}',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(width: 8),
                                       IconButton(
                                         icon: const Icon(Icons.remove, size: 16),
                                         onPressed: () {
