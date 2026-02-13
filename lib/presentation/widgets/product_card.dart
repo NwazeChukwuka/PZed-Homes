@@ -52,41 +52,50 @@ class ProductCard extends StatelessWidget {
                     ),
                   ),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Name: max 2 lines, uniform base font; scales down if too long
-                        SizedBox(
-                          height: 28,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontSize: 11,
+                    child: LayoutBuilder(
+                      builder: (context, textConstraints) {
+                        final cardWidth = textConstraints.maxWidth;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Name: wraps to 2 lines at base font; scales down only if 2 lines overflow
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 28),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: SizedBox(
+                                  width: cardWidth,
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 11,
+                                    ),
+                                    maxLines: 2,
+                                    softWrap: true,
+                                    overflow: TextOverflow.clip,
+                                  ),
+                                ),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.clip,
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        // Price: fixed size, line 2 (short names) or line 3 (long names)
-                        Text(
-                          price,
-                          style: TextStyle(
-                            color: Colors.green[700],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                            const SizedBox(height: 2),
+                            // Price: line 2 when name is 1 line, line 3 when name wraps to 2 lines
+                            Text(
+                              price,
+                              style: TextStyle(
+                                color: Colors.green[700],
+                                fontWeight: FontWeight.bold,
+                                fontSize: 10,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ],
