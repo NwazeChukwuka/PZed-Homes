@@ -1057,6 +1057,8 @@ class DataService {
   }
 
   // Financial Summary
+  /// Total Income = Manual Income + Kitchen + Mini Mart + Bar Sales (VIP/Outside) + Room Revenue.
+  /// Available Cash = (Opening Balance + Period Inflows) - Period Outflows.
   Future<Map<String, dynamic>> getFinancialSummary({
     DateTime? startDate,
     DateTime? endDate,
@@ -1064,30 +1066,187 @@ class DataService {
     return await _retryOperation(() async {
       final rangeStart = startDate ?? DateTime.now().subtract(const Duration(days: 30));
       final rangeEnd = endDate ?? DateTime.now();
-      final income = await _supabase
+      final startStr = rangeStart.toIso8601String().split('T')[0];
+      final endStr = rangeEnd.toIso8601String().split('T')[0];
+
+      // 1. Manual income records
+      final incomeResp = await _supabase
           .from('income_records')
           .select('amount')
-          .gte('date', rangeStart.toIso8601String().split('T')[0])
-          .lte('date', rangeEnd.toIso8601String().split('T')[0]);
-      
-      final expenses = await _supabase
+          .gte('date', startStr)
+          .lte('date', endStr);
+      var totalIncome = (incomeResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+
+      // 2. Department sales (Kitchen, Mini Mart, VIP Bar, Outside Bar) - try department_sales first
+      int deptSalesTotal = 0;
+      try {
+        final deptResp = await _supabase
+            .from('department_sales')
+            .select('department, total_sales')
+            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
+            .gte('date', startStr)
+            .lte('date', endStr);
+        for (final r in deptResp as List) {
+          deptSalesTotal += (r['total_sales'] as num?)?.toInt() ?? 0;
+        }
+      } catch (_) {}
+      if (deptSalesTotal == 0) {
+        try {
+          final kResp = await _supabase
+              .from('kitchen_sales')
+              .select('total_amount')
+              .gte('created_at', rangeStart.toIso8601String())
+              .lte('created_at', rangeEnd.toIso8601String());
+          for (final r in kResp as List) {
+            deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
+          }
+          final mmResp = await _supabase
+              .from('mini_mart_sales')
+              .select('total_amount')
+              .gte('sale_date', startStr)
+              .lte('sale_date', endStr);
+          for (final r in mmResp as List) {
+            deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
+          }
+        } catch (_) {}
+      }
+      totalIncome += deptSalesTotal.toDouble();
+
+      // 3. Room booking revenue (checked-out bookings)
+      int roomRevenue = 0;
+      try {
+        final bookResp = await _supabase
+            .from('bookings')
+            .select('total_amount, paid_amount')
+            .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
+            .gte('check_out_date', startStr)
+            .lte('check_out_date', endStr);
+        for (final b in bookResp as List) {
+          final total = (b['total_amount'] as num?)?.toInt();
+          final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
+          roomRevenue += total ?? paid;
+        }
+      } catch (_) {}
+      totalIncome += roomRevenue.toDouble();
+
+      // 4. Period expenses (all, for P&L display)
+      final expensesResp = await _supabase
           .from('expenses')
           .select('amount')
-          .gte('transaction_date', rangeStart.toIso8601String().split('T')[0])
-          .lte('transaction_date', rangeEnd.toIso8601String().split('T')[0]);
+          .gte('transaction_date', startStr)
+          .lte('transaction_date', endStr);
+      final totalExpenses = (expensesResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
 
-      final totalIncome = (income as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-      final totalExpenses = (expenses as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+      // 5. Cash outflows: Approved expenses + approved payroll
+      var approvedExpenses = 0.0;
+      var approvedPayroll = 0.0;
+      try {
+        final expApproved = await _supabase
+            .from('expenses')
+            .select('amount')
+            .gte('transaction_date', startStr)
+            .lte('transaction_date', endStr)
+            .eq('status', 'Approved');
+        approvedExpenses = (expApproved as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+      } catch (_) {}
+      try {
+        final payrollResp = await _supabase
+            .from('payroll_records')
+            .select('amount')
+            .gte('month', startStr)
+            .lte('month', endStr)
+            .eq('approval_status', 'approved');
+        approvedPayroll = (payrollResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+      } catch (_) {}
+      final totalOutflows = approvedExpenses + approvedPayroll;
+
+      // 6. Available Cash: (Opening Balance + Period Inflows) - Period Outflows
+      final opening = await _computeOpeningCashBalance(startStr);
+      final periodInflows = totalIncome;
+      final availableCash = opening + periodInflows - totalOutflows;
 
       return {
         'total_income': totalIncome,
         'total_expenses': totalExpenses,
         'net_profit': totalIncome - totalExpenses,
-        'available_cash': totalIncome - totalExpenses, // Simplified
+        'available_cash': availableCash,
       };
     });
   }
 
+  /// Opening balance = sum of all inflows - outflows from beginning until (excluding) startDate.
+  Future<double> _computeOpeningCashBalance(String beforeDate) async {
+    try {
+      double inflows = 0;
+      double outflows = 0;
+      final incomeResp = await _supabase
+          .from('income_records')
+          .select('amount')
+          .lt('date', beforeDate);
+      inflows += (incomeResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+
+      int deptSales = 0;
+      try {
+        final deptResp = await _supabase
+            .from('department_sales')
+            .select('total_sales')
+            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
+            .lt('date', beforeDate);
+        for (final r in deptResp as List) {
+          deptSales += (r['total_sales'] as num?)?.toInt() ?? 0;
+        }
+      } catch (_) {}
+      if (deptSales == 0) {
+        try {
+          final kResp = await _supabase.from('kitchen_sales').select('total_amount').lt('created_at', '${beforeDate}T00:00:00');
+          for (final r in kResp as List) {
+            deptSales += (r['total_amount'] as num?)?.toInt() ?? 0;
+          }
+          final mmResp = await _supabase.from('mini_mart_sales').select('total_amount').lt('sale_date', beforeDate);
+          for (final r in mmResp as List) {
+            deptSales += (r['total_amount'] as num?)?.toInt() ?? 0;
+          }
+        } catch (_) {}
+      }
+      inflows += deptSales.toDouble();
+
+      try {
+        final bookResp = await _supabase
+            .from('bookings')
+            .select('total_amount, paid_amount')
+            .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
+            .lt('check_out_date', beforeDate);
+        for (final b in bookResp as List) {
+          final total = (b['total_amount'] as num?)?.toInt();
+          final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
+          inflows += (total ?? paid).toDouble();
+        }
+      } catch (_) {}
+
+      final expResp = await _supabase
+          .from('expenses')
+          .select('amount')
+          .lt('transaction_date', beforeDate)
+          .eq('status', 'Approved');
+      outflows += (expResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+
+      try {
+        final payResp = await _supabase
+            .from('payroll_records')
+            .select('amount')
+            .lt('month', beforeDate)
+            .eq('approval_status', 'approved');
+        outflows += (payResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
+      } catch (_) {}
+
+      return inflows - outflows;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Department Performance based on actual operational sales (getDepartmentSales).
+  /// Uses department_sales / kitchen_sales / mini_mart_sales, plus expenses by department.
   Future<List<Map<String, dynamic>>> getDepartmentPerformance({
     DateTime? startDate,
     DateTime? endDate,
@@ -1095,45 +1254,81 @@ class DataService {
     return await _retryOperation(() async {
       final rangeStart = startDate ?? DateTime.now().subtract(const Duration(days: 30));
       final rangeEnd = endDate ?? DateTime.now();
-      // Get income by department
-      final incomeRecords = await _supabase
-          .from('income_records')
-          .select('department, amount')
-          .gte('date', rangeStart.toIso8601String().split('T')[0])
-          .lte('date', rangeEnd.toIso8601String().split('T')[0]);
-      
-      // Get expenses by department
-      final expenses = await _supabase
-          .from('expenses')
-          .select('department, amount')
-          .gte('transaction_date', rangeStart.toIso8601String().split('T')[0])
-          .lte('transaction_date', rangeEnd.toIso8601String().split('T')[0]);
-      
-      // Calculate totals by department
+      final startStr = rangeStart.toIso8601String().split('T')[0];
+      final endStr = rangeEnd.toIso8601String().split('T')[0];
+
+      // 1. Operational sales by department (department_sales, with fallbacks)
       final Map<String, double> revenueByDept = {};
+      try {
+        final deptResp = await _supabase
+            .from('department_sales')
+            .select('department, total_sales')
+            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
+            .gte('date', startStr)
+            .lte('date', endStr);
+        for (final r in deptResp as List) {
+          final dept = (r['department'] as String?) ?? 'Other';
+          final amt = (r['total_sales'] as num?)?.toDouble() ?? 0.0;
+          revenueByDept[dept] = (revenueByDept[dept] ?? 0) + amt;
+        }
+      } catch (_) {}
+      if (revenueByDept.isEmpty || revenueByDept.values.every((v) => v == 0)) {
+        try {
+          final kResp = await _supabase
+              .from('kitchen_sales')
+              .select('total_amount')
+              .gte('created_at', rangeStart.toIso8601String())
+              .lte('created_at', rangeEnd.toIso8601String());
+          var kitchenTotal = 0.0;
+          for (final r in kResp as List) {
+            kitchenTotal += (r['total_amount'] as num?)?.toDouble() ?? 0;
+          }
+          if (kitchenTotal > 0) revenueByDept['restaurant'] = kitchenTotal;
+          final mmResp = await _supabase
+              .from('mini_mart_sales')
+              .select('total_amount')
+              .gte('sale_date', startStr)
+              .lte('sale_date', endStr);
+          var mmTotal = 0.0;
+          for (final r in mmResp as List) {
+            mmTotal += (r['total_amount'] as num?)?.toDouble() ?? 0;
+          }
+          if (mmTotal > 0) revenueByDept['mini_mart'] = mmTotal;
+        } catch (_) {}
+      }
+
+      // 2. Expenses by department
       final Map<String, double> expensesByDept = {};
-      
-      for (var record in incomeRecords as List) {
-        final dept = record['department'] as String? ?? 'Other';
-        final amount = (record['amount'] as num?)?.toDouble() ?? 0.0;
-        revenueByDept[dept] = (revenueByDept[dept] ?? 0) + amount;
-      }
-      
-      for (var expense in expenses as List) {
-        final dept = expense['department'] as String? ?? 'Other';
-        final amount = (expense['amount'] as num?)?.toDouble() ?? 0.0;
-        expensesByDept[dept] = (expensesByDept[dept] ?? 0) + amount;
-      }
-      
-      // Combine all departments
+      try {
+        final expenses = await _supabase
+            .from('expenses')
+            .select('department, amount')
+            .gte('transaction_date', startStr)
+            .lte('transaction_date', endStr);
+        for (var expense in expenses as List) {
+          final dept = (expense['department'] as String?) ?? 'Other';
+          final amount = (expense['amount'] as num?)?.toDouble() ?? 0.0;
+          expensesByDept[dept] = (expensesByDept[dept] ?? 0) + amount;
+        }
+      } catch (_) {}
+
       final allDepartments = <String>{...revenueByDept.keys, ...expensesByDept.keys};
-      
+      if (allDepartments.isEmpty) return [];
+
+      const displayNames = {
+        'vip_bar': 'VIP Bar',
+        'outside_bar': 'Outside Bar',
+        'mini_mart': 'Mini Mart',
+        'restaurant': 'Kitchen',
+        'other': 'Other (Miscellaneous)',
+      };
+
       return allDepartments.map((dept) {
         final revenue = revenueByDept[dept] ?? 0.0;
         final expense = expensesByDept[dept] ?? 0.0;
         final profit = revenue - expense;
         final profitMargin = revenue > 0 ? (profit / revenue * 100) : 0.0;
-        
+
         String performance;
         if (profitMargin >= 50) {
           performance = 'excellent';
@@ -1144,9 +1339,9 @@ class DataService {
         } else {
           performance = 'poor';
         }
-        
+
         return {
-          'department': dept,
+          'department': displayNames[dept] ?? dept,
           'revenue': revenue,
           'expenses': expense,
           'profit': profit,
@@ -1368,12 +1563,15 @@ class DataService {
     });
   }
 
-  // Recent Purchases
+  // Recent Purchases (purchase_orders level: supplier_name, total_cost, created_at; items in purchase_order_items)
   Future<List<Map<String, dynamic>>> getRecentPurchases() async {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('purchase_orders')
-          .select('*, profiles!purchaser_id(full_name)')
+          .select(
+            'id, created_at, supplier_name, total_cost, status, purchaser_name, '
+            'purchase_order_items(quantity, stock_items(name)), profiles!purchaser_id(full_name)',
+          )
           .order('created_at', ascending: false)
           .limit(50);
       return List<Map<String, dynamic>>.from(response);

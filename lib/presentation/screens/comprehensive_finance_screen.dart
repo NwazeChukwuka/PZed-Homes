@@ -174,7 +174,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 10, vsync: this);
+    _tabController = TabController(length: 9, vsync: this);
     final now = DateTime.now();
     _summaryRange = DateTimeRange(
       start: DateTime(now.year, now.month, 1),
@@ -186,6 +186,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   String _formatKobo(num value) {
     return PaymentService.koboToNaira(value.toInt()).toStringAsFixed(2);
+  }
+
+  String _formatDate(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString);
+      return DateFormat('MMM dd, yyyy').format(dt);
+    } catch (_) {
+      return isoString;
+    }
   }
 
   @override
@@ -358,46 +367,72 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // 1. Green header (no AppBar - avoids duplicate hamburger from MainScreen drawer)
         Material(
           color: Colors.green[700],
           elevation: 4,
           child: SafeArea(
             bottom: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppBar(
-                  title: const Text('Finance & Accounting', overflow: TextOverflow.ellipsis, maxLines: 1),
-                  backgroundColor: Colors.green[700],
-                  foregroundColor: Colors.white,
-                  leading: Navigator.of(context).canPop()
-                      ? IconButton(
-                          icon: const Icon(Icons.arrow_back),
-                          onPressed: () => Navigator.of(context).pop(),
-                        )
-                      : null,
-                  actions: const [
-                    ContextAwareRoleButton(suggestedRole: AppRole.accountant),
-                  ],
-                  bottom: TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs: const [
-                      Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-                      Tab(text: 'Debts', icon: Icon(Icons.money_off)),
-                      Tab(text: 'Debt Claims', icon: Icon(Icons.pending_actions)),
-                      Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
-                      Tab(text: 'Income', icon: Icon(Icons.trending_up)),
-                      Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
-                      Tab(text: 'Payroll', icon: Icon(Icons.payment)),
-                      Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
-                      Tab(text: 'Reports', icon: Icon(Icons.assessment)),
-                      Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
-                    ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  if (Navigator.of(context).canPop())
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  const Expanded(
+                    child: Text(
+                      'Finance & Accounting',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
+                ],
+              ),
             ),
+          ),
+        ),
+        // 2. TabBar in its own white container (matches Inventory/Mini Mart)
+        Container(
+          color: Colors.white,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
+            border: Border(
+              bottom: BorderSide(color: Colors.grey[300]!, width: 1),
+            ),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            labelColor: Colors.green[800],
+            unselectedLabelColor: Colors.grey[700],
+            indicatorColor: Colors.green[800],
+            tabs: const [
+              Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+              Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
+              Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
+              Tab(text: 'Income', icon: Icon(Icons.trending_up)),
+              Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
+              Tab(text: 'Payroll', icon: Icon(Icons.payment)),
+              Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
+              Tab(text: 'Reports', icon: Icon(Icons.assessment)),
+              Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
+            ],
           ),
         ),
         Expanded(
@@ -405,15 +440,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             controller: _tabController,
             children: [
               _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
-              _LazyTab(index: 1, controller: _tabController, builder: () => _buildDebtsTab(canRecord)),
-              _LazyTab(index: 2, controller: _tabController, builder: () => _buildDebtClaimsTab(canApprove)),
-              _LazyTab(index: 3, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
-              _LazyTab(index: 4, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
-              _LazyTab(index: 5, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
-              _LazyTab(index: 6, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
-              _LazyTab(index: 7, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
-              _LazyTab(index: 8, controller: _tabController, builder: _buildReportsTab),
-              _LazyTab(index: 9, controller: _tabController, builder: _buildAuditTab),
+              _LazyTab(index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
+              _LazyTab(index: 2, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
+              _LazyTab(index: 3, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
+              _LazyTab(index: 4, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+              _LazyTab(index: 5, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
+              _LazyTab(index: 6, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
+              _LazyTab(index: 7, controller: _tabController, builder: _buildReportsTab),
+              _LazyTab(index: 8, controller: _tabController, builder: _buildAuditTab),
             ],
           ),
         ),
@@ -434,8 +468,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           _buildDepartmentPerformanceCard(),
           const SizedBox(height: 20),
           _buildDepartmentSalesCard(),
-          const SizedBox(height: 20),
-          _buildCashFlowCard(),
         ],
       ),
     );
@@ -582,6 +614,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     Icons.trending_up,
                   ),
                 ),
+                const SizedBox(width: 16),
                 Expanded(
                   child: _buildSummaryItem(
                     'Total Expenses',
@@ -592,7 +625,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
@@ -603,6 +636,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     Icons.account_balance_wallet,
                   ),
                 ),
+                const SizedBox(width: 16),
                 Expanded(
                   child: _buildSummaryItem(
                     'Net Profit',
@@ -621,13 +655,22 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Widget _buildSummaryItem(String title, String value, Color color, IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, color: color, size: 24),
           const SizedBox(height: 8),
@@ -873,80 +916,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildCashFlowCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Cash Flow',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              height: 200,
-              child: _buildCashFlowChart(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCashFlowChart() {
-    // Simple bar chart representation
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        _buildBar('Income', _financialSummary['total_income']?.toDouble() ?? 0, Colors.green),
-        _buildBar('Expenses', _financialSummary['total_expenses']?.toDouble() ?? 0, Colors.red),
-        _buildBar('Cash', _financialSummary['available_cash']?.toDouble() ?? 0, Colors.blue),
-      ],
-    );
-  }
-
-  Widget _buildBar(String label, double value, Color color) {
-    final maxValue = [
-      _financialSummary['total_income']?.toDouble() ?? 0,
-      _financialSummary['total_expenses']?.toDouble() ?? 0,
-      _financialSummary['available_cash']?.toDouble() ?? 0,
-    ].reduce((a, b) => a > b ? a : b);
-    
-    // Ensure minimum height of 5.0 to avoid negative constraints
-    final height = maxValue > 0 ? ((value / maxValue) * 150).clamp(5.0, 150.0) : 5.0;
-    
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '₦${(PaymentService.koboToNaira(value.toInt()) / 1000).toStringAsFixed(0)}k',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 4),
-        Container(
-          width: 40,
-          height: height,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDebtsTab(bool canRecord) {
+  Widget _buildDebtManagementTab(bool canRecord, bool canApprove) {
     final now = DateTime.now();
     final debts = _showOverdueDebtsOnly
         ? _debts.where((debt) {
@@ -959,26 +929,103 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             return isOpen && dueDate.isBefore(DateTime(now.year, now.month, now.day));
           }).toList()
         : _debts;
-    return Column(
-      children: [
-        if (canRecord)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: ElevatedButton.icon(
-              onPressed: () => _showAddDebtDialog(),
-              icon: const Icon(Icons.add),
-              label: const Text('Record New Debt'),
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
+    return RefreshIndicator(
+      onRefresh: _loadFinancialData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (canRecord)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ElevatedButton.icon(
+                onPressed: () => _showAddDebtDialog(),
+                icon: const Icon(Icons.add),
+                label: const Text('Record New Debt'),
+              ),
             ),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _showOverdueDebtsOnly ? 'Showing overdue debts' : 'Showing all debts',
-                  style: TextStyle(color: Colors.grey[700]),
+          // Pending payment approvals section
+          if (_debtPaymentClaims.isNotEmpty) ...[
+            Text(
+              'Pending Payment Approvals',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Colors.orange[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ..._debtPaymentClaims.map((claim) {
+              final debt = claim['debts'] as Map<String, dynamic>? ?? {};
+              final debtorName = debt['debtor_name'] ?? claim['debtor_name'] ?? 'Unknown';
+              final recProfile = claim['recorded_by_profile'];
+              final recordedBy = recProfile is Map ? (recProfile['full_name'] ?? 'Staff') : 'Staff';
+              final amount = PaymentService.koboToNaira(int.tryParse(claim['amount']?.toString() ?? '') ?? 0);
+              final method = (claim['payment_method'] ?? 'cash').toString();
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(debtorName),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('₦${NumberFormat('#,##0.00').format(amount)} • ${method.toUpperCase()}', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
+                      Text('Recorded by: $recordedBy', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      if (debt['reason'] != null) Text('${debt['reason']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    ],
+                  ),
+                  trailing: canApprove
+                      ? isMobile
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.check_circle, color: Colors.green),
+                                  tooltip: 'Approve',
+                                  onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.cancel, color: Colors.red),
+                                  tooltip: 'Reject',
+                                  onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                                  label: const Text('Approve'),
+                                  onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
+                                ),
+                                const SizedBox(width: 8),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.cancel, size: 18, color: Colors.red),
+                                  label: const Text('Reject'),
+                                  onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
+                                ),
+                              ],
+                            )
+                      : null,
                 ),
+              );
+            }),
+            const SizedBox(height: 24),
+          ],
+          // Debt list section
+          Row(
+            children: [
+              Text(
+                _showOverdueDebtsOnly ? 'Overdue Debts' : 'All Debts',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _showOverdueDebtsOnly ? 'Overdue only' : 'All',
+                style: TextStyle(color: Colors.grey[700], fontSize: 12),
               ),
               Switch(
                 value: _showOverdueDebtsOnly,
@@ -988,144 +1035,72 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               ),
             ],
           ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: debts.length,
-            itemBuilder: (context, index) {
-              final debt = debts[index];
-              final isPending = debt['status'] == 'outstanding' || debt['status'] == 'partially_paid';
-              final dueRaw = debt['due_date'];
-              final dueDate = dueRaw != null ? DateTime.tryParse(dueRaw.toString()) : null;
-              final isOverdue = dueDate != null &&
-                  isPending &&
-                  dueDate.isBefore(DateTime(now.year, now.month, now.day));
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: ListTile(
-                  title: Text(debt['debtor_name'] ?? 'Unknown'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0))}'),
-                      if (debt['paid_amount'] != null && (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0) > 0)
-                        Text(
-                          'Paid: ₦${PaymentService.koboToNaira(int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0)} | Remaining: ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0) - (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0))}',
-                          style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
-                        ),
-                      Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      if (debt['debtor_phone'] != null) 
-                        Text('Phone: ${debt['debtor_phone']}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      if (debt['department'] != null)
-                        Text('Department: ${debt['department']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                      if (dueDate != null)
-                        Text(
-                          'Due: ${dueDate.toIso8601String().split('T')[0]}${isOverdue ? ' (Overdue)' : ''}',
-                          style: TextStyle(fontSize: 11, color: isOverdue ? Colors.red[700] : Colors.grey[500]),
-                        ),
-                      if (debt['sold_by'] != null && debt['sold_by_profile'] != null)
-                        Text('Sold by: ${debt['sold_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                      if (debt['created_by'] != null && debt['created_by_profile'] != null)
-                        Text('Created by: ${debt['created_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                      if (debt['approved_by'] != null)
-                        Text('Approved by: ${debt['approved_by']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                    ],
-                  ),
-                  trailing: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Chip(
-                        label: Text(debt['status'] ?? ''),
-                        backgroundColor: isPending ? Colors.orange[100] : Colors.green[100],
+          const SizedBox(height: 8),
+          ...debts.map((debt) {
+            final isPending = debt['status'] == 'outstanding' || debt['status'] == 'partially_paid';
+            final dueRaw = debt['due_date'];
+            final dueDate = dueRaw != null ? DateTime.tryParse(dueRaw.toString()) : null;
+            final isOverdue = dueDate != null &&
+                isPending &&
+                dueDate.isBefore(DateTime(now.year, now.month, now.day));
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(debt['debtor_name'] ?? 'Unknown'),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0))}'),
+                    if (debt['paid_amount'] != null && (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0) > 0)
+                      Text(
+                        'Paid: ₦${PaymentService.koboToNaira(int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0)} | Remaining: ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0) - (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0))}',
+                        style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
                       ),
-                      if (canRecord && debt['status'] != 'paid')
-                        TextButton(
-                          onPressed: () => _showRecordPaymentDialog(debt),
-                          child: const Text('Record Payment', style: TextStyle(fontSize: 11)),
-                        ),
-                    ],
-                  ),
-                  onTap: null,
+                    Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    if (debt['debtor_phone'] != null)
+                      Text('Phone: ${debt['debtor_phone']}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    if (debt['department'] != null)
+                      Text('Department: ${debt['department']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    if (dueDate != null)
+                      Text(
+                        'Due: ${dueDate.toIso8601String().split('T')[0]}${isOverdue ? ' (Overdue)' : ''}',
+                        style: TextStyle(fontSize: 11, color: isOverdue ? Colors.red[700] : Colors.grey[500]),
+                      ),
+                    if (debt['sold_by'] != null && debt['sold_by_profile'] != null)
+                      Text('Sold by: ${debt['sold_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    if (debt['created_by'] != null && debt['created_by_profile'] != null)
+                      Text('Created by: ${debt['created_by_profile']?['full_name'] ?? 'Unknown'}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    if (debt['approved_by'] != null)
+                      Text('Approved by: ${debt['approved_by']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                  ],
                 ),
-              );
-            },
-          ),
-        ),
-      ],
+                trailing: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Chip(
+                      label: Text(debt['status'] ?? ''),
+                      backgroundColor: isPending ? Colors.orange[100] : Colors.green[100],
+                    ),
+                    if (canRecord && debt['status'] != 'paid')
+                      TextButton(
+                        onPressed: () => _showRecordPaymentDialog(debt),
+                        child: const Text('Record Payment', style: TextStyle(fontSize: 11)),
+                      ),
+                  ],
+                ),
+                onTap: null,
+              ),
+            );
+          }),
+          if (debts.isEmpty && _debtPaymentClaims.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: Text('No debts or pending approvals.')),
+            ),
+        ],
+      ),
     );
-  }
-
-  Widget _buildDebtClaimsTab(bool canApprove) {
-    final isMobile = MediaQuery.sizeOf(context).width < 600;
-    return _isLoadingData
-        ? const Center(child: CircularProgressIndicator())
-        : _debtPaymentClaims.isEmpty
-            ? const Center(child: Text('No pending debt payment claims.'))
-            : RefreshIndicator(
-                onRefresh: _loadFinancialData,
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _debtPaymentClaims.length,
-                  itemBuilder: (context, index) {
-                    final claim = _debtPaymentClaims[index];
-                    final debt = claim['debts'] as Map<String, dynamic>? ?? {};
-                    final debtorName = debt['debtor_name'] ?? claim['debtor_name'] ?? 'Unknown';
-                    final recProfile = claim['recorded_by_profile'];
-                    final recordedBy = recProfile is Map ? (recProfile['full_name'] ?? 'Staff') : 'Staff';
-                    final amount = PaymentService.koboToNaira(int.tryParse(claim['amount']?.toString() ?? '') ?? 0);
-                    final method = (claim['payment_method'] ?? 'cash').toString();
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(debtorName),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('₦${NumberFormat('#,##0.00').format(amount)} • ${method.toUpperCase()}', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
-                            Text('Recorded by: $recordedBy', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                            if (debt['reason'] != null) Text('${debt['reason']}', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                          ],
-                        ),
-                        trailing: canApprove
-                            ? isMobile
-                                ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.check_circle, color: Colors.green),
-                                        tooltip: 'Approve',
-                                        onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.cancel, color: Colors.red),
-                                        tooltip: 'Reject',
-                                        onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
-                                      ),
-                                    ],
-                                  )
-                                : Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
-                                        label: const Text('Approve'),
-                                        onPressed: () => _approveDebtClaim(claim['id']?.toString() ?? ''),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.cancel, size: 18, color: Colors.red),
-                                        label: const Text('Reject'),
-                                        onPressed: () => _rejectDebtClaim(claim['id']?.toString() ?? ''),
-                                      ),
-                                    ],
-                                  )
-                            : null,
-                      ),
-                    );
-                  },
-                ),
-              );
   }
 
   Future<void> _approveDebtClaim(String claimId) async {
@@ -1181,18 +1156,37 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       itemCount: _purchases.length,
       itemBuilder: (context, index) {
         final p = _purchases[index];
+        // purchase_orders: supplier_name, total_cost, created_at; items in purchase_order_items
+        final items = p['purchase_order_items'] as List? ?? [];
+        final itemCount = items.fold<int>(0, (sum, i) => sum + ((i['quantity'] as int?) ?? 0));
+        final firstItemName = (items.isNotEmpty && items[0] is Map)
+            ? (items[0] as Map)['stock_items'] is Map
+                ? ((items[0] as Map)['stock_items'] as Map)['name']?.toString()
+                : null
+            : null;
+        final title = p['supplier_name']?.toString().trim().isNotEmpty == true
+            ? p['supplier_name'].toString()
+            : (firstItemName ?? 'Purchase Order');
+        final dateStr = p['created_at'] != null
+            ? _formatDate(p['created_at'].toString())
+            : '';
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: ListTile(
             leading: const Icon(Icons.shopping_bag),
-            title: Text(p['item_name'] ?? p['item_id'] ?? 'Item'),
-            subtitle: Text('Qty: ${p['quantity']} • Dept: ${p['department']} • Supplier: ${p['supplier']}'),
+            title: Text(title),
+            subtitle: Text(
+              '${itemCount > 0 ? "$itemCount items • " : ""}Supplier: ${p['supplier_name'] ?? '-'}',
+            ),
             trailing: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text('₦${_formatKobo(p['total_cost'] ?? 0)}'),
-                const SizedBox(height: 4),
-                Text(p['date'] ?? ''),
+                if (dateStr.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(dateStr),
+                ],
               ],
             ),
           ),
@@ -1753,6 +1747,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               value: _incomeDepartment,
               decoration: const InputDecoration(labelText: 'Department'),
               items: const [
+                DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
                 DropdownMenuItem(value: 'finance', child: Text('Finance')),
                 DropdownMenuItem(value: 'reception', child: Text('Reception')),
                 DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),

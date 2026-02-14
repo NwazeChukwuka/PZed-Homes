@@ -126,6 +126,25 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
     }
   }
 
+  /// Returns the placeholder asset path for a room type when image_url is empty.
+  static String _getPlaceholderForRoomType(String? roomTypeName) {
+    final t = (roomTypeName ?? '').toString().trim();
+    switch (t) {
+      case 'Executive Room':
+        return 'assets/images/Executive Room/Executive 3.jpg';
+      case 'Classic Room':
+        return 'assets/images/Classic Room/Classic 5.jpg';
+      case 'Deluxe Room':
+        return 'assets/images/Deluxe Room/Deluxe 4.JPG';
+      case 'Diplomatic Room':
+        return 'assets/images/Diplomatic Room/Diplomatic 3.jpg';
+      case 'Standard Room':
+        return 'assets/images/Standard Room/Standard 3.jpg';
+      default:
+        return 'assets/images/Standard Room/Standard 3.jpg';
+    }
+  }
+
   Future<void> _refreshRooms() async {
     setState(() => _isRefreshing = true);
     try {
@@ -431,7 +450,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: Image.asset(
-                          'assets/images/Executive Room/Executive 3.jpg',
+                          _getPlaceholderForRoomType('Standard Room'),
                           height: 96,
                           width: 128,
                           fit: BoxFit.cover,
@@ -522,7 +541,12 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                 height: imageHeight,
                                 color: Colors.grey[300],
                                 alignment: Alignment.center,
-                                child: const Icon(Icons.image_not_supported, size: 48, color: Colors.grey),
+                                child: Image.asset(
+                                  _getPlaceholderForRoomType(roomType['type'] as String?),
+                                  height: imageHeight,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             )
                           else
@@ -531,7 +555,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                               color: Colors.grey[300],
                               alignment: Alignment.center,
                               child: Image.asset(
-                                'assets/images/Executive Room/Executive 3.jpg',
+                                _getPlaceholderForRoomType(roomType['type'] as String?),
                                 height: imageHeight,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
