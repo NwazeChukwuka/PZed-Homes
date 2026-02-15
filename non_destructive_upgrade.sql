@@ -2318,6 +2318,7 @@ BEGIN
     AND (
       user_has_role(auth.uid(), 'manager')
       OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'accountant')
       OR user_has_role(auth.uid(), 'storekeeper')
       OR (user_has_role(auth.uid(), 'purchaser') AND purchaser_id = auth.uid())
     )
@@ -2353,6 +2354,7 @@ BEGIN
     AND (
       user_has_role(auth.uid(), 'manager')
       OR user_has_role(auth.uid(), 'owner')
+      OR user_has_role(auth.uid(), 'accountant')
       OR user_has_role(auth.uid(), 'storekeeper')
       OR EXISTS (
         SELECT 1 FROM public.purchase_orders po
