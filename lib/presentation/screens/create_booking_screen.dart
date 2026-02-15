@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:printing/printing.dart';
@@ -316,7 +315,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           'source_department': 'reception',
           'source_type': 'room_booking',
           'reference_id': bookingId,
-          'reason': 'Room booking on credit - ${_nightsCount} night(s)',
+          'reason': 'Room booking on credit - $_nightsCount night(s)',
           'date': DateTime.now().toIso8601String().split('T')[0],
           'status': 'outstanding',
           'sold_by': userId, // Staff who made the booking
@@ -808,7 +807,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
               // Room Type Selection
               DropdownButtonFormField<String>(
-                value: _selectedRoomTypeId,
+                initialValue: _selectedRoomTypeId,
                 decoration: const InputDecoration(
                   labelText: 'Room Type',
                   border: OutlineInputBorder(),
@@ -838,7 +837,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                 )
               else if (_availableRooms.isNotEmpty)
                 DropdownButtonFormField<String>(
-                  value: _selectedRoomId,
+                  initialValue: _selectedRoomId,
                   decoration: const InputDecoration(
                     labelText: 'Available Rooms',
                     border: OutlineInputBorder(),
@@ -885,7 +884,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
               // Payment Method
               DropdownButtonFormField<String>(
-                value: _paymentMethod,
+                initialValue: _paymentMethod,
                 decoration: const InputDecoration(
                   labelText: 'Payment Method',
                   border: OutlineInputBorder(),

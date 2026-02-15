@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:pzed_homes/data/models/user.dart';
 
 class StockCountApprovalScreen extends StatefulWidget {
   const StockCountApprovalScreen({super.key});
@@ -32,7 +31,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
   Map<String, List<Map<String, dynamic>>> _customItemsByCountId = {};
   Map<String, Map<String, dynamic>> _locationsById = {};
   Map<String, Map<String, dynamic>> _stockItemsById = {};
-  Map<String, Map<String, dynamic>> _submittersById = {};
+  final Map<String, Map<String, dynamic>> _submittersById = {};
   String _viewMode = 'pending'; // 'pending' or 'historical'
 
   @override
@@ -83,7 +82,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           if (!_customItemsByCountId.containsKey(countId)) {
             _customItemsByCountId[countId] = [];
           }
-          _customItemsByCountId[countId]!.add(item as Map<String, dynamic>);
+          _customItemsByCountId[countId]!.add(item);
         }
       }
     } catch (e) {
@@ -108,13 +107,13 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
       // Load locations
       final locations = await _supabase.from('locations').select();
       _locationsById = {
-        for (var loc in locations) loc['id'] as String: loc as Map<String, dynamic>
+        for (var loc in locations) loc['id'] as String: loc
       };
 
       // Load stock items
       final stockItems = await _supabase.from('stock_items').select();
       _stockItemsById = {
-        for (var item in stockItems) item['id'] as String: item as Map<String, dynamic>
+        for (var item in stockItems) item['id'] as String: item
       };
 
       // Extract submitter info for pending counts (alias: submitted_by_profile)
@@ -147,7 +146,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           if (!_countItemsByCountId.containsKey(countId)) {
             _countItemsByCountId[countId] = [];
           }
-          _countItemsByCountId[countId]!.add(item as Map<String, dynamic>);
+          _countItemsByCountId[countId]!.add(item);
         }
 
         // Load custom items for pending counts
@@ -162,7 +161,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           if (!_customItemsByCountId.containsKey(countId)) {
             _customItemsByCountId[countId] = [];
           }
-          _customItemsByCountId[countId]!.add(item as Map<String, dynamic>);
+          _customItemsByCountId[countId]!.add(item);
         }
       }
 
@@ -573,7 +572,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
                                               ),
                                             ],
                                           );
-                                        }).toList(),
+                                        }),
                                       ],
                                     ),
                                   // Custom Items Section

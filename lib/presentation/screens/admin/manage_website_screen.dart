@@ -19,7 +19,7 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
     if (file == null) return;
 
     final fileBytes = await file.readAsBytes();
-    final fileName = '${contentKey}-${DateTime.now().millisecondsSinceEpoch}';
+    final fileName = '$contentKey-${DateTime.now().millisecondsSinceEpoch}';
     
     try {
       // 1. Upload new image to a 'site_assets' bucket

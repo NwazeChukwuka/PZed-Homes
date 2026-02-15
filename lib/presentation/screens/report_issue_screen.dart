@@ -73,7 +73,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           children: [
             // Dropdown to select an asset from the 'assets' table
             DropdownButtonFormField<String>(
-              value: _selectedAssetId,
+              initialValue: _selectedAssetId,
               decoration: const InputDecoration(labelText: 'Asset *', border: OutlineInputBorder()),
               items: const [
                 DropdownMenuItem<String>(value: 'asset_small_generator', child: Text('Small Generator')),
@@ -98,7 +98,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _selectedPriority,
+              initialValue: _selectedPriority,
               decoration: const InputDecoration(labelText: 'Priority', border: OutlineInputBorder()),
               items: _priorities.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
               onChanged: (val) => setState(() => _selectedPriority = val),

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -49,17 +48,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   final _saleCreditCustomerPhoneController = TextEditingController();
   final _searchController = TextEditingController();
   final ScrollController _currentSaleScrollController = ScrollController();
-  int? _selectedSaleQuantity = 1; // Default quantity for kitchen sales
+  final int _selectedSaleQuantity = 1; // Default quantity for kitchen sales
   Timer? _filterDebounce;
 
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _filteredItems = [];
-  List<Map<String, dynamic>> _currentSale = [];
+  final List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
-  Set<String> _dismissedWarnings = {};
+  final Set<String> _dismissedWarnings = {};
   List<Map<String, dynamic>> _dispatchHistory = [];
   List<Map<String, dynamic>> _salesHistory = [];
   List<Map<String, dynamic>> _bookings = [];
@@ -68,14 +67,14 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   String? _selectedDispatchBookingId;
   String? _sourceLocationId; // Kitchen location id
   bool _isLoading = false;
-  bool _isCustomSale = false;
+  final bool _isCustomSale = false;
   String? _selectedSaleItemId;
   String? _selectedBookingId;
   bool _chargeToRoom = false;
   String _dispatchPaymentMethod = 'cash';
   String _dispatchPaymentStatus = 'paid';
   String _salePaymentMethod = 'cash';
-  String _salesFilterPaymentMethod = 'all';
+  final String _salesFilterPaymentMethod = 'all';
   DateTimeRange? _salesFilterRange;
   String _dispatchFilterPaymentStatus = 'all';
   DateTimeRange? _dispatchFilterRange;
@@ -448,7 +447,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _salePaymentMethod,
+                    initialValue: _salePaymentMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),
@@ -497,7 +496,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 if (_chargeToRoom) ...[
                   const SizedBox(height: 4),
                   DropdownButtonFormField<String>(
-                    value: _selectedBookingId,
+                    initialValue: _selectedBookingId,
                     decoration: const InputDecoration(
                       labelText: 'Booking',
                       border: OutlineInputBorder(),
@@ -708,7 +707,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         DropdownButtonFormField<String>(
-          value: _salePaymentMethod,
+          initialValue: _salePaymentMethod,
           decoration: const InputDecoration(
             labelText: 'Payment Method',
             border: OutlineInputBorder(),
@@ -757,7 +756,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         if (_chargeToRoom) ...[
           const SizedBox(height: 4),
           DropdownButtonFormField<String>(
-            value: _selectedBookingId,
+            initialValue: _selectedBookingId,
             decoration: const InputDecoration(
               labelText: 'Booking',
               border: OutlineInputBorder(),
@@ -861,12 +860,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: 0),
         _dataService.getBookings(),
       ]);
-      final menuItems = results[0] as List<Map<String, dynamic>>;
-      final locResponse = results[1] as List<Map<String, dynamic>>;
-      final deptResponse = results[2] as List<Map<String, dynamic>>;
-      final dispatchHistory = results[3] as List<Map<String, dynamic>>;
-      final salesHistory = results[4] as List<Map<String, dynamic>>;
-      final allBookings = results[5] as List<Map<String, dynamic>>;
+      final menuItems = results[0];
+      final locResponse = results[1];
+      final deptResponse = results[2];
+      final dispatchHistory = results[3];
+      final salesHistory = results[4];
+      final allBookings = results[5];
       if (!mounted) return;
 
       final stockResponse = menuItems
@@ -954,8 +953,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       if (_salesHasMore) futures.add(_dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: _salesOffset));
       final results = await Future.wait(futures);
       int idx = 0;
-      final moreDispatch = _dispatchHasMore ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
-      final moreSales = _salesHasMore ? results[idx] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+      final moreDispatch = _dispatchHasMore ? results[idx++] : <Map<String, dynamic>>[];
+      final moreSales = _salesHasMore ? results[idx] : <Map<String, dynamic>>[];
 
       if (!mounted) return;
       final filteredMoreDispatch = moreDispatch.where((t) {
@@ -1304,7 +1303,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           'booking_id': _selectedBookingId,
           'sold_by': staffId,
         });
-        if (firstSaleId == null) firstSaleId = saleId;
+        firstSaleId ??= saleId;
         totalSaleInKobo += itemTotalKobo;
 
         if (_chargeToRoom && _selectedBookingId != null) {
@@ -2302,7 +2301,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                   DropdownButtonFormField<String>(
-                    value: _selectedStockItemId,
+                    initialValue: _selectedStockItemId,
                     decoration: const InputDecoration(
                                           labelText: 'Food Item',
                       border: OutlineInputBorder(),
@@ -2344,7 +2343,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       const SizedBox(width: 16),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                                              value: _selectedDestinationDepartment,
+                                              initialValue: _selectedDestinationDepartment,
                           decoration: const InputDecoration(
                                                 labelText: 'Destination Department',
                             border: OutlineInputBorder(),
@@ -2393,7 +2392,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                           const SizedBox(width: 16),
                                           Expanded(
                                             child: DropdownButtonFormField<String>(
-                                              value: _dispatchPaymentMethod,
+                                              initialValue: _dispatchPaymentMethod,
                                               decoration: const InputDecoration(
                                                 labelText: 'Payment Method',
                                                 border: OutlineInputBorder(),
@@ -2416,7 +2415,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                       ),
                                       const SizedBox(height: 16),
                                       DropdownButtonFormField<String>(
-                                        value: _dispatchPaymentStatus,
+                                        initialValue: _dispatchPaymentStatus,
                                         decoration: const InputDecoration(
                                           labelText: 'Payment Status',
                                           border: OutlineInputBorder(),
@@ -2439,7 +2438,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                       ),
                                       const SizedBox(height: 12),
                                       DropdownButtonFormField<String>(
-                                        value: _selectedDispatchBookingId,
+                                        initialValue: _selectedDispatchBookingId,
                                         decoration: const InputDecoration(
                                           labelText: 'Link to Booking (optional)',
                                           border: OutlineInputBorder(),
@@ -2690,7 +2689,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _historyFilterType,
+                      initialValue: _historyFilterType,
                       decoration: const InputDecoration(
                         labelText: 'Type',
                         border: OutlineInputBorder(),
@@ -2707,7 +2706,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _historyFilterStaffId,
+                      initialValue: _historyFilterStaffId,
                       decoration: const InputDecoration(
                         labelText: 'Staff',
                         border: OutlineInputBorder(),
@@ -2860,7 +2859,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _dispatchFilterPaymentStatus,
+                      initialValue: _dispatchFilterPaymentStatus,
                       decoration: const InputDecoration(
                         labelText: 'Payment Status',
                         border: OutlineInputBorder(),
@@ -2911,7 +2910,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _dispatchFilterDepartment,
+                      initialValue: _dispatchFilterDepartment,
                       decoration: const InputDecoration(
                         labelText: 'Destination Department',
                         border: OutlineInputBorder(),
@@ -2934,7 +2933,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _dispatchFilterStaffId,
+                      initialValue: _dispatchFilterStaffId,
                       decoration: const InputDecoration(
                         labelText: 'Dispatched By',
                         border: OutlineInputBorder(),
@@ -2991,7 +2990,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         subtitle: Text(
                           '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'
                           ' • Pay: ${transfer['payment_status'] ?? 'paid'}'
-                          '${bookingGuest != null ? ' • $bookingGuest' : ''}',
+                          '${' • $bookingGuest'}',
                         ),
                         trailing: Text(
                           transfer['created_at'] != null

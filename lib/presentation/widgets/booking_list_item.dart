@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:pzed_homes/data/data.dart';
 // Import the new screen with alias to avoid conflict
 import 'package:pzed_homes/presentation/screens/booking_details_screen.dart' as details;
-import 'package:pzed_homes/data/models/booking.dart' as models;
 
 class BookingListItem extends StatelessWidget {
   final Booking booking;

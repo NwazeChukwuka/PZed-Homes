@@ -126,7 +126,7 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
                   const Text('No locations found. Please create a Main Store location.')
                 else
                   DropdownButtonFormField<String>(
-                    value: selectedLocationId,
+                    initialValue: selectedLocationId,
                     decoration: const InputDecoration(
                       labelText: 'Receiving Location',
                       border: OutlineInputBorder(),

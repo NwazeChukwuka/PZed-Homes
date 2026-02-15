@@ -52,7 +52,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   String? _selectedBarForSales;
 
   // Sales state variables
-  List<Map<String, dynamic>> _currentSale = [];
+  final List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
@@ -206,8 +206,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         _dataService.getStockLevels(),
         _dataService.supabase.from('stock_items').select('name').limit(2000),
       ]);
-      final inventory = results[0] as List<Map<String, dynamic>>;
-      final stockLevels = results[1] as List<Map<String, dynamic>>;
+      final inventory = results[0];
+      final stockLevels = results[1];
       final stockItems = results[2];
       // #region agent log
       debugLog({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"});
@@ -878,7 +878,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         DropdownButtonFormField<String>(
-          value: _paymentMethod,
+          initialValue: _paymentMethod,
           decoration: const InputDecoration(
             labelText: 'Payment Method',
             border: OutlineInputBorder(),
@@ -1000,7 +1000,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           const SizedBox(width: 8),
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _selectedBarForSales,
+              initialValue: _selectedBarForSales,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1195,7 +1195,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           
           // Payment method (always visible)
           DropdownButtonFormField<String>(
-            value: _paymentMethod,
+            initialValue: _paymentMethod,
             decoration: const InputDecoration(
               labelText: 'Payment Method',
               border: OutlineInputBorder(),
@@ -1471,10 +1471,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final barKey = _selectedBar ?? _selectedBarForSales ?? _bartenderDepartment(authService, user);
       if (isBartender && barKey == null) {
         throw Exception('Select a bar before making sales.');
-      }
-      
-      if (supabase == null) {
-        throw Exception('Database connection not available');
       }
 
       // Get location ID for the selected bar

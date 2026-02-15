@@ -101,13 +101,6 @@ class PasswordService {
                     },
                   ),
                 ElevatedButton(
-                  child: isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Send Reset Link'),
                   onPressed: isLoading
                       ? null
                       : () async {
@@ -152,6 +145,13 @@ class PasswordService {
                             }
                           }
                         },
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Send Reset Link'),
                 ),
               ],
             );

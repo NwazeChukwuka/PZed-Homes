@@ -390,7 +390,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: selectedStatus,
+                      initialValue: selectedStatus,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -421,7 +421,7 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> with SingleTick
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: selectedPriority,
+                      initialValue: selectedPriority,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),

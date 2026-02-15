@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -33,7 +32,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   DateTime? _checkInDate;
   DateTime? _checkOutDate;
-  int _guestCount = 1;
+  final int _guestCount = 1;
   final Map<String, dynamic> _bookingData = {
     'checkIn': null,
     'checkOut': null,
@@ -714,7 +713,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                                       tween: Tween(begin: 0, end: 1),
                                       duration: const Duration(milliseconds: 300),
                                       curve: Curves.easeOut,
-                                      builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                                      builder: (context, value, _) => Opacity(opacity: value, child: child),
                                       child: child,
                                     );
                                   },
@@ -1101,7 +1100,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     tween: Tween(begin: 0, end: 1),
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOut,
-                    builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                    builder: (context, value, _) => Opacity(opacity: value, child: child),
                     child: child,
                   );
                 },
@@ -1681,7 +1680,7 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                       tween: Tween(begin: 0, end: 1),
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeOut,
-                      builder: (context, value, _) => Opacity(opacity: value, child: child!),
+                      builder: (context, value, _) => Opacity(opacity: value, child: child),
                       child: child,
                     );
                   },

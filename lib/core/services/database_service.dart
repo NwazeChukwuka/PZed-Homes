@@ -29,7 +29,7 @@ class DatabaseService {
           rooms(*),
           profiles!guest_profile_id(*)
         ''');
-    return response as List<Map<String, dynamic>>;
+    return response;
   }
 
   // Update a booking's status
@@ -45,7 +45,7 @@ class DatabaseService {
   // Fetch all rooms
   Future<List<Map<String, dynamic>>> getRooms() async {
     final response = await _supabase.from('rooms').select().order('room_number');
-    return response as List<Map<String, dynamic>>;
+    return response;
   }
 
   // Update a room's status
@@ -56,7 +56,7 @@ class DatabaseService {
   // Fetch all stock items
   Future<List<Map<String, dynamic>>> getStockItems() async {
     final response = await _supabase.from('stock_items').select().order('name');
-    return response as List<Map<String, dynamic>>;
+    return response;
   }
 
   // Update a stock item's quantity
@@ -72,7 +72,7 @@ class DatabaseService {
   // Fetch all menu items
   Future<List<Map<String, dynamic>>> getMenuItems() async {
     final response = await _supabase.from('menu_items').select().order('name');
-    return response as List<Map<String, dynamic>>;
+    return response;
   }
 
   // Create a new booking

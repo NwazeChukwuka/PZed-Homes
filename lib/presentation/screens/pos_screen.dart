@@ -6,7 +6,6 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:pzed_homes/presentation/screens/scanner_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PosScreen extends StatefulWidget {

@@ -18,7 +18,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
   final _supplierController = TextEditingController();
   final _dataService = DataService();
   
-  List<Map<String, dynamic>> _items = [];
+  final List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _suppliers = [];
   String? _selectedSupplierId;
@@ -239,7 +239,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                             children: [
                               Expanded(
                                 child: DropdownButtonFormField<String>(
-                                  value: _selectedSupplierId,
+                                  initialValue: _selectedSupplierId,
                                   decoration: const InputDecoration(
                                     labelText: 'Supplier',
                                     border: OutlineInputBorder(),
@@ -411,7 +411,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
 
             // Stock Item Dropdown
             DropdownButtonFormField<String>(
-              value: selectedStockItemId,
+              initialValue: selectedStockItemId,
               decoration: const InputDecoration(
                 labelText: 'Stock Item *',
                 border: OutlineInputBorder(),

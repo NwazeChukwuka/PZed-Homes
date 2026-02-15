@@ -174,7 +174,6 @@ class _MemoizedBuilder extends StatefulWidget {
   final Widget Function() builder;
 
   const _MemoizedBuilder({
-    super.key,
     required this.memoKey,
     required this.builder,
   });

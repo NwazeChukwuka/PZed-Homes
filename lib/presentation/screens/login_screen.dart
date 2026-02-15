@@ -21,7 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isSigningUp = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
-  bool _rememberMe = false;
+  final bool _rememberMe = false;
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;

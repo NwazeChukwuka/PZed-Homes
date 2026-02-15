@@ -10,9 +10,6 @@ import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/performance/optimization_helpers.dart';
 import 'package:pzed_homes/data/models/user.dart';
-import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart';
-import 'package:pzed_homes/presentation/screens/storekeeper_dashboard_screen.dart';
-import 'package:pzed_homes/presentation/screens/mini_mart_screen.dart';
 
 List<NavigationItem> _computeNavItems(AuthService auth) {
   final user = auth.currentUser;

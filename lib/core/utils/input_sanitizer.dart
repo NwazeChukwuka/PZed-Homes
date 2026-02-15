@@ -28,7 +28,7 @@ class InputSanitizer {
     // Remove all non-digit characters except + at the start
     String sanitized = phone.trim();
     if (sanitized.startsWith('+')) {
-      sanitized = '+' + sanitized.substring(1).replaceAll(RegExp(r'\D'), '');
+      sanitized = '+${sanitized.substring(1).replaceAll(RegExp(r'\D'), '')}';
     } else {
       sanitized = sanitized.replaceAll(RegExp(r'\D'), '');
     }

@@ -30,23 +30,27 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
     _LayoutMode next = _mode;
     switch (_mode) {
       case _LayoutMode.mobile:
-        if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
-        else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
+        if (w >= 1200 + _hysteresis) {
+          next = _LayoutMode.largeDesktop;
+        } else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
         else if (w >= 600 + _hysteresis) next = _LayoutMode.tablet;
         break;
       case _LayoutMode.tablet:
-        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
-        else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
+        if (w < 600 - _hysteresis) {
+          next = _LayoutMode.mobile;
+        } else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
         else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
         break;
       case _LayoutMode.desktop:
-        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
-        else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
+        if (w < 600 - _hysteresis) {
+          next = _LayoutMode.mobile;
+        } else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
         else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
         break;
       case _LayoutMode.largeDesktop:
-        if (w < 600 - _hysteresis) next = _LayoutMode.mobile;
-        else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
+        if (w < 600 - _hysteresis) {
+          next = _LayoutMode.mobile;
+        } else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
         else if (w < 1200 - _hysteresis) next = _LayoutMode.desktop;
         break;
     }
@@ -143,8 +147,9 @@ class ResponsivePadding extends StatelessWidget {
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     EdgeInsets padding;
-    if (w >= 1200) padding = largeDesktop ?? desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
-    else if (w >= 800) padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
+    if (w >= 1200) {
+      padding = largeDesktop ?? desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
+    } else if (w >= 800) padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
     else if (w >= 600) padding = tablet ?? mobile ?? EdgeInsets.zero;
     else padding = mobile ?? EdgeInsets.zero;
     return Padding(
@@ -178,8 +183,9 @@ class ResponsiveGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     int columns;
-    if (w >= 1200) columns = largeDesktopColumns ?? desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
-    else if (w >= 800) columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
+    if (w >= 1200) {
+      columns = largeDesktopColumns ?? desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
+    } else if (w >= 800) columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
     else if (w >= 600) columns = tabletColumns ?? mobileColumns ?? 1;
     else columns = mobileColumns ?? 1;
 
@@ -219,8 +225,9 @@ class ResponsiveText extends StatelessWidget {
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     TextStyle? style;
-    if (w >= 1200) style = largeDesktopStyle ?? desktopStyle ?? tabletStyle ?? mobileStyle;
-    else if (w >= 800) style = desktopStyle ?? tabletStyle ?? mobileStyle;
+    if (w >= 1200) {
+      style = largeDesktopStyle ?? desktopStyle ?? tabletStyle ?? mobileStyle;
+    } else if (w >= 800) style = desktopStyle ?? tabletStyle ?? mobileStyle;
     else if (w >= 600) style = tabletStyle ?? mobileStyle;
     else style = mobileStyle;
 
@@ -254,8 +261,9 @@ class ResponsiveSpacing extends StatelessWidget {
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     double spacing;
-    if (w >= 1200) spacing = largeDesktop ?? desktop ?? tablet ?? mobile ?? 0.0;
-    else if (w >= 800) spacing = desktop ?? tablet ?? mobile ?? 0.0;
+    if (w >= 1200) {
+      spacing = largeDesktop ?? desktop ?? tablet ?? mobile ?? 0.0;
+    } else if (w >= 800) spacing = desktop ?? tablet ?? mobile ?? 0.0;
     else if (w >= 600) spacing = tablet ?? mobile ?? 0.0;
     else spacing = mobile ?? 0.0;
 

@@ -118,7 +118,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
               children: [
                 if (_staffProfiles.isNotEmpty)
                   DropdownButtonFormField<String>(
-                    value: _selectedRecipientId,
+                    initialValue: _selectedRecipientId,
                     decoration: const InputDecoration(
                       labelText: 'Send To (optional)',
                       border: OutlineInputBorder(),
@@ -134,7 +134,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                           value: p['id'] as String,
                           child: Text(name),
                         );
-                      }).toList(),
+                      }),
                     ],
                     onChanged: (value) => setState(() => _selectedRecipientId = value),
                   ),

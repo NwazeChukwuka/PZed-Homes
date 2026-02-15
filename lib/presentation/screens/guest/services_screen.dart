@@ -38,7 +38,7 @@ class ServicesScreen extends StatelessWidget {
   }
 
   Widget _buildHeroSection(BuildContext context) {
-    return Container(
+    return SizedBox(
       height: 250,
       width: double.infinity,
       child: Stack(

@@ -639,7 +639,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedItem,
+                initialValue: selectedItem,
                 decoration: const InputDecoration(labelText: 'Select Item'),
                 items: _availableItems.map((item) {
                   return DropdownMenuItem(
@@ -699,7 +699,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedItem,
+                initialValue: selectedItem,
                 decoration: const InputDecoration(labelText: 'Select Item'),
                 items: _availableItems.map((item) {
                   return DropdownMenuItem(
@@ -717,7 +717,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: source,
+                initialValue: source,
                 decoration: const InputDecoration(labelText: 'Source'),
                 items: const [
                   DropdownMenuItem(value: 'general_store', child: Text('General Store')),
@@ -789,7 +789,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                     final sourceCurrentStock = (sourceItem['current_stock'] as num?)?.toInt() ?? 0;
                     if (sourceCurrentStock < qty) {
                       throw Exception(
-                        'Insufficient stock in ${sourceLocationName}. Available: $sourceCurrentStock',
+                        'Insufficient stock in $sourceLocationName. Available: $sourceCurrentStock',
                       );
                     }
                   }
@@ -979,7 +979,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedItem,
+                initialValue: selectedItem,
                 decoration: const InputDecoration(labelText: 'Select Item'),
                 items: _availableItems.map((item) {
                   return DropdownMenuItem(

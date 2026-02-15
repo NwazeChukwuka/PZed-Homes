@@ -176,10 +176,6 @@ class AppState extends ChangeNotifier {
     _isOnline = true;
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 }
 
 /// Role-based permissions helper

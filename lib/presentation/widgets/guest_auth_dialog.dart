@@ -5,7 +5,6 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/password_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart'; // This imports the correct AppRole
-import 'package:pzed_homes/presentation/screens/main_screen.dart';
 
 class GuestAuthDialog extends StatefulWidget {
   const GuestAuthDialog({super.key});

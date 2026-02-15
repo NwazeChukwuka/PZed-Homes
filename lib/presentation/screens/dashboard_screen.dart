@@ -11,16 +11,9 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
-import 'package:pzed_homes/core/state/app_state.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
-import 'package:pzed_homes/core/layout/responsive_layout.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:pzed_homes/presentation/widgets/summary_card.dart';
-import 'package:pzed_homes/presentation/screens/create_booking_screen.dart';
-import 'package:pzed_homes/data/models/booking.dart';
-import 'package:go_router/go_router.dart';
-import 'package:pzed_homes/presentation/screens/user_profile_screen.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
 enum TimeRange { today, week, month, custom }
@@ -63,9 +56,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _incomeRecords = [];
   List<Map<String, dynamic>> _expenseRecords = [];
   List<Map<String, dynamic>> _stockTransactions = [];
-  List<Map<String, dynamic>> _stockLevels = [];
-  List<Map<String, dynamic>> _payrollRecords = [];
-  List<Map<String, dynamic>> _cashDeposits = [];
+  final List<Map<String, dynamic>> _stockLevels = [];
+  final List<Map<String, dynamic>> _payrollRecords = [];
+  final List<Map<String, dynamic>> _cashDeposits = [];
   List<Map<String, dynamic>> _purchaseOrders = [];
   List<Map<String, dynamic>> _maintenanceOrders = [];
 
@@ -262,8 +255,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _dataService.getCheckedInGuests(),
         _dataService.getBookings(),
       ]);
-      final checkedInGuests = results[0] as List<Map<String, dynamic>>;
-      final bookings = results[1] as List<Map<String, dynamic>>;
+      final checkedInGuests = results[0];
+      final bookings = results[1];
       if (mounted) {
         setState(() {
           _checkedInGuests = checkedInGuests;
@@ -299,16 +292,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _dataService.getDepartmentSales(department: 'restaurant', startDate: previousRange.start, endDate: previousRange.end),
         _dataService.getDepartmentSales(department: 'reception', startDate: previousRange.start, endDate: previousRange.end),
       ]);
-      final vipSales = results[0] as List<Map<String, dynamic>>;
-      final outsideSales = results[1] as List<Map<String, dynamic>>;
-      final miniMartSales = results[2] as List<Map<String, dynamic>>;
-      final kitchenSales = results[3] as List<Map<String, dynamic>>;
-      final receptionSales = results[4] as List<Map<String, dynamic>>;
-      final previousVipSales = results[5] as List<Map<String, dynamic>>;
-      final previousOutsideSales = results[6] as List<Map<String, dynamic>>;
-      final previousMiniMartSales = results[7] as List<Map<String, dynamic>>;
-      final previousKitchenSales = results[8] as List<Map<String, dynamic>>;
-      final previousReceptionSales = results[9] as List<Map<String, dynamic>>;
+      final vipSales = results[0];
+      final outsideSales = results[1];
+      final miniMartSales = results[2];
+      final kitchenSales = results[3];
+      final receptionSales = results[4];
+      final previousVipSales = results[5];
+      final previousOutsideSales = results[6];
+      final previousMiniMartSales = results[7];
+      final previousKitchenSales = results[8];
+      final previousReceptionSales = results[9];
       final vipBarTotal = _sumFilteredDeptSales(vipSales, timeRange);
       final outsideBarTotal = _sumFilteredDeptSales(outsideSales, timeRange);
       final miniMartTotal = _sumFilteredDeptSales(miniMartSales, timeRange);
@@ -1600,8 +1593,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildKPICard(
         context,
         'Reception',
-        (_deptSalesTotals['Reception'] as num?) ?? 0,
-        (_previousDeptSalesTotals['Reception'] as num?) ?? 0,
+        _deptSalesTotals['Reception'] ?? 0,
+        _previousDeptSalesTotals['Reception'] ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
         true,
@@ -1610,8 +1603,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildKPICard(
         context,
         'VIP Bar',
-        (_deptSalesTotals['VIP Bar'] as num?) ?? 0,
-        (_previousDeptSalesTotals['VIP Bar'] as num?) ?? 0,
+        _deptSalesTotals['VIP Bar'] ?? 0,
+        _previousDeptSalesTotals['VIP Bar'] ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
         true,
@@ -1620,8 +1613,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildKPICard(
         context,
         'Outside Bar',
-        (_deptSalesTotals['Outside Bar'] as num?) ?? 0,
-        (_previousDeptSalesTotals['Outside Bar'] as num?) ?? 0,
+        _deptSalesTotals['Outside Bar'] ?? 0,
+        _previousDeptSalesTotals['Outside Bar'] ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
         true,
@@ -1630,8 +1623,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildKPICard(
         context,
         'Kitchen',
-        (_deptSalesTotals['Kitchen'] as num?) ?? 0,
-        (_previousDeptSalesTotals['Kitchen'] as num?) ?? 0,
+        _deptSalesTotals['Kitchen'] ?? 0,
+        _previousDeptSalesTotals['Kitchen'] ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
         true,
@@ -1640,8 +1633,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _buildKPICard(
         context,
         'Mini Mart',
-        (_deptSalesTotals['Mini Mart'] as num?) ?? 0,
-        (_previousDeptSalesTotals['Mini Mart'] as num?) ?? 0,
+        _deptSalesTotals['Mini Mart'] ?? 0,
+        _previousDeptSalesTotals['Mini Mart'] ?? 0,
         Icons.point_of_sale,
         Colors.green[700]!,
         true,
@@ -2089,7 +2082,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -2613,8 +2606,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         runSpacing: isMobile ? 8 : 8,
         children: [
           _quickButton(context, 'My Department', Icons.domain, () {
-            if (role == AppRole.storekeeper) context.go('/storekeeping');
-            else if (role == AppRole.purchaser) context.go('/purchasing');
+            if (role == AppRole.storekeeper) {
+              context.go('/storekeeping');
+            } else if (role == AppRole.purchaser) context.go('/purchasing');
             else if (role == AppRole.kitchen_staff) context.go('/kitchen');
             else if (role == AppRole.vip_bartender || role == AppRole.outside_bartender) context.go('/inventory');
             else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');

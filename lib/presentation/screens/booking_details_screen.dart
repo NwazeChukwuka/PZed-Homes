@@ -178,11 +178,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       if (confirmed != true) return;
 
       setState(() => _isLoading = true);
-
-      // Use database function for check-in (handles status updates correctly)
-      if (_supabase == null) {
-        throw Exception('Supabase not initialized');
-      }
       final result = await _supabase.rpc('check_in_guest', params: {
         'booking_id': _currentBooking.id,
       });
@@ -356,9 +351,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     setState(() => _isLoading = true);
     try {
       // Use database function for check-out (handles status updates correctly)
-      if (_supabase == null) {
-        throw Exception('Supabase not initialized');
-      }
       final result = await _supabase.rpc('check_out_guest', params: {
         'booking_id': _currentBooking.id,
       });
@@ -538,14 +530,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       );
       return;
     }
-    final staffId = authService?.id;
-    if (staffId == null) {
-      ErrorHandler.showWarningMessage(
-        context,
-        'You must be logged in to record payments.',
-      );
-      return;
-    }
+    final staffId = authService.id;
 
     final currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
     final paymentMethod = ValueNotifier<String>('cash');
@@ -579,7 +564,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       DropdownButtonFormField<String>(
-                        value: method,
+                        initialValue: method,
                         decoration: const InputDecoration(
                           labelText: 'Payment Method',
                           border: OutlineInputBorder(),

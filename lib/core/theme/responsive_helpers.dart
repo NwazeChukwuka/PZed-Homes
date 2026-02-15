@@ -199,9 +199,9 @@ class ResponsiveText extends StatelessWidget {
       style: baseStyle?.copyWith(
         fontSize: ResponsiveHelper.getResponsiveFontSize(
           context,
-          mobile: baseStyle?.fontSize ?? 14,
-          tablet: (baseStyle?.fontSize ?? 14) * 1.1,
-          desktop: (baseStyle?.fontSize ?? 14) * 1.2,
+          mobile: baseStyle.fontSize ?? 14,
+          tablet: (baseStyle.fontSize ?? 14) * 1.1,
+          desktop: (baseStyle.fontSize ?? 14) * 1.2,
         ),
       ),
       textAlign: textAlign,

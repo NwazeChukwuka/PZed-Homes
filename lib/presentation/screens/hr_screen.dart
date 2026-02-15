@@ -742,7 +742,7 @@ class _HrScreenState extends State<HrScreen>
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'Select Bar'),
-                  value: selectedBar,
+                  initialValue: selectedBar,
                   items: const [
                     DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
                     DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
@@ -850,7 +850,7 @@ class _HrScreenState extends State<HrScreen>
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     decoration: const InputDecoration(labelText: 'Select Bar'),
-                    value: selectedBar,
+                    initialValue: selectedBar,
                     items: const [
                       DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
                       DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
@@ -1447,7 +1447,7 @@ class _HrScreenState extends State<HrScreen>
                   ),
                 ),
               );
-            }).toList(),
+            }),
             if (staffTransactions.length > 5)
               TextButton(
                 onPressed: () {
@@ -1926,7 +1926,7 @@ class _HrScreenState extends State<HrScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: selectedRole,
+                    initialValue: selectedRole,
                     decoration: const InputDecoration(
                       labelText: 'Assign Role *',
                       border: OutlineInputBorder(),

@@ -16,7 +16,6 @@ import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:flutter/services.dart';
-import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:printing/printing.dart';
@@ -43,7 +42,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   
   // Sales data
   List<Map<String, dynamic>> _miniMartItems = [];
-  List<Map<String, dynamic>> _currentSale = [];
+  final List<Map<String, dynamic>> _currentSale = [];
   List<Map<String, dynamic>> _salesHistory = [];
   double _saleTotal = 0.0;
   bool _isLoading = true;
@@ -121,8 +120,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         _dataService.getMiniMartItems(),
         _dataService.getMiniMartSales(limit: _salesHistoryPageSize, offset: 0),
       ]);
-      final itemsResponse = results[0] as List<Map<String, dynamic>>;
-      final salesResponse = results[1] as List<Map<String, dynamic>>;
+      final itemsResponse = results[0];
+      final salesResponse = results[1];
 
       if (mounted) {
         final items = List<Map<String, dynamic>>.from(itemsResponse)
@@ -1163,7 +1162,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                     child: Column(
                       children: [
                         DropdownButtonFormField<String>(
-                          value: _paymentMethod,
+                          initialValue: _paymentMethod,
                           decoration: const InputDecoration(
                             labelText: 'Payment Method',
                             border: OutlineInputBorder(),
@@ -1424,7 +1423,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         DropdownButtonFormField<String>(
-          value: _paymentMethod,
+          initialValue: _paymentMethod,
           decoration: const InputDecoration(
             labelText: 'Payment Method',
             border: OutlineInputBorder(),

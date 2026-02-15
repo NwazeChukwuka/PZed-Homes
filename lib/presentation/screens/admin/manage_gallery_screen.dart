@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart'; // You'll need to run: flutter pub add image_picker
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'dart:io';
 
 class ManageGalleryScreen extends StatefulWidget {
   const ManageGalleryScreen({super.key});

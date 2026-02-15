@@ -143,7 +143,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedCategory,
+                initialValue: _selectedCategory,
                 items: _categories.map((c) => DropdownMenuItem(
                   value: c,
                   child: Text(c),
@@ -157,7 +157,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedDepartment,
+                initialValue: _selectedDepartment,
                 items: _departments.map((d) => DropdownMenuItem(
                   value: d,
                   child: Text(d),

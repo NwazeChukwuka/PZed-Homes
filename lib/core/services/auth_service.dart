@@ -134,7 +134,7 @@ class AuthService with ChangeNotifier {
         if (!_initializationComplete) {
           // If we see a session during initialization, sign it out immediately
           final session = data.session;
-          if (session != null && session.user != null) {
+          if (session != null) {
             try {
               await _supabase!.auth.signOut();
             } catch (e) {
@@ -147,7 +147,7 @@ class AuthService with ChangeNotifier {
         // IMPORTANT: If initialization just completed and we see a session,
         // it's from localStorage persistence - sign out to force explicit login
         final session = data.session;
-        if (session != null && session.user != null) {
+        if (session != null) {
           // If we don't have a current user, this session is from localStorage - sign out immediately
           if (_currentUser == null) {
             try {
@@ -251,7 +251,7 @@ class AuthService with ChangeNotifier {
       
       // Helper function to safely parse a role name without throwing
       // NEVER uses byName() - only safe iteration
-      AppRole? _safeParseRole(String roleName) {
+      AppRole? safeParseRole(String roleName) {
         try {
           final trimmed = roleName.trim();
           if (trimmed.isEmpty) return null;
@@ -302,7 +302,7 @@ class AuthService with ChangeNotifier {
           final roleName = roleStr.toString().trim();
           if (roleName.isEmpty) continue;
           
-          final role = _safeParseRole(roleName);
+          final role = safeParseRole(roleName);
           if (role != null) {
             parsedRoles.add(role);
           } else {

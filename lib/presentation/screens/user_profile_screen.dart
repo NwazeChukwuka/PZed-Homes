@@ -269,13 +269,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     },
                   ),
                 ElevatedButton(
-                  child: isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Change Password'),
                   onPressed: isLoading
                       ? null
                       : () async {
@@ -318,7 +311,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                             // Re-authenticate with old password
                             await Supabase.instance.client.auth.signInWithPassword(
-                              email: currentUser!.email!,
+                              email: currentUser!.email,
                               password: oldPasswordController.text,
                             );
 
@@ -353,6 +346,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             }
                           }
                         },
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Change Password'),
                 ),
               ],
             );

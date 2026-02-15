@@ -507,7 +507,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ],
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -1547,7 +1547,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _debtorType,
+                  initialValue: _debtorType,
                   decoration: const InputDecoration(
                     labelText: 'Debtor Type *',
                     border: OutlineInputBorder(),
@@ -1611,7 +1611,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _debtDepartment,
+                  initialValue: _debtDepartment,
                   decoration: const InputDecoration(
                     labelText: 'Department',
                     border: OutlineInputBorder(),
@@ -1744,7 +1744,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _incomeDepartment,
+              initialValue: _incomeDepartment,
               decoration: const InputDecoration(labelText: 'Department'),
               items: const [
                 DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
@@ -1763,7 +1763,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _incomePaymentMethod,
+              initialValue: _incomePaymentMethod,
               decoration: const InputDecoration(labelText: 'Payment Method'),
               items: const [
                 DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -1819,7 +1819,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _expenseDepartment,
+              initialValue: _expenseDepartment,
               decoration: const InputDecoration(labelText: 'Department'),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All Departments')),
@@ -1837,7 +1837,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _expensePaymentMethod,
+              initialValue: _expensePaymentMethod,
               decoration: const InputDecoration(labelText: 'Payment Method'),
               items: const [
                 DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -1884,7 +1884,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _selectedPayrollStaffId,
+              initialValue: _selectedPayrollStaffId,
               decoration: const InputDecoration(labelText: 'Staff'),
               items: _staffProfiles.map((profile) {
                 final id = profile['id']?.toString();
@@ -1928,7 +1928,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _payrollPaymentMethod,
+              initialValue: _payrollPaymentMethod,
               decoration: const InputDecoration(labelText: 'Payment Method'),
               items: const [
                 DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
@@ -2268,7 +2268,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _paymentMethod,
+                    initialValue: _paymentMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),

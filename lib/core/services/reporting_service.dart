@@ -209,7 +209,7 @@ class ReportingService {
           .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
           .gte('check_out_date', dateRange.start.toIso8601String())
           .lte('check_out_date', dateRange.end.toIso8601String());
-      final revenueItemsRaw = revenueResponse as List<Map<String, dynamic>>;
+      final revenueItemsRaw = revenueResponse;
       final revenueItems = revenueItemsRaw
           .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
           .toList();
@@ -231,8 +231,9 @@ class ReportingService {
         for (final r in deptResp as List) {
           final dept = r['department']?.toString() ?? '';
           final amt = (r['total_sales'] as num?)?.toInt() ?? 0;
-          if (dept == 'vip_bar') vipBarSales += amt;
-          else if (dept == 'outside_bar') outsideBarSales += amt;
+          if (dept == 'vip_bar') {
+            vipBarSales += amt;
+          } else if (dept == 'outside_bar') outsideBarSales += amt;
           else if (dept == 'mini_mart') miniMartSales += amt;
           else if (dept == 'restaurant') kitchenSales += amt;
         }
@@ -268,10 +269,11 @@ class ReportingService {
           for (final r in incResp as List) {
             final dept = (r['department']?.toString() ?? '').toLowerCase();
             var amt = (r['amount'] as num?)?.toInt() ?? 0;
-            if (amt == 0) amt = (r['amount'] as num?)?.toDouble()?.round() ?? 0;
+            if (amt == 0) amt = (r['amount'] as num?)?.toDouble().round() ?? 0;
             if (amt > 0 && amt < 100000) amt = amt * 100;
-            if (dept == 'vip_bar') vipBarSales += amt;
-            else if (dept == 'outside_bar') outsideBarSales += amt;
+            if (dept == 'vip_bar') {
+              vipBarSales += amt;
+            } else if (dept == 'outside_bar') outsideBarSales += amt;
             else if (dept == 'mini_mart') miniMartSales += amt;
             else if (dept == 'restaurant' || dept == 'kitchen') kitchenSales += amt;
           }
@@ -284,7 +286,7 @@ class ReportingService {
           .select('*')
           .gte('transaction_date', startStr)
           .lte('transaction_date', endStr);
-      final expenseItems = expenseResponse as List<Map<String, dynamic>>;
+      final expenseItems = expenseResponse;
 
       // 6. Payroll
       final payrollResponse = await _supabase

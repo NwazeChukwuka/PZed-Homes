@@ -63,9 +63,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
   Future<void> _loadData() async {
     try {
-      if (_supabase == null) {
-        throw Exception('Supabase not initialized');
-      }
       final locations = await _supabase.from('locations').select();
       final filteredLocations = _filterLocationsByRole(
         List<Map<String, dynamic>>.from(locations),
@@ -516,7 +513,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                       child: Column(
                         children: [
                           DropdownButtonFormField<String>(
-                            value: _selectedLocationId,
+                            initialValue: _selectedLocationId,
                             decoration: const InputDecoration(
                               labelText: 'Select Location',
                               border: OutlineInputBorder(),
@@ -598,7 +595,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
 
                       // Custom Items Section
                       const SizedBox(height: 16),
@@ -657,7 +654,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                                       ),
                                     ),
                                   );
-                                }).toList(),
+                                }),
                             ],
                           ),
                         ),

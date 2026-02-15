@@ -5,7 +5,6 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 class PurchaserDashboardScreen extends StatefulWidget {
@@ -552,7 +551,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                   return Column(
                     children: [
                       DropdownButtonFormField<String>(
-                        value: _selectedSupplierId,
+                        initialValue: _selectedSupplierId,
                         decoration: const InputDecoration(
                           labelText: 'Preferred Supplier',
                           border: OutlineInputBorder(),
@@ -580,7 +579,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _selectedSupplierId,
+                        initialValue: _selectedSupplierId,
                         decoration: const InputDecoration(
                           labelText: 'Preferred Supplier',
                           border: OutlineInputBorder(),

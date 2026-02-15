@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/core/utils/debug_logger.dart';
@@ -289,8 +288,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       totalSales += amount;
       transactionCount++;
       final pm = s['payment_method']?.toString().toLowerCase();
-      if (pm == 'cash') cashSales += amount;
-      else if (pm == 'card') cardSales += amount;
+      if (pm == 'cash') {
+        cashSales += amount;
+      } else if (pm == 'card') cardSales += amount;
       else if (pm == 'transfer') transferSales += amount;
       else if (pm == 'credit') creditSales += amount;
     }
@@ -299,8 +299,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       totalSales += amount;
       transactionCount++;
       final pm = s['payment_method']?.toString().toLowerCase();
-      if (pm == 'cash') cashSales += amount;
-      else if (pm == 'card') cardSales += amount;
+      if (pm == 'cash') {
+        cashSales += amount;
+      } else if (pm == 'card') cardSales += amount;
       else if (pm == 'transfer') transferSales += amount;
       else if (pm == 'credit') creditSales += amount;
     }
@@ -1613,7 +1614,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   ],
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -1790,7 +1791,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: paymentMethod,
+                  initialValue: paymentMethod,
                   decoration: const InputDecoration(labelText: 'Payment Method', border: OutlineInputBorder()),
                   items: const [
                     DropdownMenuItem(value: 'cash', child: Text('Cash')),
