@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -29,7 +31,11 @@ class PaymentService {
           .from('app_config')
           .select('value')
           .eq('key', 'paystack_public_key')
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException('app_config query timed out'),
+          );
 
       final value = response?['value']?.toString().trim() ?? '';
       if (value.isNotEmpty) {

@@ -41,24 +41,29 @@ Future<void> main() async {
     }
   }
   
-  // Initialize Supabase before app start
+  // Initialize Supabase before app start (with timeout to prevent blank screen)
   if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
     try {
       await Supabase.initialize(
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Supabase initialization timed out');
+        },
       );
+    } on TimeoutException catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG Supabase init timeout: $e\n$stack');
+      // Proceed - app can show offline/error state
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG Supabase init: $e\n$stack');
+      // Proceed - app can show offline/error state
     }
   }
 
-  // Initialize Paystack payment service (reads config from Supabase app_config)
-  await PaymentService().initialize().catchError((e, stack) {
-    if (kDebugMode) debugPrint('DEBUG Paystack init: $e\n$stack');
-    return; // Swallow - payment will show "not configured" when used
-  });
-
+  // PaymentService.initialize() runs in _AppStateManagerInitializer (non-blocking)
+  // so the UI renders immediately with a loading indicator if needed
   runApp(const PzedHomesApp());
 }
 
@@ -102,6 +107,13 @@ class _AppStateManagerInitializerState extends State<_AppStateManagerInitializer
       if (!stateManager.isInitialized && !stateManager.isLoading) {
         stateManager.initialize();
       }
+      // Initialize PaymentService in background (non-blocking)
+      unawaited(
+        PaymentService().initialize().catchError((e, stack) {
+          if (kDebugMode) debugPrint('DEBUG PaymentService init: $e\n$stack');
+          return;
+        }),
+      );
     });
   }
 

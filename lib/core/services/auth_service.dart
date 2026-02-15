@@ -26,6 +26,8 @@ class AuthService with ChangeNotifier {
   bool _isLoggingIn = false;
   // Track if we're creating a staff account (owner creating new user) - ignore auth state changes
   bool _isCreatingStaffAccount = false;
+  /// True when user is in password recovery flow (from reset link). Prevents sign-out of recovery session.
+  bool _isRecovering = false;
   
   // Session management
   Timer? _sessionRefreshTimer;
@@ -52,6 +54,17 @@ class AuthService with ChangeNotifier {
   /// This prevents the app from auto-logging in as the newly created staff member
   void setCreatingStaffAccount(bool value) {
     _isCreatingStaffAccount = value;
+  }
+
+  /// True when user landed via password reset link. UI should show update-password screen.
+  bool get isRecovering => _isRecovering;
+
+  /// Clear recovery state after password update. Call after successful password change.
+  void clearRecoveryState() {
+    if (_isRecovering) {
+      _isRecovering = false;
+      notifyListeners();
+    }
   }
 
   AuthService() {
@@ -99,11 +112,20 @@ class AuthService with ChangeNotifier {
     // ALWAYS start at guest page - don't auto-login on app start
     // This prevents persistent login issues and ensures users explicitly log in
     // Clear any existing session to force re-login
+    // EXCEPTION: Do NOT sign out when user landed on password reset URL (recovery flow)
     try {
+      final uri = Uri.base;
+      final isRecoveryUrl = uri.path.contains('reset-password') ||
+          uri.fragment.contains('type=recovery') ||
+          uri.fragment.contains('refresh_token') ||
+          uri.queryParameters['type'] == 'recovery';
       final initialSession = _supabase!.auth.currentSession;
-      if (initialSession != null) {
+      if (initialSession != null && !isRecoveryUrl) {
         // Sign out any existing session to force explicit login
         await _supabase!.auth.signOut();
+      }
+      if (initialSession != null && isRecoveryUrl) {
+        _isRecovering = true;
       }
     } catch (e) {
       // Ignore errors during sign out
@@ -128,11 +150,20 @@ class AuthService with ChangeNotifier {
         if (_isLoggingIn || _isLoadingUserData || _isCreatingStaffAccount) {
           return;
         }
+
+        // CRITICAL: Do NOT sign out when user is in password recovery flow
+        if (data.event == AuthChangeEvent.passwordRecovery) {
+          _isRecovering = true;
+          _isLoading = false;
+          notifyListeners();
+          return;
+        }
         
         // CRITICAL: If initialization is not complete, ignore ALL auth state changes
         // This prevents auto-login from localStorage persistence
         if (!_initializationComplete) {
           // If we see a session during initialization, sign it out immediately
+          // (passwordRecovery is handled above)
           final session = data.session;
           if (session != null) {
             try {
@@ -146,10 +177,21 @@ class AuthService with ChangeNotifier {
         
         // IMPORTANT: If initialization just completed and we see a session,
         // it's from localStorage persistence - sign out to force explicit login
+        // UNLESS it's password recovery (handled above) or we're on the reset-password URL
         final session = data.session;
         if (session != null) {
           // If we don't have a current user, this session is from localStorage - sign out immediately
-          if (_currentUser == null) {
+          // EXCEPT when in recovery flow (isRecovering keeps the session alive)
+          // EXCEPT when on reset-password URL (handles PKCE where passwordRecovery may not fire)
+          final uri = Uri.base;
+          final onResetPasswordPage = uri.path.contains('reset-password');
+          if (_currentUser == null && onResetPasswordPage) {
+            _isRecovering = true;
+            _isLoading = false;
+            notifyListeners();
+            return;
+          }
+          if (_currentUser == null && !_isRecovering) {
             try {
               await _supabase!.auth.signOut();
               _currentUser = null;
@@ -568,6 +610,36 @@ class AuthService with ChangeNotifier {
   }
 
 
+  /// Update user password. For recovery flow, call clearRecoveryState() after success.
+  /// Returns null on success, or a user-friendly error message on failure.
+  Future<String?> updateUserPassword(String newPassword) async {
+    if (_supabase == null) {
+      return 'Supabase is not configured.';
+    }
+    if (newPassword.trim().length < 6) {
+      return 'Password must be at least 6 characters.';
+    }
+    try {
+      await _supabase!.auth.updateUser(UserAttributes(password: newPassword));
+      return null;
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      if (msg.contains('should be different') || msg.contains('same as')) {
+        return 'New password must be different from your current password.';
+      }
+      if (msg.contains('weak') || msg.contains('at least')) {
+        return 'Password is too weak. Use at least 6 characters.';
+      }
+      if (msg.contains('expired') || msg.contains('invalid') || msg.contains('recovery')) {
+        return 'Reset link expired or invalid. Please request a new one.';
+      }
+      return e.message;
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('DEBUG updateUserPassword: $e\n$stack');
+      return ErrorHandler.getFriendlyErrorMessage(e);
+    }
+  }
+
   Future<void> logout({bool clearRememberMe = true}) async {
     if (_supabase == null) return;
     
@@ -590,6 +662,7 @@ class AuthService with ChangeNotifier {
     _isLoadingUserData = false;
     _isLoggingIn = false;
     _isLoading = false;
+    _isRecovering = false;
     clearAssumedRoles();
     notifyListeners();
   }

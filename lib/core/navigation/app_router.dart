@@ -442,7 +442,9 @@ class AppRouter {
         }
 
         // Authentication routes
-        if (location == '/login') {
+        if (location == '/login' ||
+            location.startsWith('/auth/reset-password') ||
+            location.startsWith('/auth/callback')) {
           return null;
         }
 

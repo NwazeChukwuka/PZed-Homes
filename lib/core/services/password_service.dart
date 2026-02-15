@@ -1,7 +1,8 @@
 // Consolidated password reset/change service
 
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../error/error_handler.dart';
 import '../config/app_config.dart';
 
@@ -24,9 +25,10 @@ class PasswordService {
       if (customRedirectUrl != null) {
         redirectUrl = customRedirectUrl;
       } else {
-        // Use centralized configuration from AppConfig
-        // Update AppConfig.productionUrl to match your actual production domain
-        redirectUrl = AppConfig.passwordResetUrl;
+        // Environment-aware: web uses current origin, mobile uses deep link
+        // Must match Redirect URLs in Supabase Dashboard
+        final base = kIsWeb ? Uri.base.origin : 'com.pzed.app://reset-password';
+        redirectUrl = kIsWeb ? '$base/auth/reset-password' : base;
       }
       
       await _supabase.auth.resetPasswordForEmail(
