@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../error/error_handler.dart';
-import '../config/app_config.dart';
 
 class PasswordService {
   static final PasswordService _instance = PasswordService._internal();
