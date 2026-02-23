@@ -1678,11 +1678,21 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         }
       }
 
-      // Clear sale and refresh data
       _clearSale();
-      _loadInventory();
-      _dataService.invalidateCacheForTable('stock_transactions'); // Realtime: new sale affects list
-      _loadTransactions();
+
+      try {
+        await _loadInventory();
+        _dataService.invalidateCacheForTable('stock_transactions'); // Realtime: new sale affects list
+        await _loadTransactions();
+      } catch (e) {
+        if (kDebugMode) debugPrint('DEBUG _loadInventory/_loadTransactions: $e');
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Sale recorded! (Inventory list failed to refresh, please refresh manually).',
+          );
+        }
+      }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG process sale: $e\n$stackTrace');
       if (mounted) {
@@ -1815,14 +1825,23 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       _outsidePriceController.clear();
       _categoryController.clear();
 
-      // Refresh inventory
-      _loadInventory();
-
       if (mounted) {
         ErrorHandler.showSuccessMessage(
           context,
           'Item added successfully',
         );
+      }
+
+      try {
+        await _loadInventory();
+      } catch (e) {
+        if (kDebugMode) debugPrint('DEBUG _loadInventory after add item: $e');
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Item added! (Inventory list failed to refresh, please refresh manually).',
+          );
+        }
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG add item: $e\n$stackTrace');

@@ -649,8 +649,18 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                       context,
                       'Debt payments recorded. Proceeding to checkout.',
                     );
+                  }
+                  try {
                     await _loadBookingDebts();
-                    _performCheckOut();
+                    await _performCheckOut();
+                  } catch (e, stackTrace) {
+                    if (kDebugMode) debugPrint('DEBUG loadBookingDebts/performCheckOut: $e\n$stackTrace');
+                    if (mounted) {
+                      ErrorHandler.showWarningMessage(
+                        context,
+                        'Payments recorded. (List or checkout could not complete — try checkout again or reopen the booking.)',
+                      );
+                    }
                   }
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG record payments: $e\n$stackTrace');

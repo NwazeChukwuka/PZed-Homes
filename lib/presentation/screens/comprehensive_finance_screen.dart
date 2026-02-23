@@ -1706,7 +1706,16 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Debt recorded successfully!');
         _clearDebtForm();
-        _loadFinancialData();
+      }
+      try {
+        if (mounted) await _loadFinancialData();
+      } catch (_) {
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(
+            context,
+            'Debt recorded! (Failed to refresh list, please refresh manually.)',
+          );
+        }
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG record debt: $e\n$stackTrace');
@@ -2359,7 +2368,16 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Navigator.pop(context);
                 if (mounted) {
                   ErrorHandler.showSuccessMessage(context, 'Payment recorded successfully!');
-                  _loadFinancialData();
+                }
+                try {
+                  if (mounted) await _loadFinancialData();
+                } catch (_) {
+                  if (mounted) {
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Payment recorded! (Failed to refresh list, please refresh manually.)',
+                    );
+                  }
                 }
               } catch (e, stackTrace) {
                 if (kDebugMode) debugPrint('DEBUG record payment: $e\n$stackTrace');

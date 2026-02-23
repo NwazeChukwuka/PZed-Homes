@@ -1834,7 +1834,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   if (context.mounted) Navigator.pop(context);
                   if (mounted) {
                     ErrorHandler.showSuccessMessage(context, 'Debt payment recorded. Awaiting management approval.');
-                    _loadData();
+                  }
+                  try {
+                    if (mounted) await _loadData();
+                  } catch (_) {
+                    if (mounted) {
+                      ErrorHandler.showSuccessMessage(
+                        context,
+                        'Payment recorded! (Failed to refresh list, please refresh manually.)',
+                      );
+                    }
                   }
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG record debt claim: $e\n$stackTrace');

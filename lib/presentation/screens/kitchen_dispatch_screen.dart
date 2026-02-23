@@ -1269,6 +1269,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
     }
     setState(() => _isLoading = true);
+    final List<String> partialErrors = [];
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final staffId = authService.currentUser!.id;
@@ -1307,59 +1308,89 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         totalSaleInKobo += itemTotalKobo;
 
         if (_chargeToRoom && _selectedBookingId != null) {
-          await _dataService.addBookingCharge(
-            bookingId: _selectedBookingId!,
-            itemName: itemName,
-            priceKobo: unitPriceKobo,
-            quantity: quantity,
-            department: 'restaurant',
-            addedBy: staffId,
-          );
+          try {
+            // RLS: booking_charges INSERT allows vip_bartender (non_destructive_upgrade.sql)
+            await _dataService.addBookingCharge(
+              bookingId: _selectedBookingId!,
+              itemName: itemName,
+              priceKobo: unitPriceKobo,
+              quantity: quantity,
+              department: 'restaurant',
+              addedBy: staffId,
+            );
+          } catch (e) {
+            if (kDebugMode) debugPrint('DEBUG addBookingCharge: $e');
+            if (!partialErrors.any((m) => m.contains('Room Charge failed'))) {
+              partialErrors.add('Sale recorded, but Room Charge failed. Please record manually.');
+            }
+          }
         }
 
         final stockItemId = saleItem['stock_item_id']?.toString();
         if (stockItemId != null && _sourceLocationId != null) {
-          await _dataService.recordStockTransaction({
-            'stock_item_id': stockItemId,
-            'location_id': _sourceLocationId,
-            'staff_profile_id': staffId,
-            'transaction_type': 'Sale',
-            'quantity': -quantity,
-            'notes': 'Kitchen sale',
-          });
+          try {
+            // RLS: stock_transactions INSERT allows vip_bartender for Kitchen (non_destructive_upgrade.sql)
+            await _dataService.recordStockTransaction({
+              'stock_item_id': stockItemId,
+              'location_id': _sourceLocationId,
+              'staff_profile_id': staffId,
+              'transaction_type': 'Sale',
+              'quantity': -quantity,
+              'notes': 'Kitchen sale',
+            });
+          } catch (e) {
+            if (kDebugMode) debugPrint('DEBUG recordStockTransaction: $e');
+            if (!partialErrors.any((m) => m.contains('stock update failed'))) {
+              partialErrors.add('Sale recorded, but stock update failed. Please adjust inventory manually.');
+            }
+          }
         }
       }
 
       final isWalkInCredit = _salePaymentMethod == 'credit' && !_chargeToRoom;
 
       if (!_chargeToRoom && !isWalkInCredit) {
-        await _recordDepartmentSale(
-          department: 'restaurant',
-          amountInKobo: totalSaleInKobo,
-          staffId: staffId,
-          paymentMethod: effectivePaymentMethod,
-        );
+        try {
+          await _recordDepartmentSale(
+            department: 'restaurant',
+            amountInKobo: totalSaleInKobo,
+            staffId: staffId,
+            paymentMethod: effectivePaymentMethod,
+          );
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG _recordDepartmentSale: $e');
+          if (!partialErrors.any((m) => m.contains('department sales'))) {
+            partialErrors.add('Sale recorded, but department sales update failed.');
+          }
+        }
       }
 
       if (isWalkInCredit) {
         final customerName = _saleCreditCustomerNameController.text.trim();
         final customerPhone = _saleCreditCustomerPhoneController.text.trim();
-        await _dataService.recordDebt({
-          'debtor_name': customerName,
-          'debtor_phone': customerPhone,
-          'debtor_type': 'customer',
-          'amount': totalSaleInKobo,
-          'owed_to': 'P-ZED Luxury Hotels & Suites',
-          'department': 'reception',
-          'source_department': 'restaurant',
-          'source_type': 'kitchen_sale',
-          'reference_id': firstSaleId,
-          'reason': 'Kitchen sale on credit (walk-in)',
-          'date': DateTime.now().toIso8601String().split('T')[0],
-          'status': 'outstanding',
-          'sold_by': staffId,
-          'sale_id': firstSaleId,
-        });
+        try {
+          await _dataService.recordDebt({
+            'debtor_name': customerName,
+            'debtor_phone': customerPhone,
+            'debtor_type': 'customer',
+            'amount': totalSaleInKobo,
+            'owed_to': 'P-ZED Luxury Hotels & Suites',
+            'department': 'reception',
+            'source_department': 'restaurant',
+            'source_type': 'kitchen_sale',
+            'reference_id': firstSaleId,
+            'reason': 'Kitchen sale on credit (walk-in)',
+            'date': DateTime.now().toIso8601String().split('T')[0],
+            'status': 'outstanding',
+            'sold_by': staffId,
+            'sale_id': firstSaleId,
+          });
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG recordDebt (walk-in): $e');
+          if (!partialErrors.any((m) => m.contains('debt creation'))) {
+            partialErrors.add('Sale recorded, but debt creation failed. Please record manually.');
+          }
+        }
       } else if (_chargeToRoom && _selectedBookingId != null) {
         final booking = _bookings.firstWhere(
           (b) => b['id'] == _selectedBookingId,
@@ -1371,23 +1402,30 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         final gph = _safeStr(booking['guest_phone']);
         final guestPhone = gph.isNotEmpty ? gph : (_safeStr(guestProfile?['phone']).isNotEmpty ? _safeStr(guestProfile?['phone']) : '');
 
-        await _dataService.recordDebt({
-          'debtor_name': guestName,
-          'debtor_phone': guestPhone,
-          'debtor_type': 'customer',
-          'amount': totalSaleInKobo,
-          'owed_to': 'P-ZED Luxury Hotels & Suites',
-          'department': 'reception',
-          'source_department': 'restaurant',
-          'source_type': 'kitchen_sale',
-          'reference_id': firstSaleId,
-          'reason': 'Kitchen sale charged to room',
-          'date': DateTime.now().toIso8601String().split('T')[0],
-          'status': 'outstanding',
-          'sold_by': staffId,
-          'booking_id': _selectedBookingId,
-          'sale_id': firstSaleId,
-        });
+        try {
+          await _dataService.recordDebt({
+            'debtor_name': guestName,
+            'debtor_phone': guestPhone,
+            'debtor_type': 'customer',
+            'amount': totalSaleInKobo,
+            'owed_to': 'P-ZED Luxury Hotels & Suites',
+            'department': 'reception',
+            'source_department': 'restaurant',
+            'source_type': 'kitchen_sale',
+            'reference_id': firstSaleId,
+            'reason': 'Kitchen sale charged to room',
+            'date': DateTime.now().toIso8601String().split('T')[0],
+            'status': 'outstanding',
+            'sold_by': staffId,
+            'booking_id': _selectedBookingId,
+            'sale_id': firstSaleId,
+          });
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG recordDebt (room): $e');
+          if (!partialErrors.any((m) => m.contains('debt creation'))) {
+            partialErrors.add('Sale recorded, but debt creation failed. Please record manually.');
+          }
+        }
       }
 
       final firstItem = _currentSale.first;
@@ -1399,29 +1437,45 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ? firstItemName
           : '$firstItemName + ${itemCount - 1} more';
       final bookingIdForReceipt = _selectedBookingId;
+      final totalNaira = PaymentService.koboToNaira(totalSaleInKobo);
       _clearSale();
 
       if (mounted) {
-        await _showKitchenReceiptDialog(
-          itemName: displayName,
-          quantity: firstQty,
-          unitPriceNaira: firstPrice,
-          totalNaira: PaymentService.koboToNaira(totalSaleInKobo),
-          paymentMethod: effectivePaymentMethod,
-          bookingId: bookingIdForReceipt,
-        );
-        ErrorHandler.showSuccessMessage(
-          context,
-          isWalkInCredit
-              ? 'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(totalSaleInKobo))} - Debt created'
-              : 'Kitchen sale recorded successfully!',
-        );
-        // Reload stock and locations to refresh the food list with updated stock levels
-        await _loadStockAndLocations();
-        // Force UI rebuild to show updated stock
-        if (mounted) {
-          setState(() {});
+        if (partialErrors.isNotEmpty) {
+          ErrorHandler.showWarningMessage(context, partialErrors.first);
+        } else {
+          ErrorHandler.showSuccessMessage(
+            context,
+            isWalkInCredit
+                ? 'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(totalNaira)} - Debt created'
+                : 'Kitchen sale recorded successfully!',
+          );
         }
+
+        try {
+          await _showKitchenReceiptDialog(
+            itemName: displayName,
+            quantity: firstQty,
+            unitPriceNaira: firstPrice,
+            totalNaira: totalNaira,
+            paymentMethod: effectivePaymentMethod,
+            bookingId: bookingIdForReceipt,
+          );
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG _showKitchenReceiptDialog: $e');
+        }
+        try {
+          await _loadStockAndLocations();
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG _loadStockAndLocations: $e');
+          if (mounted) {
+            ErrorHandler.showSuccessMessage(
+              context,
+              'Sale recorded successfully. (Refresh the menu if needed.)',
+            );
+          }
+        }
+        if (mounted) setState(() {});
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG record sale: $e\n$stackTrace');

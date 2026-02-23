@@ -457,15 +457,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         };
         
         await _dataService.recordDebt(debt);
-        
-        if (mounted) {
+      }
+
+      if (mounted) {
+        if (_paymentMethod == 'Credit') {
           ErrorHandler.showWarningMessage(
             context,
             'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created',
           );
-        }
-      } else {
-        if (mounted) {
+        } else {
           ErrorHandler.showSuccessMessage(
             context,
             'Sale completed! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
@@ -473,19 +473,31 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         }
       }
 
-      if (mounted) {
-        await _showMiniMartReceiptDialog(
-          items: receiptItems,
-          totalNaira: receiptTotal,
-          paymentMethod: _paymentMethod,
-          customerName: customerName,
-        );
-      }
-
-      // Clear sale
       _clearSale();
 
-      await _loadMiniMartData();
+      if (mounted) {
+        try {
+          await _showMiniMartReceiptDialog(
+            items: receiptItems,
+            totalNaira: receiptTotal,
+            paymentMethod: _paymentMethod,
+            customerName: customerName,
+          );
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG _showMiniMartReceiptDialog: $e');
+        }
+        try {
+          await _loadMiniMartData();
+        } catch (e) {
+          if (kDebugMode) debugPrint('DEBUG _loadMiniMartData: $e');
+          if (mounted) {
+            ErrorHandler.showSuccessMessage(
+              context,
+              'Sale completed. (Failed to refresh list, please refresh manually.)',
+            );
+          }
+        }
+      }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _processSale: $e\n$stackTrace');
       if (mounted) {
