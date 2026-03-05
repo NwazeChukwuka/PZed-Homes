@@ -59,6 +59,15 @@ MIGRATION_TO_LIVE_SYSTEM.md
 database_helpers.sql
 database_test_script.sql
 test_supabase_connection.dart
+populate_rooms.sql
+populate_bars_complete.sql
+recreate_owner_profile.sql
+recreate_user_profile.sql
+remove_orphaned.dart
+
+# Local docs and temp
+docs/
+supabase/.temp/
 
 # Vercel build artifacts (downloaded during build)
 flutter/
