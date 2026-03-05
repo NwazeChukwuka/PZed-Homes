@@ -59,8 +59,11 @@ MIGRATION_TO_LIVE_SYSTEM.md
 database_helpers.sql
 database_test_script.sql
 test_supabase_connection.dart
+non_destructive_upgrade.sql
 populate_rooms.sql
 populate_bars_complete.sql
+populate_kitchen.sql
+populate_minimart.sql
 recreate_owner_profile.sql
 recreate_user_profile.sql
 remove_orphaned.dart
