@@ -42,6 +42,7 @@ class _LazyTab extends StatefulWidget {
   final Widget Function() builder;
 
   const _LazyTab({
+    super.key,
     required this.index,
     required this.controller,
     required this.builder,
@@ -361,8 +362,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final canApprove = isOwnerOrManager || isAccountant || isAssumedAccountant;
     
-    // Owner/Manager can only record if they assume accountant role
-    final canRecord = (isAccountant || isAssumedAccountant) && !(isOwnerOrManager && !isAssumedAccountant);
+    // Owner, manager, and accountant can record (expenses, income, debts, etc.); no need to assume role
+    final canRecord = isOwnerOrManager || isAccountant || isAssumedAccountant;
+    final roleKey = ValueKey('$canRecord-$canApprove');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -440,12 +442,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             controller: _tabController,
             children: [
               _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
-              _LazyTab(index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
-              _LazyTab(index: 2, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
-              _LazyTab(index: 3, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
-              _LazyTab(index: 4, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
-              _LazyTab(index: 5, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
-              _LazyTab(index: 6, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
+              _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
+              _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
+              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 6, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
               _LazyTab(index: 7, controller: _tabController, builder: _buildReportsTab),
               _LazyTab(index: 8, controller: _tabController, builder: _buildAuditTab),
             ],

@@ -57,7 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _expenseRecords = [];
   List<Map<String, dynamic>> _stockTransactions = [];
   final List<Map<String, dynamic>> _stockLevels = [];
-  final List<Map<String, dynamic>> _payrollRecords = [];
+  List<Map<String, dynamic>> _payrollRecords = [];
   final List<Map<String, dynamic>> _cashDeposits = [];
   List<Map<String, dynamic>> _purchaseOrders = [];
   List<Map<String, dynamic>> _maintenanceOrders = [];
@@ -91,6 +91,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   };
   num _previousIncome = 0;
   num _previousExpenses = 0;
+  num _previousPayroll = 0;
   num _previousProfit = 0;
   int _previousCheckedInCount = 0;
   
@@ -315,7 +316,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final newPreviousDeptSalesSum = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
       final oldPreviousDeptSalesSum = _previousDeptSalesTotals.values.fold<num>(0, (s, v) => s + v);
       final newPreviousIncome = _previousIncome - oldPreviousDeptSalesSum + newPreviousDeptSalesSum;
-      final newPreviousProfit = newPreviousIncome - _previousExpenses;
+      final newPreviousProfit = newPreviousIncome - _previousExpenses - _previousPayroll;
       if (mounted) {
         setState(() {
           _deptSalesTotals = {
@@ -527,6 +528,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           startDate: previousRange.start,
           endDate: previousRange.end,
         ),
+        _dataService.getPayrollRecords(
+          startMonth: DateTime(timeRange.start.year, timeRange.start.month, 1),
+          endMonth: DateTime(timeRange.end.year, timeRange.end.month, 1),
+          approvalStatus: 'approved',
+        ),
+        _dataService.getPayrollRecords(
+          startMonth: DateTime(previousRange.start.year, previousRange.start.month, 1),
+          endMonth: DateTime(previousRange.end.year, previousRange.end.month, 1),
+          approvalStatus: 'approved',
+        ),
       ]);
 
       final otherSection = Future.wait([
@@ -569,6 +580,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final previousPurchaseOrders = financeResults[5] as List<Map<String, dynamic>>;
       final maintenanceOrders = financeResults[6] as List<Map<String, dynamic>>;
       final previousMaintenanceOrders = financeResults[7] as List<Map<String, dynamic>>;
+      final payrollRecords = financeResults[8] as List<Map<String, dynamic>>;
+      final previousPayrollList = financeResults[9] as List<Map<String, dynamic>>;
 
       final otherResults = results[3] as List;
       final locations = otherResults[0] as List<Map<String, dynamic>>;
@@ -704,7 +717,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               && (mo['status'] == 'Completed');
         }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
         final previousExpenses = previousExpensesFromTable + previousExpensesFromPurchases + previousExpensesFromMaintenance;
-        final previousProfit = previousIncome - previousExpenses;
+        final previousPayroll = previousPayrollList.fold<num>(0, (s, p) => s + (double.tryParse(p['amount']?.toString() ?? '') ?? 0));
+        final previousProfit = previousIncome - previousExpenses - previousPayroll;
         
         setState(() {
           _bookings = bookings;
@@ -735,6 +749,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           };
           _previousIncome = previousIncome;
           _previousExpenses = previousExpenses;
+          _previousPayroll = previousPayroll;
           _previousProfit = previousProfit;
           _previousCheckedInCount = previousCheckedInCount;
           
@@ -761,6 +776,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Store income and expenses for financial cards
           _incomeRecords = incomeRecords;
           _expenseRecords = expenses;
+          _payrollRecords = payrollRecords;
           
           // Store additional data for income/expense calculation
           _bookings = bookings;
@@ -1574,10 +1590,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Total expenses
     final expenses = expensesFromTable + expensesFromPurchases + expensesFromMaintenance;
     
-    // Net profit
-    final profit = income - expenses;
+    // Payroll (approved records for current period, already filtered by month in query)
+    final payroll = _payrollRecords.fold<num>(0, (s, p) => s + (double.tryParse(p['amount']?.toString() ?? '') ?? 0));
     
-    // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Profit
+    // Net profit (after expenses and payroll)
+    final profit = income - expenses - payroll;
+    
+    // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Payroll, Profit
     final allCards = <Widget>[
       // 1. Checked In
       _buildKPICard(
@@ -1659,7 +1678,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.orange[700]!,
         true,
       ),
-      // 9. Profit
+      // 9. Payroll
+      _buildKPICardWithInvertedTrend(
+        context,
+        'Payroll',
+        payroll,
+        _previousPayroll,
+        Icons.payments,
+        Colors.orange[700]!,
+        true,
+      ),
+      // 10. Profit
       _buildKPICard(
         context,
         'Net Profit',
