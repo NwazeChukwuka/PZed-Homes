@@ -50,8 +50,17 @@ fi
 echo "=== Project file structure (ls -R) ==="
 ls -R
 
-# Build with verbose output; use explicit flutter path for clarity
+# Clean compiler state: remove dart2js snapshot to avoid cfe-only / dart2js crashes
+DART2JS_SNAPSHOT="$(pwd)/flutter/bin/cache/dart-sdk/bin/snapshots/dart2js.dart.snapshot"
+if [ -f "$DART2JS_SNAPSHOT" ]; then
+  echo "Removing dart2js snapshot for clean compiler state..."
+  rm -f "$DART2JS_SNAPSHOT"
+fi
+flutter doctor -v
+
+# Project name in pubspec.yaml must be lowercase (pzed_homes)
+# Build with -O1 to reduce dart2js load; html renderer; verbose
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --no-wasm -v \
+./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O1 -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
