@@ -8,6 +8,7 @@ export NODE_OPTIONS="--max-old-space-size=2048"
 # Force non-interactive so Flutter does not hang on analytics/permission around 25s
 export GITHUB_ACTIONS=true
 export CI=true
+export FLUTTER_SUPPRESS_ANALYTICS=true
 
 # Nuclear clean: force full dependency graph rebuild in Linux (no stale/cross-platform artifacts)
 rm -rf .dart_tool .packages pubspec.lock .flutter-plugins .flutter-plugins-dependencies
@@ -35,10 +36,7 @@ git config --global --add safe.directory $(pwd)/flutter || true
 
 flutter --version
 
-# Pin to stable and upgrade to latest patch (can fix minor bugs in 3.35.3)
-./flutter/bin/flutter channel stable
-./flutter/bin/flutter upgrade
-
+# Use the exact 3.35.3 tarball (no upgrade) to avoid extra download/memory during setup
 # Explicitly enable web so the build target is available
 flutter config --enable-web
 
@@ -61,28 +59,27 @@ else
   echo "SUPABASE_ANON_KEY is set (length: ${#SUPABASE_ANON_KEY})"
 fi
 
-# Show file structure before build (for debugging logs)
-echo "=== Project file structure (ls -R) ==="
-ls -R
-
 # Clean compiler state: remove dart2js snapshot to avoid cfe-only / dart2js crashes
 DART2JS_SNAPSHOT="$(pwd)/flutter/bin/cache/dart-sdk/bin/snapshots/dart2js.dart.snapshot"
 if [ -f "$DART2JS_SNAPSHOT" ]; then
   echo "Removing dart2js snapshot for clean compiler state..."
   rm -f "$DART2JS_SNAPSHOT"
 fi
-flutter doctor -v
 
-# Align web toolchain
+# Align web toolchain (skip flutter doctor -v here to avoid extra processes before build)
 ./flutter/bin/flutter pub upgrade web
 
 # Check lib size (if over 50MB, may contribute to OOM)
 echo "=== lib/ size ==="
 du -sh lib/ || true
 
-# Build: -O0, --no-source-maps, --workers=1 (single worker to reduce peak memory)
-# Project name in pubspec.yaml must be lowercase (pzed_homes)
+# Show available RAM before build (kernel compile phase at ~25s is where OOM often hits)
+echo "=== Memory before build (free -h) ==="
+free -h || true
+
+# Single-thread, low-memory build: --workers=1, --no-pub (we already ran pub get)
+# Avoids spawning extra pub/dart processes during build that spike memory
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O0 --no-source-maps --workers=1 -v \
+./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O0 --no-source-maps --workers=1 --no-pub -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
