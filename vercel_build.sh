@@ -4,8 +4,8 @@ set -e
 apt-get update
 apt-get install -y curl git xz-utils zip libglu1-mesa
 
-# Flutter 3.33.0+ required for DropdownButtonFormField.initialValue and modern Dart
-FLUTTER_VERSION="3.33.0"
+# Flutter 3.35.3 Linux (Vercel runs on Linux)
+FLUTTER_VERSION="3.35.3"
 FLUTTER_TAR="flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
 FLUTTER_URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/${FLUTTER_TAR}"
 
@@ -23,6 +23,9 @@ export PATH="$PATH:$(pwd)/flutter/bin"
 git config --global --add safe.directory $(pwd)/flutter || true
 
 flutter --version
+
+# Explicitly enable web so the build target is available
+flutter config --enable-web
 
 # Clean previous build artifacts to avoid stale 3.27 (or older) files
 flutter clean
@@ -43,8 +46,12 @@ else
   echo "SUPABASE_ANON_KEY is set (length: ${#SUPABASE_ANON_KEY})"
 fi
 
-# Build with dart-define flags (compatible with Flutter 3.33+)
+# Show file structure before build (for debugging logs)
+echo "=== Project file structure (ls -R) ==="
+ls -R
+
+# Build with verbose output; use explicit flutter path for clarity
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-flutter build web --release --web-renderer html \
+./flutter/bin/flutter build web --release --no-wasm -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
