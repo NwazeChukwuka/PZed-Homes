@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Low-resource: raise memory limits for dart2js / Node during web build
-export DART_VM_OPTIONS="--max-old-space-size=4096"
-export NODE_OPTIONS="--max-old-space-size=4096"
+# Stay within Vercel container limits; dart2js inherits DART_VM_OPTIONS
+export DART_VM_OPTIONS="--max-old-space-size=2048"
+export NODE_OPTIONS="--max-old-space-size=2048"
 
 apt-get update
 apt-get install -y curl git xz-utils zip libglu1-mesa
@@ -69,8 +69,8 @@ rm -rf .dart_tool
 ./flutter/bin/flutter pub upgrade web
 
 # Project name in pubspec.yaml must be lowercase (pzed_homes)
-# Build: -O1, --no-source-maps (reduces memory during dart2js), html renderer
+# -O0 = minimal optimization, lowest dart2js memory (avoids OOM / async suspension on Vercel)
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O1 --no-source-maps -v \
+./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O0 --no-source-maps -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
