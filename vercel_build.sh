@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Low-resource: raise memory limits for dart2js / Node during web build
+export DART_VM_OPTIONS="--max-old-space-size=4096"
+export NODE_OPTIONS="--max-old-space-size=4096"
+
 apt-get update
 apt-get install -y curl git xz-utils zip libglu1-mesa
 
@@ -58,9 +62,15 @@ if [ -f "$DART2JS_SNAPSHOT" ]; then
 fi
 flutter doctor -v
 
+# Remove stale incremental artifacts to free memory and avoid async suspension / OOM
+rm -rf .dart_tool
+
+# Align web toolchain with Flutter 3.35.3
+./flutter/bin/flutter pub upgrade web
+
 # Project name in pubspec.yaml must be lowercase (pzed_homes)
-# Build with -O1 to reduce dart2js load; html renderer; verbose
+# Build: -O1, --no-source-maps (reduces memory during dart2js), html renderer
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O1 -v \
+./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O1 --no-source-maps -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
