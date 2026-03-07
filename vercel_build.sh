@@ -5,6 +5,13 @@ set -e
 export DART_VM_OPTIONS="--max-old-space-size=2048"
 export NODE_OPTIONS="--max-old-space-size=2048"
 
+# Force non-interactive so Flutter does not hang on analytics/permission around 25s
+export GITHUB_ACTIONS=true
+export CI=true
+
+# Nuclear clean: force full dependency graph rebuild in Linux (no stale/cross-platform artifacts)
+rm -rf .dart_tool .packages pubspec.lock .flutter-plugins .flutter-plugins-dependencies
+
 apt-get update
 apt-get install -y curl git xz-utils zip libglu1-mesa
 
@@ -28,10 +35,14 @@ git config --global --add safe.directory $(pwd)/flutter || true
 
 flutter --version
 
+# Pin to stable and upgrade to latest patch (can fix minor bugs in 3.35.3)
+./flutter/bin/flutter channel stable
+./flutter/bin/flutter upgrade
+
 # Explicitly enable web so the build target is available
 flutter config --enable-web
 
-# Clean previous build artifacts to avoid stale 3.27 (or older) files
+# Clean previous build artifacts
 flutter clean
 
 flutter pub get
@@ -62,15 +73,16 @@ if [ -f "$DART2JS_SNAPSHOT" ]; then
 fi
 flutter doctor -v
 
-# Remove stale incremental artifacts to free memory and avoid async suspension / OOM
-rm -rf .dart_tool
-
-# Align web toolchain with Flutter 3.35.3
+# Align web toolchain
 ./flutter/bin/flutter pub upgrade web
 
+# Check lib size (if over 50MB, may contribute to OOM)
+echo "=== lib/ size ==="
+du -sh lib/ || true
+
+# Build: -O0, --no-source-maps, --workers=1 (single worker to reduce peak memory)
 # Project name in pubspec.yaml must be lowercase (pzed_homes)
-# -O0 = minimal optimization, lowest dart2js memory (avoids OOM / async suspension on Vercel)
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O0 --no-source-maps -v \
+./flutter/bin/flutter build web --release --no-wasm --web-renderer html -O0 --no-source-maps --workers=1 -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
