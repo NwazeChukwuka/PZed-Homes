@@ -4,8 +4,9 @@ publish_to: 'none'
 
 version: 1.0.0+1
 
+# Flutter 3.33+ (Dart 3.6+) required for DropdownButtonFormField.initialValue; keep in sync with vercel_build.sh
 environment:
-  sdk: ^3.6.0
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   flutter:

@@ -9,6 +9,7 @@ import '../../core/utils/input_sanitizer.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
+import '../../presentation/widgets/finance_record_dialog.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
@@ -1519,198 +1520,213 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   // Dialog methods
   void _showAddDebtDialog() {
-    _debtorType = 'customer'; // Reset to default
-    _debtDepartment = 'all'; // Reset to default
-    
+    _debtorType = 'customer';
+    _debtDepartment = 'all';
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Record New Debt'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _debtorNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Debtor Name *',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _debtorPhoneController,
-                  decoration: const InputDecoration(
-                    labelText: 'Debtor Phone *',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _debtorType,
-                  decoration: const InputDecoration(
-                    labelText: 'Debtor Type *',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'customer', child: Text('Customer')),
-                    DropdownMenuItem(value: 'supplier', child: Text('Supplier')),
-                    DropdownMenuItem(value: 'staff', child: Text('Staff')),
-                    DropdownMenuItem(value: 'other', child: Text('Other')),
-                  ],
-                  onChanged: (value) {
-                    setDialogState(() {
-                      _debtorType = value ?? 'customer';
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _debtAmountController,
-                  decoration: const InputDecoration(
-                    labelText: 'Amount (₦) *',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _debtDescriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Reason/Description *',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _debtDueDateController,
-                  decoration: const InputDecoration(
-                    labelText: 'Due Date',
-                    border: OutlineInputBorder(),
-                    hintText: 'Optional',
-                    suffixIcon: Icon(Icons.calendar_today),
-                  ),
-                  readOnly: true,
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      firstDate: now.subtract(const Duration(days: 1)),
-                      lastDate: now.add(const Duration(days: 365)),
-                      initialDate: _selectedDebtDueDate ?? now.add(const Duration(days: 30)),
-                    );
-                    if (picked != null) {
-                      setDialogState(() {
-                        _selectedDebtDueDate = picked;
-                        _debtDueDateController.text =
-                            picked.toIso8601String().split('T')[0];
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _debtDepartment,
-                  decoration: const InputDecoration(
-                    labelText: 'Department',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('All Departments')),
-                    DropdownMenuItem(value: 'reception', child: Text('Reception')),
-                    DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
-                    DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
-                    DropdownMenuItem(value: 'restaurant', child: Text('Restaurant')),
-                    DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
-                  ],
-                  onChanged: (value) {
-                    setDialogState(() {
-                      _debtDepartment = value ?? 'all';
-                    });
-                  },
-                ),
-              ],
+      builder: (context) => FinanceRecordDialog(
+        title: 'Record New Debt',
+        formFields: [
+          TextField(
+            controller: _debtorNameController,
+            decoration: const InputDecoration(
+              labelText: 'Debtor Name *',
+              border: OutlineInputBorder(),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _debtorPhoneController,
+            decoration: const InputDecoration(
+              labelText: 'Debtor Phone *',
+              border: OutlineInputBorder(),
             ),
-            ElevatedButton(
-              onPressed: () => _recordDebt(),
-              child: const Text('Record Debt'),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _debtorType,
+            decoration: const InputDecoration(
+              labelText: 'Debtor Type *',
+              border: OutlineInputBorder(),
             ),
-          ],
-        ),
+            items: const [
+              DropdownMenuItem(value: 'customer', child: Text('Customer')),
+              DropdownMenuItem(value: 'supplier', child: Text('Supplier')),
+              DropdownMenuItem(value: 'staff', child: Text('Staff')),
+              DropdownMenuItem(value: 'other', child: Text('Other')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _debtorType = value ?? 'customer';
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _debtAmountController,
+            decoration: const InputDecoration(
+              labelText: 'Amount (₦) *',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _debtDescriptionController,
+            decoration: const InputDecoration(
+              labelText: 'Reason/Description *',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _debtDueDateController,
+            decoration: const InputDecoration(
+              labelText: 'Due Date',
+              border: OutlineInputBorder(),
+              hintText: 'Optional',
+              suffixIcon: Icon(Icons.calendar_today),
+            ),
+            readOnly: true,
+            onTap: () async {
+              final now = DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                firstDate: now.subtract(const Duration(days: 1)),
+                lastDate: now.add(const Duration(days: 365)),
+                initialDate: _selectedDebtDueDate ?? now.add(const Duration(days: 30)),
+              );
+              if (picked != null) {
+                setState(() {
+                  _selectedDebtDueDate = picked;
+                  _debtDueDateController.text = picked.toIso8601String().split('T')[0];
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _debtDepartment,
+            decoration: const InputDecoration(
+              labelText: 'Department',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'all', child: Text('All Departments')),
+              DropdownMenuItem(value: 'reception', child: Text('Reception')),
+              DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+              DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+              DropdownMenuItem(value: 'restaurant', child: Text('Restaurant')),
+              DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _debtDepartment = value ?? 'all';
+              });
+            },
+          ),
+        ],
+        onSave: _recordDebt,
+        onSuccess: _clearDebtForm,
       ),
     );
   }
 
-  Future<void> _recordDebt() async {
-    // Validate required fields
+  Future<bool> _recordDebt() async {
     if (_debtorNameController.text.trim().isEmpty) {
-      ErrorHandler.showWarningMessage(context, 'Please enter debtor name');
-      return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter debtor name.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
     }
     if (_debtorPhoneController.text.trim().isEmpty) {
-      ErrorHandler.showWarningMessage(context, 'Please enter debtor phone');
-      return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter debtor phone.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
     }
     if (_debtAmountController.text.trim().isEmpty) {
-      ErrorHandler.showWarningMessage(context, 'Please enter amount');
-      return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter amount.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
     }
     if (_debtDescriptionController.text.trim().isEmpty) {
-      ErrorHandler.showWarningMessage(context, 'Please enter reason/description');
-      return;
-    }
-
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      if (userId == null) {
-        throw Exception('User must be logged in to record debts');
-      }
-
-      // Convert naira to kobo
-      final amountInNaira = double.tryParse(_debtAmountController.text.trim());
-      if (amountInNaira == null || amountInNaira <= 0) {
-        throw Exception('Please enter a valid amount greater than zero');
-      }
-      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
-
-      final dueDate = _selectedDebtDueDate ?? DateTime.now().add(const Duration(days: 30));
-
-      final debt = {
-        'debtor_name': InputSanitizer.sanitizeText(_debtorNameController.text.trim()),
-        'debtor_phone': InputSanitizer.sanitizePhone(_debtorPhoneController.text.trim()),
-        'debtor_type': _debtorType,
-        'amount': amountInKobo, // Store in kobo
-        'owed_to': 'P-ZED Luxury Hotels & Suites',
-        'department': _debtDepartment,
-        'source_department': _debtDepartment,
-        'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()),
-        'date': DateTime.now().toIso8601String().split('T')[0],
-        'due_date': dueDate.toIso8601String().split('T')[0],
-        'status': 'outstanding', // Use 'outstanding' instead of 'pending' to match schema
-        'notes': null,
-        'created_by': userId,
-        'sold_by': userId,
-      };
-
-      await _dataService.recordDebt(debt);
-
-      Navigator.pop(context);
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Debt recorded successfully!');
-        _clearDebtForm();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter reason/description.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
+      return false;
+    }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to record debts.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInNaira = double.tryParse(_debtAmountController.text.trim());
+    if (amountInNaira == null || amountInNaira <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid amount greater than zero.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+    final dueDate = _selectedDebtDueDate ?? DateTime.now().add(const Duration(days: 30));
+    final debt = {
+      'debtor_name': InputSanitizer.sanitizeText(_debtorNameController.text.trim()),
+      'debtor_phone': InputSanitizer.sanitizePhone(_debtorPhoneController.text.trim()),
+      'debtor_type': _debtorType,
+      'amount': amountInKobo,
+      'owed_to': 'P-ZED Luxury Hotels & Suites',
+      'department': _debtDepartment,
+      'source_department': _debtDepartment,
+      'reason': InputSanitizer.sanitizeDescription(_debtDescriptionController.text.trim()),
+      'date': DateTime.now().toIso8601String().split('T')[0],
+      'due_date': dueDate.toIso8601String().split('T')[0],
+      'status': 'outstanding',
+      'notes': null,
+      'created_by': userId,
+      'sold_by': userId,
+    };
+    await _dataService.recordDebt(debt);
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(context, 'Debt recorded successfully!');
       try {
-        if (mounted) await _loadFinancialData();
+        await _loadFinancialData();
       } catch (_) {
         if (mounted) {
           ErrorHandler.showSuccessMessage(
@@ -1719,90 +1735,66 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           );
         }
       }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG record debt: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to record debt. Please check all fields and try again.',
-          stackTrace: stackTrace,
-        );
-      }
     }
+    return true;
   }
 
   void _showAddIncomeDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record Income'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _incomeDescriptionController,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-            TextField(
-              controller: _incomeAmountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: TextInputType.number,
-            ),
-            TextField(
-              controller: _incomeSourceController,
-              decoration: const InputDecoration(labelText: 'Source'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _incomeDepartment,
-              decoration: const InputDecoration(labelText: 'Department'),
-              items: const [
-                DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
-                DropdownMenuItem(value: 'finance', child: Text('Finance')),
-                DropdownMenuItem(value: 'reception', child: Text('Reception')),
-                DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
-                DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
-                DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
-                DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _incomeDepartment = value ?? 'finance';
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _incomePaymentMethod,
-              decoration: const InputDecoration(labelText: 'Payment Method'),
-              items: const [
-                DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
-                DropdownMenuItem(value: 'card', child: Text('Card')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _incomePaymentMethod = value ?? 'cash';
-                });
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => FinanceRecordDialog(
+        title: 'Record Income',
+        formFields: [
+          TextField(
+            controller: _incomeDescriptionController,
+            decoration: const InputDecoration(labelText: 'Description'),
           ),
-          ElevatedButton(
-            onPressed: () {
-              _saveIncomeRecord();
-              Navigator.pop(context);
-              _clearIncomeForm();
+          TextField(
+            controller: _incomeAmountController,
+            decoration: const InputDecoration(labelText: 'Amount'),
+            keyboardType: TextInputType.number,
+          ),
+          TextField(
+            controller: _incomeSourceController,
+            decoration: const InputDecoration(labelText: 'Source'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _incomeDepartment,
+            decoration: const InputDecoration(labelText: 'Department'),
+            items: const [
+              DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
+              DropdownMenuItem(value: 'finance', child: Text('Finance')),
+              DropdownMenuItem(value: 'reception', child: Text('Reception')),
+              DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+              DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+              DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
+              DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _incomeDepartment = value ?? 'finance';
+              });
             },
-            child: const Text('Record'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _incomePaymentMethod,
+            decoration: const InputDecoration(labelText: 'Payment Method'),
+            items: const [
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+              DropdownMenuItem(value: 'card', child: Text('Card')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _incomePaymentMethod = value ?? 'cash';
+              });
+            },
           ),
         ],
+        onSave: _saveIncomeRecord,
+        onSuccess: _clearIncomeForm,
       ),
     );
   }
@@ -1810,73 +1802,58 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   void _showAddExpenseDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record Expense'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _expenseDescriptionController,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-            TextField(
-              controller: _expenseAmountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: TextInputType.number,
-            ),
-            TextField(
-              controller: _expenseCategoryController,
-              decoration: const InputDecoration(labelText: 'Category'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _expenseDepartment,
-              decoration: const InputDecoration(labelText: 'Department'),
-              items: const [
-                DropdownMenuItem(value: 'all', child: Text('All Departments')),
-                DropdownMenuItem(value: 'reception', child: Text('Reception')),
-                DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
-                DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
-                DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
-                DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _expenseDepartment = value ?? 'all';
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _expensePaymentMethod,
-              decoration: const InputDecoration(labelText: 'Payment Method'),
-              items: const [
-                DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
-                DropdownMenuItem(value: 'card', child: Text('Card')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _expensePaymentMethod = value ?? 'cash';
-                });
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => FinanceRecordDialog(
+        title: 'Record Expense',
+        formFields: [
+          TextField(
+            controller: _expenseDescriptionController,
+            decoration: const InputDecoration(labelText: 'Description'),
           ),
-          ElevatedButton(
-            onPressed: () {
-              _saveExpense();
-              Navigator.pop(context);
-              _clearExpenseForm();
+          TextField(
+            controller: _expenseAmountController,
+            decoration: const InputDecoration(labelText: 'Amount'),
+            keyboardType: TextInputType.number,
+          ),
+          TextField(
+            controller: _expenseCategoryController,
+            decoration: const InputDecoration(labelText: 'Category'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _expenseDepartment,
+            decoration: const InputDecoration(labelText: 'Department'),
+            items: const [
+              DropdownMenuItem(value: 'all', child: Text('All Departments')),
+              DropdownMenuItem(value: 'reception', child: Text('Reception')),
+              DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+              DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+              DropdownMenuItem(value: 'kitchen', child: Text('Kitchen')),
+              DropdownMenuItem(value: 'mini_mart', child: Text('Mini Mart')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _expenseDepartment = value ?? 'all';
+              });
             },
-            child: const Text('Record'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _expensePaymentMethod,
+            decoration: const InputDecoration(labelText: 'Payment Method'),
+            items: const [
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+              DropdownMenuItem(value: 'card', child: Text('Card')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _expensePaymentMethod = value ?? 'cash';
+              });
+            },
           ),
         ],
+        onSave: _saveExpense,
+        onSuccess: _clearExpenseForm,
       ),
     );
   }
@@ -1884,89 +1861,74 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   void _showAddPayrollDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record Payroll'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _staffIdController,
-              decoration: const InputDecoration(labelText: 'Staff ID (legacy)'),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _selectedPayrollStaffId,
-              decoration: const InputDecoration(labelText: 'Staff'),
-              items: _staffProfiles.map((profile) {
-                final id = profile['id']?.toString();
-                final name = profile['full_name']?.toString() ?? 'Unknown';
-                return DropdownMenuItem(value: id, child: Text(name));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedPayrollStaffId = value;
-                });
-              },
-            ),
-            TextField(
-              controller: _payrollAmountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: TextInputType.number,
-            ),
-            TextField(
-              controller: _payrollMonthController,
-              decoration: const InputDecoration(
-                labelText: 'Month',
-                suffixIcon: Icon(Icons.calendar_today),
-              ),
-              readOnly: true,
-              onTap: () async {
-                final now = DateTime.now();
-                final picked = await showDatePicker(
-                  context: context,
-                  firstDate: DateTime(now.year - 1, 1, 1),
-                  lastDate: DateTime(now.year + 1, 12, 31),
-                  initialDate: _selectedPayrollMonth ?? DateTime(now.year, now.month, 1),
-                );
-                if (picked != null) {
-                  setState(() {
-                    _selectedPayrollMonth = DateTime(picked.year, picked.month, 1);
-                    _payrollMonthController.text =
-                        '${picked.year}-${picked.month.toString().padLeft(2, '0')}-01';
-                  });
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _payrollPaymentMethod,
-              decoration: const InputDecoration(labelText: 'Payment Method'),
-              items: const [
-                DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
-                DropdownMenuItem(value: 'cash', child: Text('Cash')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _payrollPaymentMethod = value ?? 'bank_transfer';
-                });
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => FinanceRecordDialog(
+        title: 'Record Payroll',
+        formFields: [
+          TextField(
+            controller: _staffIdController,
+            decoration: const InputDecoration(labelText: 'Staff ID (legacy)'),
           ),
-          ElevatedButton(
-            onPressed: () {
-              _savePayrollRecord();
-              Navigator.pop(context);
-              _clearPayrollForm();
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedPayrollStaffId,
+            decoration: const InputDecoration(labelText: 'Staff'),
+            items: _staffProfiles.map((profile) {
+              final id = profile['id']?.toString();
+              final name = profile['full_name']?.toString() ?? 'Unknown';
+              return DropdownMenuItem(value: id, child: Text(name));
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedPayrollStaffId = value;
+              });
             },
-            child: const Text('Record'),
+          ),
+          TextField(
+            controller: _payrollAmountController,
+            decoration: const InputDecoration(labelText: 'Amount'),
+            keyboardType: TextInputType.number,
+          ),
+          TextField(
+            controller: _payrollMonthController,
+            decoration: const InputDecoration(
+              labelText: 'Month',
+              suffixIcon: Icon(Icons.calendar_today),
+            ),
+            readOnly: true,
+            onTap: () async {
+              final now = DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                firstDate: DateTime(now.year - 1, 1, 1),
+                lastDate: DateTime(now.year + 1, 12, 31),
+                initialDate: _selectedPayrollMonth ?? DateTime(now.year, now.month, 1),
+              );
+              if (picked != null) {
+                setState(() {
+                  _selectedPayrollMonth = DateTime(picked.year, picked.month, 1);
+                  _payrollMonthController.text =
+                      '${picked.year}-${picked.month.toString().padLeft(2, '0')}-01';
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: _payrollPaymentMethod,
+            decoration: const InputDecoration(labelText: 'Payment Method'),
+            items: const [
+              DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _payrollPaymentMethod = value ?? 'bank_transfer';
+              });
+            },
           ),
         ],
+        onSave: _savePayrollRecord,
+        onSuccess: _clearPayrollForm,
       ),
     );
   }
@@ -1974,269 +1936,326 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   void _showAddCashDepositDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record Cash Deposit'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _depositAmountController,
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType: TextInputType.number,
-            ),
-            TextField(
-              controller: _bankChargesController,
-              decoration: const InputDecoration(labelText: 'Bank Charges'),
-              keyboardType: TextInputType.number,
-            ),
-            TextField(
-              controller: _bankNameController,
-              decoration: const InputDecoration(labelText: 'Bank Name'),
-            ),
-            TextField(
-              controller: _accountTypeController,
-              decoration: const InputDecoration(labelText: 'Account Type'),
-            ),
-            TextField(
-              controller: _depositDescriptionController,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => FinanceRecordDialog(
+        title: 'Record Cash Deposit',
+        formFields: [
+          TextField(
+            controller: _depositAmountController,
+            decoration: const InputDecoration(labelText: 'Amount'),
+            keyboardType: TextInputType.number,
           ),
-          ElevatedButton(
-            onPressed: () {
-              _saveCashDeposit();
-              Navigator.pop(context);
-              _clearDepositForm();
-            },
-            child: const Text('Record'),
+          TextField(
+            controller: _bankChargesController,
+            decoration: const InputDecoration(labelText: 'Bank Charges'),
+            keyboardType: TextInputType.number,
+          ),
+          TextField(
+            controller: _bankNameController,
+            decoration: const InputDecoration(labelText: 'Bank Name'),
+          ),
+          TextField(
+            controller: _accountTypeController,
+            decoration: const InputDecoration(labelText: 'Account Type'),
+          ),
+          TextField(
+            controller: _depositDescriptionController,
+            decoration: const InputDecoration(labelText: 'Description'),
           ),
         ],
+        onSave: _saveCashDeposit,
+        onSuccess: _clearDepositForm,
       ),
     );
   }
 
   // Save methods
-  Future<void> _saveIncomeRecord() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      
-      if (userId == null) {
-        throw Exception('User must be logged in to record income');
-      }
-
-      // Convert naira input to kobo for database
-      final amountInNaira = double.parse(_incomeAmountController.text);
-      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
-      
-      // Validate amount
-      if (amountInKobo <= 0) {
-        throw Exception('Amount must be greater than zero');
-      }
-      if (amountInKobo > 100000000000) { // 1 billion naira = 100 billion kobo
-        throw Exception('Amount is too large. Please verify the amount.');
-      }
-
-      final income = {
-        'description': _incomeDescriptionController.text,
-        'amount': amountInKobo, // Store in kobo
-        'source': _incomeSourceController.text,
-        'date': DateTime.now().toIso8601String().split('T')[0],
-        'department': _incomeDepartment,
-        'payment_method': _incomePaymentMethod,
-        'staff_id': userId, // Use current user ID
-        'created_by': userId,
-      };
-      
-      await _dataService.addIncomeRecord(income);
+  Future<bool> _saveIncomeRecord() async {
+    final description = _incomeDescriptionController.text.trim();
+    if (description.isEmpty) {
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Income record saved successfully!');
-        _loadFinancialData();
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _saveIncomeRecord: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to save income record. Please try again.',
-          onRetry: _saveIncomeRecord,
-          stackTrace: stackTrace,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a description.'),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
+      return false;
     }
+    final amountInNaira = double.tryParse(_incomeAmountController.text.trim());
+    if (amountInNaira == null || amountInNaira <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid amount greater than zero.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    if (amountInNaira > 1000000000) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Amount is too large. Please verify the amount.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to record income.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+    final income = {
+      'description': description,
+      'amount': amountInKobo,
+      'source': _incomeSourceController.text.trim(),
+      'date': DateTime.now().toIso8601String().split('T')[0],
+      'department': _incomeDepartment,
+      'payment_method': _incomePaymentMethod,
+      'staff_id': userId,
+      'created_by': userId,
+    };
+    await _dataService.addIncomeRecord(income);
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(context, 'Income record saved successfully!');
+      _loadFinancialData();
+    }
+    return true;
   }
 
-  Future<void> _saveExpense() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      
-      if (userId == null) {
-        throw Exception('User must be logged in to record expenses');
-      }
-
-      // Convert naira input to kobo for database
-      final amountInNaira = double.parse(_expenseAmountController.text);
-      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
-      
-      // Validate amount
-      if (amountInKobo <= 0) {
-        throw Exception('Amount must be greater than zero');
-      }
-
-      final expense = {
-        'description': _expenseDescriptionController.text,
-        'amount': amountInKobo, // Store in kobo
-        'category': _expenseCategoryController.text,
-        'date': DateTime.now().toIso8601String().split('T')[0],
-        'department': _expenseDepartment,
-        'payment_method': _expensePaymentMethod,
-        'profile_id': userId, // Use current user ID (expenses table uses profile_id)
-      };
-      
-      await _dataService.addExpense(expense);
+  Future<bool> _saveExpense() async {
+    // Validation: description not empty
+    final description = _expenseDescriptionController.text.trim();
+    if (description.isEmpty) {
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
-        _loadFinancialData();
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _saveExpense: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to save expense. Please try again.',
-          onRetry: _saveExpense,
-          stackTrace: stackTrace,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a description.'),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
+      return false;
     }
+
+    // Validation: amount valid and greater than zero
+    final amountInNaira = double.tryParse(_expenseAmountController.text.trim());
+    if (amountInNaira == null || amountInNaira <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid amount greater than zero.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to record expenses.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+
+    final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+    final expense = {
+      'description': description,
+      'amount': amountInKobo,
+      'category': _expenseCategoryController.text.trim(),
+      'date': DateTime.now().toIso8601String().split('T')[0],
+      'department': _expenseDepartment,
+      'payment_method': _expensePaymentMethod,
+      'profile_id': userId,
+    };
+
+    await _dataService.addExpense(expense);
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
+      _loadFinancialData();
+    }
+    return true;
   }
 
-  Future<void> _savePayrollRecord() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      
-      if (userId == null) {
-        throw Exception('User must be logged in to record payroll');
-      }
-
-      // Convert naira input to kobo for database
-      final amountInNaira = double.parse(_payrollAmountController.text);
-      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
-      
-      // Validate amount
-      if (amountInKobo <= 0) {
-        throw Exception('Amount must be greater than zero');
-      }
-
-      final staffId = _selectedPayrollStaffId ?? _staffIdController.text.trim();
-      if (staffId.isEmpty) {
-        throw Exception('Please select a staff member');
-      }
-      if (_selectedPayrollMonth == null) {
-        throw Exception('Please select payroll month');
-      }
-
-      final payroll = {
-        'staff_id': staffId,
-        'amount': amountInKobo, // Store in kobo
-        'month': _selectedPayrollMonth!.toIso8601String().split('T')[0],
-        'status': 'pending',
-        'payment_method': _payrollPaymentMethod,
-        'processed_by': userId, // Track who recorded this
-      };
-      
-      await _dataService.addPayrollRecord(payroll);
+  Future<bool> _savePayrollRecord() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) {
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Payroll record saved successfully!');
-        _loadFinancialData();
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _savePayrollRecord: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to save payroll record. Please try again.',
-          onRetry: _savePayrollRecord,
-          stackTrace: stackTrace,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to record payroll.'),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
+      return false;
     }
+    final staffId = _selectedPayrollStaffId ?? _staffIdController.text.trim();
+    if (staffId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a staff member.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    if (_selectedPayrollMonth == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select payroll month.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInNaira = double.tryParse(_payrollAmountController.text.trim());
+    if (amountInNaira == null || amountInNaira <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid amount greater than zero.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+    final payroll = {
+      'staff_id': staffId,
+      'amount': amountInKobo,
+      'month': _selectedPayrollMonth!.toIso8601String().split('T')[0],
+      'status': 'pending',
+      'payment_method': _payrollPaymentMethod,
+      'processed_by': userId,
+    };
+    await _dataService.addPayrollRecord(payroll);
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(context, 'Payroll record saved successfully!');
+      _loadFinancialData();
+    }
+    return true;
   }
 
-  Future<void> _saveCashDeposit() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      
-      if (userId == null) {
-        throw Exception('User must be logged in to record cash deposits');
-      }
-
-      // Convert naira input to kobo for database
-      final amountInNaira = double.parse(_depositAmountController.text);
-      final bankChargesInNaira = double.parse(_bankChargesController.text);
-      
-      final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
-      final bankChargesInKobo = PaymentService.nairaToKobo(bankChargesInNaira);
-      final netAmountInKobo = amountInKobo - bankChargesInKobo;
-      
-      // Validate amounts
-      if (amountInKobo <= 0) {
-        throw Exception('Amount must be greater than zero');
-      }
-      if (amountInKobo > 100000000000) { // 1 billion naira
-        throw Exception('Amount is too large. Please verify the amount.');
-      }
-      if (bankChargesInKobo < 0) {
-        throw Exception('Bank charges cannot be negative');
-      }
-      if (bankChargesInKobo > amountInKobo) {
-        throw Exception('Bank charges cannot exceed the deposit amount');
-      }
-      if (netAmountInKobo < 0) {
-        throw Exception('Net amount cannot be negative');
-      }
-      
-      final deposit = {
-        'amount': amountInKobo, // Store in kobo
-        'bank_name': _bankNameController.text,
-        'account_type': _accountTypeController.text,
-        'bank_charges': bankChargesInKobo, // Store in kobo
-        'net_amount': netAmountInKobo, // Store in kobo
-        'date': DateTime.now().toIso8601String().split('T')[0],
-        'description': _depositDescriptionController.text,
-        'staff_id': userId, // Use current user ID
-        'created_by': userId,
-      };
-      
-      await _dataService.addCashDeposit(deposit);
+  Future<bool> _saveCashDeposit() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    if (userId == null) {
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Cash deposit saved successfully!');
-        _loadFinancialData();
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _saveCashDeposit: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to save cash deposit. Please try again.',
-          onRetry: _saveCashDeposit,
-          stackTrace: stackTrace,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to record cash deposits.'),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
+      return false;
     }
+    final amountInNaira = double.tryParse(_depositAmountController.text.trim());
+    final bankChargesInNaira = double.tryParse(_bankChargesController.text.trim());
+    if (amountInNaira == null || amountInNaira <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid amount greater than zero.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    if (bankChargesInNaira == null || bankChargesInNaira < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bank charges must be zero or greater.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final amountInKobo = PaymentService.nairaToKobo(amountInNaira);
+    final bankChargesInKobo = PaymentService.nairaToKobo(bankChargesInNaira);
+    final netAmountInKobo = amountInKobo - bankChargesInKobo;
+    if (amountInKobo > 100000000000) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Amount is too large. Please verify the amount.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    if (bankChargesInKobo > amountInKobo) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bank charges cannot exceed the deposit amount.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    if (netAmountInKobo < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Net amount cannot be negative.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    }
+    final deposit = {
+      'amount': amountInKobo,
+      'bank_name': _bankNameController.text.trim(),
+      'account_type': _accountTypeController.text.trim(),
+      'bank_charges': bankChargesInKobo,
+      'net_amount': netAmountInKobo,
+      'date': DateTime.now().toIso8601String().split('T')[0],
+      'description': _depositDescriptionController.text.trim(),
+      'staff_id': userId,
+      'created_by': userId,
+    };
+    await _dataService.addCashDeposit(deposit);
+    if (mounted) {
+      ErrorHandler.showSuccessMessage(context, 'Cash deposit saved successfully!');
+      _loadFinancialData();
+    }
+    return true;
   }
 
   // Record payment dialog
