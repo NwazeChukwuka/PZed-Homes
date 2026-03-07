@@ -1,0 +1,38 @@
+{
+    "name": "P-ZED Homes",
+    "short_name": "P-ZED",
+    "start_url": "/?source=pwa",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#0B5E3B",
+    "theme_color": "#0B5E3B",
+    "description": "Hotel management and guest booking for P-ZED Luxury Hotels & Suites.",
+    "lang": "en",
+    "orientation": "portrait-primary",
+    "categories": ["business", "productivity", "travel"],
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

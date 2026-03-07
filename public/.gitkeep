@@ -1,0 +1,2 @@
+# Pre-build deploy: run `flutter build web --release` then copy build/web/* into public/
+# Then commit and push. Vercel serves from public/ (Output Directory: public).
