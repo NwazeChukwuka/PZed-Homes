@@ -1,6 +1,7 @@
 {
+  "buildCommand": "bash ./vercel_build.sh",
+  "outputDirectory": "build/web",
+  "installCommand": "echo 'Dependencies installed during build'",
   "cleanUrls": true,
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

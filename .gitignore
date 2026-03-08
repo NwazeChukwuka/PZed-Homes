@@ -35,6 +35,7 @@ pubspec.lock
 .pub/
 /build/
 /coverage/
+/public/
 
 # Symbolication related
 app.*.symbols

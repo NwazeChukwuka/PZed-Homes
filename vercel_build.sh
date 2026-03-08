@@ -16,7 +16,7 @@ rm -rf .dart_tool .packages pubspec.lock .flutter-plugins .flutter-plugins-depen
 apt-get update
 apt-get install -y curl git xz-utils zip libglu1-mesa
 
-# Flutter 3.35.3 Linux (Vercel runs on Linux)
+# Flutter 3.35.3 Linux (Vercel runs on Linux); matches pubspec.yaml sdk ">=3.6.0 <4.0.0"
 FLUTTER_VERSION="3.35.3"
 FLUTTER_TAR="flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
 FLUTTER_URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/${FLUTTER_TAR}"
