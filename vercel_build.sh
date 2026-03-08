@@ -86,6 +86,6 @@ free -h || true
 # Single-thread, low-memory build: --workers=1, --no-pub (we already ran pub get)
 # Avoids spawning extra pub/dart processes during build that spike memory
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release --web-renderer html -O0 --no-source-maps --workers=1 --no-pub -v \
+./flutter/bin/flutter build web --release -O0 --no-source-maps --workers=1 --no-pub -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
