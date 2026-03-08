@@ -13,9 +13,9 @@ export FLUTTER_SUPPRESS_ANALYTICS=true
 # Nuclear clean: force full dependency graph rebuild in Linux (no stale/cross-platform artifacts)
 rm -rf .dart_tool .packages pubspec.lock .flutter-plugins .flutter-plugins-dependencies
 
-# Vercel uses Amazon Linux 2023 (dnf). Debian/Ubuntu use apt-get. Install deps for curl, git, tar, xz.
+# Vercel uses Amazon Linux 2023 (dnf); image has curl-minimal (don't install curl, it conflicts). Debian uses apt-get.
 if command -v dnf &>/dev/null; then
-  dnf install -y curl git xz tar zip
+  dnf install -y git xz tar zip
 elif command -v apt-get &>/dev/null; then
   apt-get update && apt-get install -y curl git xz-utils zip libglu1-mesa
 elif command -v yum &>/dev/null; then
