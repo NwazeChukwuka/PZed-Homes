@@ -13,8 +13,14 @@ export FLUTTER_SUPPRESS_ANALYTICS=true
 # Nuclear clean: force full dependency graph rebuild in Linux (no stale/cross-platform artifacts)
 rm -rf .dart_tool .packages pubspec.lock .flutter-plugins .flutter-plugins-dependencies
 
-apt-get update
-apt-get install -y curl git xz-utils zip libglu1-mesa
+# Vercel uses Amazon Linux 2023 (dnf). Debian/Ubuntu use apt-get. Install deps for curl, git, tar, xz.
+if command -v dnf &>/dev/null; then
+  dnf install -y curl git xz tar zip
+elif command -v apt-get &>/dev/null; then
+  apt-get update && apt-get install -y curl git xz-utils zip libglu1-mesa
+elif command -v yum &>/dev/null; then
+  yum install -y curl git xz tar zip
+fi
 
 # Flutter 3.35.3 Linux (Vercel runs on Linux); matches pubspec.yaml sdk ">=3.6.0 <4.0.0"
 FLUTTER_VERSION="3.35.3"
