@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/services/password_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -22,6 +23,29 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   final bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenForgotPassword());
+  }
+
+  /// Handle deep links: open Forgot Password dialog or show post-reset success SnackBar.
+  void _maybeOpenForgotPassword() {
+    if (!mounted) return;
+    final query = GoRouterState.of(context).uri.queryParameters;
+    if (query['showForgotPassword'] == '1') {
+      PasswordService.showPasswordResetDialog(context);
+    }
+    if (query['passwordUpdated'] == '1' && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password updated successfully. Please log in with your new password.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;

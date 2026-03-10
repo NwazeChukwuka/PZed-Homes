@@ -42,11 +42,16 @@ Future<void> main() async {
   }
   
   // Initialize Supabase before app start (with timeout to prevent blank screen)
+  // Use implicit auth flow so password reset links work cross-device: user can request
+  // reset on hotel PC and open the link on their phone; tokens are in the URL fragment.
   if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
     try {
       await Supabase.initialize(
         url: supabaseUrl,
         anonKey: supabaseAnonKey,
+        authOptions: const FlutterAuthClientOptions(
+          authFlowType: AuthFlowType.implicit,
+        ),
       ).timeout(
         const Duration(seconds: 10),
         onTimeout: () {

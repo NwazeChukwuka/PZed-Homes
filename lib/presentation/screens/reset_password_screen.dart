@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,9 @@ class ResetPasswordScreen extends StatefulWidget {
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
 }
 
+/// Standard message when the reset link is expired or invalid (hide form, show only error UI).
+const String _kExpiredLinkMessage = 'This reset link has expired or was already used.';
+
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
@@ -20,27 +24,97 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _sessionReady = false;
   String? _statusMessage;
   bool _initChecked = false;
+  /// When true, hide password form and show only error message + "Request New Reset Link" button.
+  bool _isLinkError = false;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
     _initRecoverySession();
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(_onAuthStateChange);
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
   }
 
-  /// Initialize recovery session. Supabase may auto-establish session from URL (PKCE).
-  /// Fallback: manual fragment parsing for implicit flow.
+  /// If PASSWORD_RECOVERY fires but session is null, treat as invalid/expired link.
+  void _onAuthStateChange(AuthState state) {
+    if (state.event != AuthChangeEvent.passwordRecovery) return;
+    if (state.session != null) return;
+    if (!_initChecked || !mounted) return;
+    setState(() {
+      _isLinkError = true;
+      _statusMessage = _kExpiredLinkMessage;
+    });
+  }
+
+  /// Parse error, error_code, error_description from URL query and # fragment.
+  bool _hasErrorInUrl(Uri uri) {
+    final query = uri.queryParameters;
+    final fragmentParams = uri.fragment.isNotEmpty ? Uri.splitQueryString(uri.fragment) : <String, String>{};
+    final error = query['error'] ?? fragmentParams['error'];
+    final errorCode = query['error_code'] ?? fragmentParams['error_code'];
+    final description = query['error_description'] ?? fragmentParams['error_description'];
+    return error != null || errorCode != null || (description?.isNotEmpty ?? false);
+  }
+
+  /// Message for error state: otp_expired or invalid link -> standard message.
+  String? _getErrorMessageFromUrl(Uri uri) {
+    if (!_hasErrorInUrl(uri)) return null;
+    final query = uri.queryParameters;
+    final fragmentParams = uri.fragment.isNotEmpty ? Uri.splitQueryString(uri.fragment) : <String, String>{};
+    final errorCode = query['error_code'] ?? fragmentParams['error_code'];
+    final description = (query['error_description'] ?? fragmentParams['error_description'] ?? '').toLowerCase();
+    if (errorCode == 'otp_expired' || description.contains('expired') || description.contains('invalid')) {
+      return _kExpiredLinkMessage;
+    }
+    return query['error_description'] ?? fragmentParams['error_description'] ?? query['error'] ?? fragmentParams['error'] ?? _kExpiredLinkMessage;
+  }
+
+  /// Initialize recovery session. Handle Supabase error params, then PKCE code or fragment (implicit flow).
   Future<void> _initRecoverySession() async {
     if (_initChecked) return;
     final supabase = Supabase.instance.client;
     try {
-      // Give Supabase a moment to auto-recover from URL (PKCE flow)
+      final uri = Uri.base;
+
+      // 1) If Supabase redirected with error params, show error UI (no form) and stop.
+      final urlError = _getErrorMessageFromUrl(uri);
+      if (urlError != null) {
+        _initChecked = true;
+        if (mounted) setState(() {
+          _statusMessage = urlError;
+          _isLinkError = true;
+        });
+        return;
+      }
+
+      // 2) Cross-device flow: token_hash in URL (no code_verifier needed). Works when user opens link on phone after requesting reset on hotel PC.
+      final tokenHash = uri.queryParameters['token_hash'];
+      if (tokenHash != null && tokenHash.isNotEmpty) {
+        try {
+          await supabase.auth.verifyOTP(type: OtpType.recovery, tokenHash: tokenHash);
+          _initChecked = true;
+          if (mounted) setState(() => _sessionReady = true);
+          return;
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG verifyOTP(recovery): $e\n$stack');
+          _initChecked = true;
+          if (mounted) setState(() {
+            _statusMessage = _kExpiredLinkMessage;
+            _isLinkError = true;
+          });
+          return;
+        }
+      }
+
+      // 3) Give Supabase a moment to auto-recover from URL (PKCE flow)
       await Future.delayed(const Duration(milliseconds: 100));
       if (!mounted) return;
 
@@ -50,10 +124,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         return;
       }
 
-      final uri = Uri.base;
+      // 4) PKCE flow: exchange ?code=xxx for a session (same browser only).
+      final code = uri.queryParameters['code'];
+      if (code != null && code.isNotEmpty) {
+        try {
+          await supabase.auth.exchangeCodeForSession(code);
+          _initChecked = true;
+          if (mounted) setState(() => _sessionReady = true);
+          return;
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG exchangeCodeForSession: $e\n$stack');
+          final msg = e.toString().toLowerCase();
+          if (msg.contains('verifier') || msg.contains('storage') || msg.contains('code')) {
+            _initChecked = true;
+            if (mounted) setState(() {
+              _statusMessage = _kExpiredLinkMessage;
+              _isLinkError = true;
+            });
+            return;
+          }
+          rethrow;
+        }
+      }
+
       final fragment = uri.fragment;
 
-      // Implicit flow: parse fragment for refresh_token
+      // 5) Implicit flow: parse fragment for refresh_token
       if (fragment.isNotEmpty) {
         final params = Uri.splitQueryString(fragment);
         final refreshToken = params['refresh_token'];
@@ -65,7 +161,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         }
       }
 
-      // Still no session - check again (auth listener may have established it)
+      // 6) Still no session - check again (auth listener may have established it)
       if (supabase.auth.currentUser != null) {
         _initChecked = true;
         if (mounted) setState(() => _sessionReady = true);
@@ -73,11 +169,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       }
 
       _initChecked = true;
-      if (mounted) setState(() => _statusMessage = 'Invalid or expired reset link.');
+      if (mounted) setState(() {
+        _statusMessage = _kExpiredLinkMessage;
+        _isLinkError = true;
+      });
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG _initRecoverySession: $e\n$stack');
       _initChecked = true;
-      if (mounted) setState(() => _statusMessage = 'Invalid or expired reset link.');
+      if (mounted) setState(() {
+        _statusMessage = _kExpiredLinkMessage;
+        _isLinkError = true;
+      });
     }
   }
 
@@ -104,13 +206,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         return;
       }
       authService.clearRecoveryState();
-      await authService.logout();
+      await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
-      ErrorHandler.showSuccessMessage(
-        context,
-        'Password updated successfully. Please log in.',
-      );
-      context.go('/login');
+      context.go('/login?passwordUpdated=1');
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _updatePassword: $e\n$stackTrace');
       if (mounted) {
@@ -159,13 +257,26 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_statusMessage != null)
+                        if (_isLinkError && _statusMessage != null) ...[
+                          Icon(Icons.link_off, size: 48, color: Theme.of(context).colorScheme.error),
+                          const SizedBox(height: 16),
                           Text(
                             _statusMessage!,
-                            style: const TextStyle(color: Colors.red),
+                            style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 16),
                             textAlign: TextAlign.center,
                           ),
-                        if (_statusMessage == null) ...[
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () => context.go('/login?showForgotPassword=1'),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Request New Reset Link'),
+                              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                            ),
+                          ),
+                        ],
+                        if (!_isLinkError && _sessionReady) ...[
                           TextField(
                             controller: _passwordController,
                             obscureText: true,
@@ -188,18 +299,24 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           const SizedBox(height: 16),
                           SizedBox(
                             width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isLoading || !_sessionReady ? null : _updatePassword,
+                            child: FilledButton(
+                              onPressed: (_isLoading || !_sessionReady) ? null : _updatePassword,
+                              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
                               child: _isLoading
                                   ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
+                                      height: 22,
+                                      width: 22,
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     )
                                   : const Text('Update Password'),
                             ),
                           ),
                         ],
+                        if (!_isLinkError && !_sessionReady)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
                       ],
                     ),
                   ),
