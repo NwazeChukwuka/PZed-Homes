@@ -9,9 +9,13 @@ import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
+import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
@@ -62,8 +66,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   final Set<String> _dismissedWarnings = {}; // Track dismissed warnings
   final Map<String, Map<String, int>> _stockByLocation = {};
 
-  // Search controller
+  // Search controller (Make Sale tab)
   final _searchController = TextEditingController();
+  // Current Stock tab: filter by name or category
+  final _currentStockSearchController = TextEditingController();
   Timer? _filterDebounce;
   static const _searchDebounceMs = 300;
 
@@ -133,6 +139,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _customerPhoneController.dispose();
     _approvedByController.dispose();
     _searchController.dispose();
+    _currentStockSearchController.dispose();
     super.dispose();
   }
 
@@ -419,10 +426,23 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   Widget _buildCurrentStockTab() {
     return Column(
-                  children: [
-        // Bar selection for management
+      children: [
         _buildBarSelectionButtons(),
-                    Expanded(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            controller: _currentStockSearchController,
+            decoration: const InputDecoration(
+              labelText: 'Search by name or category',
+              hintText: 'Type to filter...',
+              prefixIcon: Icon(Icons.search),
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        Expanded(
           child: FutureBuilder<List<Map<String, dynamic>>>(
             future: _inventoryFuture,
             builder: (context, snapshot) {
@@ -446,7 +466,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   message: 'No inventory items available',
                 );
               }
-              final filteredItems = _filterItemsByBar(items);
+              final filteredItems = _filterCurrentStockItems(items);
 
               return ScrollableListViewWithArrows(
                 itemCount: filteredItems.length,
@@ -460,6 +480,17 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         ),
       ],
     );
+  }
+
+  List<Map<String, dynamic>> _filterCurrentStockItems(List<Map<String, dynamic>> items) {
+    var list = _filterItemsByBar(items);
+    final query = _currentStockSearchController.text.trim().toLowerCase();
+    if (query.isEmpty) return list;
+    return list.where((item) {
+      final name = (item['name'] as String? ?? '').toLowerCase();
+      final category = (item['category'] as String? ?? '').toLowerCase();
+      return name.contains(query) || category.contains(query);
+    }).toList();
   }
 
   Widget _buildBarSelectionButtons() {
@@ -544,6 +575,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildInventoryItem(Map<String, dynamic> item) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles.any((r) =>
+            r == AppRole.owner || r == AppRole.manager) ??
+        false;
+    final tableName = ProductCatalogConfig.departmentToTable['bars'] ?? 'inventory_items';
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
@@ -570,13 +607,99 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               ),
           ],
         ),
-        trailing: Text(
-          'Department: ${item['department'] ?? 'Unknown'}',
-          style: const TextStyle(fontSize: 12),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isManagement) ...[
+              IconButton(
+                icon: const Icon(Icons.edit, size: 20),
+                tooltip: 'Edit',
+                onPressed: () async {
+                  await showDialog(
+                    context: context,
+                    builder: (ctx) => ProductFormDialog(
+                      tableName: tableName,
+                      product: item,
+                      onSave: (updates, [priceChangeDetails]) async {
+                        final authService = Provider.of<AuthService>(context, listen: false);
+                        final staffId = StaffAuthHelper.requireStaffProfileId(
+                          context,
+                          authService: authService,
+                        );
+                        if (staffId == null) return;
+                        await _dataService.updateProduct(
+                          tableName,
+                          item['id'].toString(),
+                          updates,
+                        );
+                        if (priceChangeDetails != null &&
+                            priceChangeDetails.isNotEmpty &&
+                            mounted) {
+                          final department = ProductCatalogConfig
+                              .tableToDepartmentName[tableName] ?? 'Inventory';
+                          await _dataService.logActivity(
+                            staffId,
+                            'Price Update',
+                            department,
+                            priceChangeDetails,
+                          );
+                        }
+                        if (mounted) {
+                          ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                          _loadInventory();
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                tooltip: 'Delete',
+                onPressed: () async {
+                  await showDeleteProductConfirmation(
+                    context,
+                    productName: item['name']?.toString() ?? 'this item',
+                    onConfirm: () async {
+                      final authService = Provider.of<AuthService>(context, listen: false);
+                      final staffId = StaffAuthHelper.requireStaffProfileId(
+                        context,
+                        authService: authService,
+                      );
+                      if (staffId == null) {
+                        throw Exception('Session expired. Cannot delete without audit.');
+                      }
+                      final itemName = item['name']?.toString() ?? 'this item';
+                      await _dataService.deleteProduct(
+                        tableName,
+                        item['id'].toString(),
+                      );
+                      final department = ProductCatalogConfig
+                          .tableToDepartmentName[tableName] ?? 'Inventory';
+                      await _dataService.logActivity(
+                        staffId,
+                        'Product Deletion',
+                        department,
+                        'Deleted $itemName from the catalog.',
+                      );
+                      if (mounted) {
+                        ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+                        _loadInventory();
+                      }
+                    },
+                  );
+                },
+              ),
+            ],
+            Text(
+              'Department: ${item['department'] ?? 'Unknown'}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
         ),
-                      ),
-                    );
-                  }
+      ),
+    );
+  }
 
   IconData _getCategoryIcon(String? category) {
     switch (category?.toLowerCase()) {
@@ -1435,17 +1558,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   Future<void> _processSale() async {
     if (_currentSale.isEmpty) return;
 
-    // Verify user is logged in (clock-in no longer required for transactions)
+    // Unified staff auth guard: require valid session for transactions
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (authService.currentUser == null) {
-      if (mounted) {
-        ErrorHandler.showWarningMessage(
-          context,
-          'You must be logged in to make transactions',
-        );
-      }
-      return;
-    }
+    final userId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (userId == null) return; // Session Expired dialog already shown
 
     // Validate credit payment requirements
     if (_paymentMethod == 'credit') {
@@ -1461,7 +1581,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }
 
     try {
-      final userId = authService.currentUser?.id ?? 'system';
       final supabase = _dataService.supabase;
       final user = authService.currentUser;
       final isBartender = _hasBartenderRole(authService, user);
@@ -1693,6 +1812,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           );
         }
       }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: ErrorHandler.getAdminErrorMessage(e),
+        );
+      }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG process sale: $e\n$stackTrace');
       if (mounted) {
@@ -1767,34 +1894,52 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Future<void> _saveNewItem() async {
+    if (_selectedBar == null) {
+      ErrorHandler.showWarningMessage(context, 'Please select a bar before adding a new item.');
+      return;
+    }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
+    final outsidePriceNaira = double.tryParse(_outsidePriceController.text) ?? 0.0;
+    final initialQty = int.tryParse(_quantityController.text) ?? 0;
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Item name is required.');
+      return;
+    }
+
+    // Require valid session for add + audit log (and for initial stock when initialQty > 0)
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (staffId == null) return; // Session dialog already shown
+
     try {
-      if (_selectedBar == null) {
-        throw Exception('Please select a bar before adding a new item.');
-      }
-      final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
-      final outsidePriceNaira = double.tryParse(_outsidePriceController.text) ?? 0.0;
-      final initialQty = int.tryParse(_quantityController.text) ?? 0;
+      // 1. Create stock_items row first so bar stock can be tracked.
+      final stockItemId = await _dataService.addStockItem(
+        name: name,
+        description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+        unit: _unitController.text.trim().isEmpty ? 'units' : _unitController.text.trim(),
+        category: _categoryController.text.trim().isEmpty ? null : _categoryController.text.trim(),
+      );
+
       final item = {
-        'name': _nameController.text,
+        'name': name,
         'description': _descriptionController.text,
         'unit': _unitController.text,
         'vip_bar_price': PaymentService.nairaToKobo(vipPriceNaira),
         'outside_bar_price': PaymentService.nairaToKobo(outsidePriceNaira),
         'category': _categoryController.text,
-        'department': _selectedBar, // Assign to selected bar only
+        'department': _selectedBar,
+        'stock_item_id': stockItemId,
       };
 
       await _dataService.addInventoryItem(item);
 
+      // 2. Record initial stock using validated staff_profile_id (transactional pattern)
       if (initialQty > 0) {
-        final stockItem = await _dataService.supabase
-            .from('stock_items')
-            .select('id')
-            .eq('name', _nameController.text)
-            .maybeSingle();
-        if (stockItem == null) {
-          throw Exception('Stock item not found for ${_nameController.text}. Create it first.');
-        }
         final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
         final location = await _dataService.supabase
             .from('locations')
@@ -1804,44 +1949,43 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         if (location == null) {
           throw Exception('Location "$locationName" not found.');
         }
-        final authService = Provider.of<AuthService>(context, listen: false);
-        final staffId = authService.currentUser?.id ?? 'system';
-        await _dataService.recordStockTransaction({
-          'stock_item_id': stockItem['id'],
-          'location_id': location['id'],
-          'staff_profile_id': staffId,
-          'transaction_type': 'Adjustment',
-          'quantity': initialQty,
-          'notes': 'Initial stock for ${_nameController.text}',
-        });
-      }
-
-      // Clear form
-      _nameController.clear();
-      _descriptionController.clear();
-      _quantityController.clear();
-      _unitController.clear();
-      _vipPriceController.clear();
-      _outsidePriceController.clear();
-      _categoryController.clear();
-
-      if (mounted) {
-        ErrorHandler.showSuccessMessage(
-          context,
-          'Item added successfully',
-        );
-      }
-
-      try {
-        await _loadInventory();
-      } catch (e) {
-        if (kDebugMode) debugPrint('DEBUG _loadInventory after add item: $e');
-        if (mounted) {
-          ErrorHandler.showSuccessMessage(
-            context,
-            'Item added! (Inventory list failed to refresh, please refresh manually).',
-          );
+        try {
+          await _dataService.recordStockTransaction({
+            'stock_item_id': stockItemId,
+            'location_id': location['id'],
+            'staff_profile_id': staffId,
+            'transaction_type': 'Adjustment',
+            'quantity': initialQty,
+            'notes': 'Initial stock for $name',
+          });
+        } catch (e, stackTrace) {
+          if (kDebugMode) debugPrint('DEBUG recordStockTransaction: $e\n$stackTrace');
+          if (mounted) {
+            ErrorHandler.handleError(
+              context,
+              e,
+              customMessage: 'Item was added, but initial stock could not be recorded. You can retry or add stock later from Stock / Adjustments.',
+              onRetry: () => _retryInitialStock(stockItemId, location['id'] as String, initialQty, name),
+              stackTrace: stackTrace,
+            );
+          }
+          return; // Don't clear form so user can see what was added
         }
+      }
+
+      _clearAddItemForm();
+      await _dataService.logActivity(staffId, 'Added item', 'Inventory', 'Added $name');
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Item added successfully.');
+      }
+      await _loadInventorySafe();
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: ErrorHandler.getAdminErrorMessage(e, itemName: name, department: _selectedBar),
+        );
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG add item: $e\n$stackTrace');
@@ -1851,6 +1995,65 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           e,
           customMessage: 'Failed to add item. Please try again.',
           stackTrace: stackTrace,
+        );
+      }
+    }
+  }
+
+  void _clearAddItemForm() {
+    _nameController.clear();
+    _descriptionController.clear();
+    _quantityController.clear();
+    _unitController.clear();
+    _vipPriceController.clear();
+    _outsidePriceController.clear();
+    _categoryController.clear();
+  }
+
+  Future<void> _retryInitialStock(String stockItemId, String locationId, int quantity, String itemName) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (staffId == null) return;
+    try {
+      await _dataService.recordStockTransaction({
+        'stock_item_id': stockItemId,
+        'location_id': locationId,
+        'staff_profile_id': staffId,
+        'transaction_type': 'Adjustment',
+        'quantity': quantity,
+        'notes': 'Initial stock for $itemName (retry)',
+      });
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Initial stock recorded successfully.');
+        _dataService.invalidateCacheForTable('stock_transactions');
+        await _loadInventorySafe();
+      }
+    } catch (e, stackTrace) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Could not record stock. Try again or add stock from Stock / Adjustments.',
+          onRetry: () => _retryInitialStock(stockItemId, locationId, quantity, itemName),
+          stackTrace: stackTrace,
+        );
+      }
+    }
+  }
+
+  Future<void> _loadInventorySafe() async {
+    try {
+      await _loadInventory();
+    } catch (e) {
+      if (kDebugMode) debugPrint('DEBUG _loadInventory after add item: $e');
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Item added! (Inventory list failed to refresh, please refresh manually).',
         );
       }
     }

@@ -32,8 +32,8 @@ List<NavigationItem> _computeNavItems(AuthService auth) {
   if (isReceptionist) {
     items.add(NavigationItem(icon: Icons.book_online, label: 'Create Booking', route: '/booking/create'));
   }
-  if (featuresList.contains('housekeeping')) {
-    items.add(NavigationItem(icon: Icons.room_service, label: 'Housekeeping', route: '/housekeeping'));
+  if (isReceptionist || featuresList.contains('housekeeping')) {
+    items.add(NavigationItem(icon: Icons.meeting_room, label: 'Room Management', route: '/housekeeping'));
   }
   if (featuresList.contains('inventory')) {
     items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));

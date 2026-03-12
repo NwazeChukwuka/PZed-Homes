@@ -292,7 +292,35 @@ class DataService {
     });
   }
 
+  /// Updates a room type's price (in kobo). Management only.
+  Future<void> updateRoomTypePrice(String typeId, int priceKobo) async {
+    await _retryOperation(() async {
+      await _supabase
+          .from('room_types')
+          .update({'price': priceKobo, 'updated_at': DateTime.now().toIso8601String()})
+          .eq('id', typeId);
+    });
+    invalidateCacheForTable('room_types');
+  }
+
   // Rooms
+  /// Returns room IDs that currently have a Checked-in booking (for dynamic status display).
+  Future<Set<String>> getCheckedInRoomIds() async {
+    return _retryOperation(() async {
+      final response = await _supabase
+          .from('bookings')
+          .select('room_id')
+          .inFilter('status', ['Checked-in', 'checked_in', 'Checked_in'])
+          .not('room_id', 'is', null);
+      final ids = <String>{};
+      for (final row in response as List) {
+        final id = row['room_id']?.toString();
+        if (id != null && id.isNotEmpty) ids.add(id);
+      }
+      return ids;
+    });
+  }
+
   /// Fetches rooms with pagination. Use limit 20-50 per page for list screens.
   /// Each page is cached separately; invalidate via invalidateCacheForTable('rooms').
   Future<List<Map<String, dynamic>>> getRooms({
@@ -324,6 +352,50 @@ class DataService {
           .from('rooms')
           .update(updates)
           .eq('id', roomId);
+    });
+  }
+
+  /// Adds a room. [typeId] and [type] from room_types; [type] is the display name (e.g. "Classic Room").
+  Future<void> addRoom({
+    required String roomNumber,
+    required String typeId,
+    required String type,
+    String? floor,
+    String status = 'Vacant',
+  }) async {
+    await _retryOperation(() async {
+      final payload = <String, dynamic>{
+        'room_number': roomNumber.trim(),
+        'type_id': typeId,
+        'type': type,
+        'status': status,
+      };
+      if (floor != null && floor.trim().isNotEmpty) {
+        final floorNum = int.tryParse(floor.trim());
+        if (floorNum != null) payload['floor'] = floorNum;
+      }
+      await _supabase.from('rooms').insert(payload);
+    });
+    invalidateCacheForTable('rooms');
+  }
+
+  /// Logs an operational activity for audit. Call after successful Add/Update in Inventory, Kitchen, Reception, MiniMart.
+  /// [staffProfileId] must be a valid profiles.id (e.g. from StaffAuthHelper.requireStaffProfileId at call site).
+  /// No-op if [staffProfileId] is null or empty.
+  Future<void> logActivity(
+    String? staffProfileId,
+    String action,
+    String department,
+    String details,
+  ) async {
+    if (staffProfileId == null || staffProfileId.isEmpty) return;
+    await _retryOperation(() async {
+      await _supabase.from('staff_activities').insert({
+        'staff_profile_id': staffProfileId,
+        'action': action,
+        'department': department,
+        'details': details,
+      });
     });
   }
 
@@ -471,9 +543,11 @@ class DataService {
     });
   }
 
+  /// Adds an inventory item (bar sellable product). Optionally link to an existing
+  /// [stock_item_id] for stock tracking; if provided, stock levels will use that stock item.
   Future<void> addInventoryItem(Map<String, dynamic> item) async {
     await _retryOperation(() async {
-      await _supabase.from('inventory_items').insert({
+      final payload = <String, dynamic>{
         'name': item['name'],
         'description': item['description'],
         'unit': item['unit'],
@@ -481,7 +555,12 @@ class DataService {
         'outside_bar_price': item['outside_bar_price'],
         'category': item['category'],
         'department': item['department'] ?? 'both',
-      });
+      };
+      final stockItemId = item['stock_item_id'] as String?;
+      if (stockItemId != null && stockItemId.isNotEmpty) {
+        payload['stock_item_id'] = stockItemId;
+      }
+      await _supabase.from('inventory_items').insert(payload);
     });
   }
 
@@ -1417,6 +1496,35 @@ class DataService {
     });
   }
 
+  /// Adds a mini-mart item. Price in kobo.
+  Future<void> addMiniMartItem({
+    required String name,
+    String? description,
+    required int priceKobo,
+    String? category,
+    int stockQuantity = 0,
+    int minStockLevel = 0,
+    bool isAvailable = true,
+  }) async {
+    await _retryOperation(() async {
+      final payload = <String, dynamic>{
+        'name': name.trim(),
+        'price': priceKobo,
+        'stock_quantity': stockQuantity,
+        'min_stock_level': minStockLevel,
+        'is_available': isAvailable,
+      };
+      if (description != null && description.trim().isNotEmpty) {
+        payload['description'] = description.trim();
+      }
+      if (category != null && category.trim().isNotEmpty) {
+        payload['category'] = category.trim();
+      }
+      await _supabase.from('mini_mart_items').insert(payload);
+    });
+    invalidateCacheForTable('mini_mart_items');
+  }
+
   Future<List<Map<String, dynamic>>> getMiniMartSales({
     DateTime? startDate,
     DateTime? endDate,
@@ -1479,10 +1587,78 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('menu_items')
-          .select('id, name, price, department, barcode, stock_item_id')
+          .select('id, name, price, department, barcode, stock_item_id, category')
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     });
+  }
+
+  /// Adds a menu item (kitchen/restaurant). Price in kobo.
+  Future<void> addMenuItem({
+    required String name,
+    String? description,
+    required int priceKobo,
+    String department = 'restaurant',
+    String? category,
+    bool isAvailable = true,
+    String? stockItemId,
+  }) async {
+    await _retryOperation(() async {
+      final payload = <String, dynamic>{
+        'name': name,
+        'price': priceKobo,
+        'department': department,
+        'is_available': isAvailable,
+      };
+      if (description != null && description.trim().isNotEmpty) {
+        payload['description'] = description.trim();
+      }
+      if (category != null && category.trim().isNotEmpty) {
+        payload['category'] = category.trim();
+      }
+      if (stockItemId != null && stockItemId.isNotEmpty) {
+        payload['stock_item_id'] = stockItemId;
+      }
+      await _supabase.from('menu_items').insert(payload);
+    });
+    invalidateCacheForTable('menu_items');
+  }
+
+  /// Generic update for product tables (inventory_items, mini_mart_items, menu_items, stock_items).
+  /// [updates] must contain only valid columns for [tableName]. Adds updated_at when supported.
+  /// If the table does not have updated_at, the update is retried without it (no crash).
+  Future<void> updateProduct(String tableName, String id, Map<String, dynamic> updates) async {
+    final payload = Map<String, dynamic>.from(updates);
+    if (!payload.containsKey('updated_at')) {
+      payload['updated_at'] = DateTime.now().toIso8601String();
+    }
+    try {
+      await _retryOperation(() async {
+        await _supabase.from(tableName).update(payload).eq('id', id);
+      });
+    } on PostgrestException catch (e) {
+      final msg = (e.message ?? '').toLowerCase();
+      final isColumnError = e.code == '42703' ||
+          msg.contains('updated_at') ||
+          (msg.contains('column') && msg.contains('does not exist'));
+      if (isColumnError && payload.containsKey('updated_at')) {
+        payload.remove('updated_at');
+        await _retryOperation(() async {
+          await _supabase.from(tableName).update(payload).eq('id', id);
+        });
+      } else {
+        rethrow;
+      }
+    }
+    invalidateCacheForTable(tableName);
+  }
+
+  /// Generic delete for product tables. Use with caution: ensure no foreign key references.
+  Future<void> deleteProduct(String tableName, String id) async {
+    await _retryOperation(() async {
+      await _supabase.from(tableName).delete().eq('id', id);
+    });
+    invalidateCacheForTable(tableName);
   }
 
   // POS methods

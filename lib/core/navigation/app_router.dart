@@ -11,7 +11,7 @@ import 'package:pzed_homes/presentation/screens/login_screen.dart';
 import 'package:pzed_homes/presentation/screens/main_screen.dart';
 import 'package:pzed_homes/presentation/screens/dashboard_screen.dart';
 import 'package:pzed_homes/presentation/screens/staff_dashboard_screen.dart';
-import 'package:pzed_homes/presentation/screens/housekeeping_screen.dart';
+import 'package:pzed_homes/presentation/screens/room_management_screen.dart';
 import 'package:pzed_homes/presentation/screens/inventory_screen.dart';
 import 'package:pzed_homes/presentation/screens/communications_screen.dart';
 import 'package:pzed_homes/presentation/screens/notifications_screen.dart';
@@ -235,12 +235,17 @@ class AppRouter {
           GoRoute(
             path: '/housekeeping',
             name: 'housekeeping',
-            builder: (context, state) => const HousekeepingScreen(),
+            builder: (context, state) => const RoomManagementScreen(),
           ),
           GoRoute(
             path: '/booking/create',
             name: 'create-booking',
             builder: (context, state) => const CreateBookingScreen(),
+          ),
+          GoRoute(
+            path: '/reception/rooms',
+            name: 'room-management',
+            builder: (context, state) => const RoomManagementScreen(),
           ),
           GoRoute(
             path: '/inventory',

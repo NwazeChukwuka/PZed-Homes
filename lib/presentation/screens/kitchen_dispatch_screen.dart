@@ -19,7 +19,10 @@ import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
+import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
+import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
 
 class KitchenDispatchScreen extends StatefulWidget {
   const KitchenDispatchScreen({super.key});
@@ -99,6 +102,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   bool _salesHasMore = true;
   bool _historyLoadingMore = false;
   final ScrollController _historyScrollController = ScrollController();
+
+  // Add Menu Item (owner/manager)
+  final _addMenuNameController = TextEditingController();
+  final _addMenuDescriptionController = TextEditingController();
+  final _addMenuCategoryController = TextEditingController();
+  final _addMenuPriceController = TextEditingController();
+  bool _addMenuAvailable = true;
 
   @override
   void initState() {
@@ -1082,10 +1092,16 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     if (!_formKey.currentState!.validate()) return;
     if (_selectedStockItemId == null || _selectedDestinationDepartment == null) return;
 
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _requireSupabase(),
+    );
+    if (staffId == null) return;
+
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final staffId = authService.currentUser!.id;
       final quantity = int.parse(_quantityController.text);
       final unitPriceNaira = double.tryParse(_dispatchUnitPriceController.text.trim()) ?? 0;
 
@@ -1268,11 +1284,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         return;
       }
     }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _requireSupabase(),
+    );
+    if (staffId == null) return;
+
     setState(() => _isLoading = true);
     final List<String> partialErrors = [];
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final staffId = authService.currentUser!.id;
       final effectivePaymentMethod = _chargeToRoom ? 'credit' : _salePaymentMethod;
       int totalSaleInKobo = 0;
       String? firstSaleId;
@@ -2159,7 +2181,130 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _saleCustomNameController.dispose();
     _saleCreditCustomerNameController.dispose();
     _saleCreditCustomerPhoneController.dispose();
+    _addMenuNameController.dispose();
+    _addMenuDescriptionController.dispose();
+    _addMenuCategoryController.dispose();
+    _addMenuPriceController.dispose();
     super.dispose();
+  }
+
+  void _showAddMenuItemDialog() {
+    _addMenuNameController.clear();
+    _addMenuDescriptionController.clear();
+    _addMenuCategoryController.clear();
+    _addMenuPriceController.clear();
+    setState(() => _addMenuAvailable = true);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Menu Item'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _addMenuNameController,
+                decoration: const InputDecoration(labelText: 'Item Name *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addMenuDescriptionController,
+                decoration: const InputDecoration(labelText: 'Description'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addMenuCategoryController,
+                decoration: const InputDecoration(labelText: 'Category (e.g. Soups, Main)'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addMenuPriceController,
+                decoration: const InputDecoration(labelText: 'Price (₦)'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                title: const Text('Available'),
+                value: _addMenuAvailable,
+                onChanged: (v) => setState(() => _addMenuAvailable = v),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async => await _saveNewMenuItem(context),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveNewMenuItem(BuildContext dialogContext) async {
+    final name = _addMenuNameController.text.trim();
+    if (name.isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Item name is required.');
+      return;
+    }
+    final priceNaira = double.tryParse(_addMenuPriceController.text.trim());
+    if (priceNaira == null || priceNaira <= 0) {
+      ErrorHandler.showWarningMessage(context, 'Enter a valid price (₦).');
+      return;
+    }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _requireSupabase(),
+    );
+    if (staffId == null) return;
+    try {
+      await _dataService.addMenuItem(
+        name: name,
+        description: _addMenuDescriptionController.text.trim().isEmpty
+            ? null
+            : _addMenuDescriptionController.text.trim(),
+        priceKobo: PaymentService.nairaToKobo(priceNaira),
+        department: 'restaurant',
+        category: _addMenuCategoryController.text.trim().isEmpty
+            ? null
+            : _addMenuCategoryController.text.trim(),
+        isAvailable: _addMenuAvailable,
+      );
+      await _dataService.logActivity(staffId, 'Added menu item', 'Kitchen', 'Added $name');
+      if (dialogContext.mounted) Navigator.pop(dialogContext);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Menu item added successfully.');
+        _loadStockAndLocations();
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: ErrorHandler.getAdminErrorMessage(
+            e,
+            itemName: name,
+            department: 'Kitchen',
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to add menu item. Please try again.',
+          stackTrace: stackTrace,
+        );
+      }
+    }
   }
 
   String _formatDate(String dateString) {
@@ -2307,12 +2452,25 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             ) : null,
             actions: [
               const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+              if (!isOperational)
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Add Menu Item',
+                  onPressed: _showAddMenuItemDialog,
+                ),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: _loadStockAndLocations,
               ),
             ],
           ),
+          floatingActionButton: !isOperational
+              ? FloatingActionButton(
+                  onPressed: _showAddMenuItemDialog,
+                  backgroundColor: Colors.orange[700],
+                  child: const Icon(Icons.add, color: Colors.white),
+                )
+              : null,
           body: Column(
             children: [
               if (_missingStockLinks.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
@@ -2627,13 +2785,113 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           final priceKobo = _safePriceKobo(item['price']);
                           final priceNaira = PaymentService.koboToNaira(priceKobo);
                           final hasStockLink = item['stock_item_id'] != null;
-                          return ProductCard(
-                            name: item['name']?.toString() ?? 'Unknown',
-                            price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
-                            icon: Icons.restaurant,
-                            backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
-                            border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
-                            onTap: () {}, // Read-only: no add to sale
+                          final tableName = ProductCatalogConfig.departmentToTable['kitchen'] ?? 'menu_items';
+                          final isOwnerOrManager = Provider.of<AuthService>(context, listen: false)
+                                  .currentUser
+                                  ?.roles
+                                  .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+                              false;
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Expanded(
+                                child: ProductCard(
+                                  name: item['name']?.toString() ?? 'Unknown',
+                                  price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
+                                  icon: Icons.restaurant,
+                                  backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
+                                  border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
+                                  onTap: () {},
+                                ),
+                              ),
+                              if (isOwnerOrManager)
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit, size: 20),
+                                      tooltip: 'Edit',
+                                      onPressed: () async {
+                                        await showDialog(
+                                          context: context,
+                                          builder: (ctx) => ProductFormDialog(
+                                            tableName: tableName,
+                                            product: item,
+                                            onSave: (updates, [priceChangeDetails]) async {
+                                              final authService = Provider.of<AuthService>(context, listen: false);
+                                              final staffId = StaffAuthHelper.requireStaffProfileId(
+                                                context,
+                                                authService: authService,
+                                                supabase: _requireSupabase(),
+                                              );
+                                              if (staffId == null) return;
+                                              await _dataService.updateProduct(
+                                                tableName,
+                                                item['id'].toString(),
+                                                updates,
+                                              );
+                                              if (priceChangeDetails != null &&
+                                                  priceChangeDetails.isNotEmpty &&
+                                                  mounted) {
+                                                final department = ProductCatalogConfig
+                                                    .tableToDepartmentName[tableName] ?? 'Kitchen';
+                                                await _dataService.logActivity(
+                                                  staffId,
+                                                  'Price Update',
+                                                  department,
+                                                  priceChangeDetails,
+                                                );
+                                              }
+                                              if (mounted) {
+                                                ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                _loadStockAndLocations();
+                                              }
+                                            },
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                                      tooltip: 'Delete',
+                                      onPressed: () async {
+                                        await showDeleteProductConfirmation(
+                                          context,
+                                          productName: item['name']?.toString() ?? 'this item',
+                                          onConfirm: () async {
+                                            final authService = Provider.of<AuthService>(context, listen: false);
+                                            final staffId = StaffAuthHelper.requireStaffProfileId(
+                                              context,
+                                              authService: authService,
+                                              supabase: _requireSupabase(),
+                                            );
+                                            if (staffId == null) {
+                                              throw Exception('Session expired. Cannot delete without audit.');
+                                            }
+                                            final itemName = item['name']?.toString() ?? 'this item';
+                                            await _dataService.deleteProduct(
+                                              tableName,
+                                              item['id'].toString(),
+                                            );
+                                            final department = ProductCatalogConfig
+                                                .tableToDepartmentName[tableName] ?? 'Kitchen';
+                                            await _dataService.logActivity(
+                                              staffId,
+                                              'Product Deletion',
+                                              department,
+                                              'Deleted $itemName from the catalog.',
+                                            );
+                                            if (mounted) {
+                                              ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+                                              _loadStockAndLocations();
+                                            }
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                            ],
                           );
                         },
                       );

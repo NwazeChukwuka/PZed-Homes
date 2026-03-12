@@ -10,9 +10,12 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
+import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:flutter/services.dart';
@@ -59,6 +62,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   final ScrollController _salesHistoryScrollController = ScrollController();
   List<Map<String, dynamic>> _filteredItems = [];
   Timer? _filterDebounce;
+
+  // Add Item (owner/manager)
+  final _addItemNameController = TextEditingController();
+  final _addItemDescriptionController = TextEditingController();
+  final _addItemPriceController = TextEditingController();
+  final _addItemCategoryController = TextEditingController();
+  final _addItemStockController = TextEditingController(text: '0');
+  final _addItemMinStockController = TextEditingController(text: '0');
+  bool _addItemAvailable = true;
 
   // Phase 4: Sales history pagination (load 50 per page, load more on scroll)
   static const int _salesHistoryPageSize = 50;
@@ -110,7 +122,149 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _approvedByController.dispose();
+    _addItemNameController.dispose();
+    _addItemDescriptionController.dispose();
+    _addItemPriceController.dispose();
+    _addItemCategoryController.dispose();
+    _addItemStockController.dispose();
+    _addItemMinStockController.dispose();
     super.dispose();
+  }
+
+  void _showAddMiniMartItemDialog() {
+    _addItemNameController.clear();
+    _addItemDescriptionController.clear();
+    _addItemPriceController.clear();
+    _addItemCategoryController.clear();
+    _addItemStockController.text = '0';
+    _addItemMinStockController.text = '0';
+    setState(() => _addItemAvailable = true);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Mini Mart Item'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _addItemNameController,
+                decoration: const InputDecoration(labelText: 'Item Name *'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addItemDescriptionController,
+                decoration: const InputDecoration(labelText: 'Description'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addItemPriceController,
+                decoration: const InputDecoration(labelText: 'Price (₦)'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addItemCategoryController,
+                decoration: const InputDecoration(labelText: 'Category'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addItemStockController,
+                decoration: const InputDecoration(labelText: 'Initial Stock'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addItemMinStockController,
+                decoration: const InputDecoration(labelText: 'Min Stock Level'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                title: const Text('Available'),
+                value: _addItemAvailable,
+                onChanged: (v) => setState(() => _addItemAvailable = v),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async => await _saveNewMiniMartItem(context),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveNewMiniMartItem(BuildContext dialogContext) async {
+    final name = _addItemNameController.text.trim();
+    if (name.isEmpty) {
+      ErrorHandler.showWarningMessage(context, 'Item name is required.');
+      return;
+    }
+    final priceNaira = double.tryParse(_addItemPriceController.text.trim());
+    if (priceNaira == null || priceNaira < 0) {
+      ErrorHandler.showWarningMessage(context, 'Enter a valid price (₦).');
+      return;
+    }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _supabase,
+    );
+    if (staffId == null) return;
+    final stock = int.tryParse(_addItemStockController.text.trim()) ?? 0;
+    final minStock = int.tryParse(_addItemMinStockController.text.trim()) ?? 0;
+    try {
+      await _dataService.addMiniMartItem(
+        name: name,
+        description: _addItemDescriptionController.text.trim().isEmpty
+            ? null
+            : _addItemDescriptionController.text.trim(),
+        priceKobo: PaymentService.nairaToKobo(priceNaira),
+        category: _addItemCategoryController.text.trim().isEmpty
+            ? null
+            : _addItemCategoryController.text.trim(),
+        stockQuantity: stock,
+        minStockLevel: minStock,
+        isAvailable: _addItemAvailable,
+      );
+      await _dataService.logActivity(staffId, 'Added item', 'MiniMart', 'Added $name');
+      if (dialogContext.mounted) Navigator.pop(dialogContext);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Item added successfully.');
+        _loadMiniMartData();
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: ErrorHandler.getAdminErrorMessage(
+            e,
+            itemName: name,
+            department: 'Mini Mart',
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to add item. Please try again.',
+          stackTrace: stackTrace,
+        );
+      }
+    }
   }
 
   Future<void> _loadMiniMartData() async {
@@ -260,17 +414,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       return;
     }
 
-    // Verify user is logged in (clock-in no longer required for transactions)
+    // Unified staff auth guard: require valid session for transactions
     final authService = Provider.of<AuthService>(context, listen: false);
-    if (authService.currentUser == null) {
-      if (mounted) {
-        ErrorHandler.showWarningMessage(
-          context,
-          'You must be logged in to make transactions',
-        );
-      }
-      return;
-    }
+    final userId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _supabase,
+    );
+    if (userId == null) return; // Session Expired dialog already shown
 
     // Validate credit payment requirements
     if (_paymentMethod == 'Credit') {
@@ -286,7 +437,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     }
 
     try {
-      final userId = authService.currentUser?.id ?? 'system';
       final customerName = _customerNameController.text.trim().isNotEmpty 
           ? _customerNameController.text.trim() 
           : 'Walk-in Customer';
@@ -497,6 +647,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             );
           }
         }
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: ErrorHandler.getAdminErrorMessage(e),
+          onRetry: _processSale,
+        );
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _processSale: $e\n$stackTrace');
@@ -852,11 +1011,17 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return Selector<AuthService, bool>(
-      selector: (_, auth) =>
-          (auth.currentUser?.roles.any((r) => r.name == 'receptionist') ?? false) ||
-          auth.hasAssumedRole(AppRole.receptionist),
-      builder: (context, isReceptionist, child) {
+    return Selector<AuthService, ({bool isReceptionist, bool showAddItem})>(
+      selector: (_, auth) {
+        final u = auth.currentUser;
+        final isReceptionist = (u?.roles.any((r) => r.name == 'receptionist') ?? false) ||
+            auth.hasAssumedRole(AppRole.receptionist);
+        final showAddItem = u?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+        return (isReceptionist: isReceptionist, showAddItem: showAddItem);
+      },
+      builder: (context, data, child) {
+        final isReceptionist = data.isReceptionist;
+        final showAddItem = data.showAddItem;
         final tabCount = isReceptionist ? 3 : 2;
 
         // Update tab controller if needed - schedule in post-frame to avoid mutation during build
@@ -893,8 +1058,21 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             ) : null,
             actions: [
               ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+              if (showAddItem)
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Add Item',
+                  onPressed: _showAddMiniMartItemDialog,
+                ),
             ],
           ),
+          floatingActionButton: showAddItem
+              ? FloatingActionButton(
+                  onPressed: _showAddMiniMartItemDialog,
+                  backgroundColor: Colors.green[700],
+                  child: const Icon(Icons.add, color: Colors.white),
+                )
+              : null,
           backgroundColor: Colors.grey[50],
           body: Column(
             children: [
@@ -1041,20 +1219,126 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                 mainAxisSpacing: 10,
                               ),
                               itemCount: _filteredItems.length,
-                          itemBuilder: (context, index) {
-                            final item = _filteredItems[index];
-                            final stock = item['stock_quantity'] as int? ?? 0;
-                            final isOutOfStock = stock <= 0;
-                            return ProductCard(
-                              name: item['name']?.toString() ?? 'Unknown',
-                              price: '₦${NumberFormat('#,##0.00').format(item['price'])}',
-                              icon: Icons.inventory,
-                              backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
-                              border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
-                              onTap: () => _addItemToSale(item),
+                              itemBuilder: (context, index) {
+                                final item = _filteredItems[index];
+                                final stock = item['stock_quantity'] as int? ?? 0;
+                                final isOutOfStock = stock <= 0;
+                                final tableName = ProductCatalogConfig.departmentToTable['mini_mart'] ?? 'mini_mart_items';
+                                final showActions = Provider.of<AuthService>(context, listen: false)
+                                    .currentUser
+                                    ?.roles
+                                    .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+                                    false;
+                                return Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Expanded(
+                                      child: ProductCard(
+                                        name: item['name']?.toString() ?? 'Unknown',
+                                        price: '₦${NumberFormat('#,##0.00').format(item['price'])}',
+                                        icon: Icons.inventory,
+                                        backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
+                                        border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
+                                        onTap: () => _addItemToSale(item),
+                                      ),
+                                    ),
+                                    if (showActions)
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.edit, size: 20),
+                                            tooltip: 'Edit',
+                                            onPressed: () async {
+                                              final productForDialog = {
+                                                'id': item['id'],
+                                                'name': item['name'],
+                                                'category': item['category'],
+                                                'price': PaymentService.nairaToKobo((item['price'] as num).toDouble()),
+                                              };
+                                              await showDialog(
+                                                context: context,
+                                                builder: (ctx) => ProductFormDialog(
+                                                  tableName: tableName,
+                                                  product: productForDialog,
+                                                  onSave: (updates, [priceChangeDetails]) async {
+                                                    final authService = Provider.of<AuthService>(context, listen: false);
+                                                    final staffId = StaffAuthHelper.requireStaffProfileId(
+                                                      context,
+                                                      authService: authService,
+                                                      supabase: _supabase,
+                                                    );
+                                                    if (staffId == null) return;
+                                                    await _dataService.updateProduct(
+                                                      tableName,
+                                                      item['id'].toString(),
+                                                      updates,
+                                                    );
+                                                    if (priceChangeDetails != null &&
+                                                        priceChangeDetails.isNotEmpty &&
+                                                        mounted) {
+                                                      final department = ProductCatalogConfig
+                                                          .tableToDepartmentName[tableName] ?? 'MiniMart';
+                                                      await _dataService.logActivity(
+                                                        staffId,
+                                                        'Price Update',
+                                                        department,
+                                                        priceChangeDetails,
+                                                      );
+                                                    }
+                                                    if (mounted) {
+                                                      ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                      _loadMiniMartData();
+                                                    }
+                                                  },
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                                            tooltip: 'Delete',
+                                            onPressed: () async {
+                                              await showDeleteProductConfirmation(
+                                                context,
+                                                productName: item['name']?.toString() ?? 'this item',
+                                                onConfirm: () async {
+                                                  final authService = Provider.of<AuthService>(context, listen: false);
+                                                  final staffId = StaffAuthHelper.requireStaffProfileId(
+                                                    context,
+                                                    authService: authService,
+                                                    supabase: _supabase,
+                                                  );
+                                                  if (staffId == null) {
+                                                    throw Exception('Session expired. Cannot delete without audit.');
+                                                  }
+                                                  final itemName = item['name']?.toString() ?? 'this item';
+                                                  await _dataService.deleteProduct(
+                                                    tableName,
+                                                    item['id'].toString(),
+                                                  );
+                                                  final department = ProductCatalogConfig
+                                                      .tableToDepartmentName[tableName] ?? 'MiniMart';
+                                                  await _dataService.logActivity(
+                                                    staffId,
+                                                    'Product Deletion',
+                                                    department,
+                                                    'Deleted $itemName from the catalog.',
+                                                  );
+                                                  if (mounted) {
+                                                    ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+                                                    _loadMiniMartData();
+                                                  }
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                );
+                              },
                             );
-                          },
-                        );
                           },
                         ),
                 ),

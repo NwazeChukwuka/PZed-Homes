@@ -81,6 +81,29 @@ class ErrorHandler {
     }
   }
 
+  /// Admin/CRUD-specific messages for PostgrestException. Use as [customMessage] in [handleError].
+  /// [itemName] and [department] are used for 23505 to show "Item [Name] already exists in this Department."
+  static String getAdminErrorMessage(
+    PostgrestException error, {
+    String? itemName,
+    String? department,
+  }) {
+    switch (error.code) {
+      case '23505': // Unique constraint violation
+        if (itemName != null && itemName.isNotEmpty) {
+          final dept = (department != null && department.isNotEmpty)
+              ? ' in $department'
+              : ' in this Department';
+          return 'Item $itemName already exists$dept.';
+        }
+        return 'This record already exists. Please check your input and try again.';
+      case '42501': // Insufficient privilege (RLS)
+        return 'Access Denied: You do not have Manager/Owner permissions for this action.';
+      default:
+        return _handleDatabaseError(error);
+    }
+  }
+
   static String _handleDatabaseError(PostgrestException error) {
     switch (error.code) {
       case '23505': // Unique constraint violation
