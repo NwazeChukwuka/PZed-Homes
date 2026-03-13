@@ -83,9 +83,10 @@ du -sh lib/ || true
 echo "=== Memory before build (free -h) ==="
 free -h || true
 
-# Single-thread, low-memory build: --workers=1, --no-pub (we already ran pub get)
-# Avoids spawning extra pub/dart processes during build that spike memory
+# -O2: full tree-shaking + minification. Required for the 48K+ line codebase;
+# -O0 produced a ~30-50MB main.dart.js that OOM-crashed mobile browsers.
+# Keep --no-source-maps (smaller deploy) and --no-pub (already ran pub get).
 # IMPORTANT: Do NOT use quotes around $VARIABLE - Flutter needs raw values
-./flutter/bin/flutter build web --release -O0 --no-source-maps --no-pub -v \
+./flutter/bin/flutter build web --release -O2 --no-source-maps --no-pub -v \
   --dart-define=SUPABASE_URL=$SUPABASE_URL \
   --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
