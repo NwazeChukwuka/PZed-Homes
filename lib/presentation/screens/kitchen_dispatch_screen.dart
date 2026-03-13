@@ -2791,27 +2791,37 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                   ?.roles
                                   .any((r) => r == AppRole.owner || r == AppRole.manager) ??
                               false;
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
+                          return Stack(
                             children: [
-                              Expanded(
-                                child: ProductCard(
-                                  name: item['name']?.toString() ?? 'Unknown',
-                                  price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
-                                  icon: Icons.restaurant,
-                                  backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
-                                  border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
-                                  onTap: () {},
-                                ),
+                              ProductCard(
+                                name: item['name']?.toString() ?? 'Unknown',
+                                price: '₦${NumberFormat('#,##0.00').format(priceNaira)}',
+                                icon: Icons.restaurant,
+                                backgroundColor: hasStockLink ? Colors.white : Colors.orange[50],
+                                border: hasStockLink ? null : Border.all(color: Colors.orange[300]!, width: 1),
+                                onTap: () {},
                               ),
                               if (isOwnerOrManager)
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit, size: 20),
-                                      tooltip: 'Edit',
-                                      onPressed: () async {
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: PopupMenuButton<String>(
+                                    padding: EdgeInsets.zero,
+                                    child: Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black38,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.more_vert, color: Colors.white, size: 18),
+                                    ),
+                                    itemBuilder: (context) => const [
+                                      PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                      PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
+                                    ],
+                                    onSelected: (value) async {
+                                      if (value == 'edit') {
                                         await showDialog(
                                           context: context,
                                           builder: (ctx) => ProductFormDialog(
@@ -2849,12 +2859,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                             },
                                           ),
                                         );
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                                      tooltip: 'Delete',
-                                      onPressed: () async {
+                                      } else if (value == 'delete') {
                                         await showDeleteProductConfirmation(
                                           context,
                                           productName: item['name']?.toString() ?? 'this item',
@@ -2887,9 +2892,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                             }
                                           },
                                         );
-                                      },
-                                    ),
-                                  ],
+                                      }
+                                    },
+                                  ),
                                 ),
                             ],
                           );

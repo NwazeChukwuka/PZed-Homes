@@ -1229,27 +1229,37 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                     ?.roles
                                     .any((r) => r == AppRole.owner || r == AppRole.manager) ??
                                     false;
-                                return Column(
-                                  mainAxisSize: MainAxisSize.min,
+                                return Stack(
                                   children: [
-                                    Expanded(
-                                      child: ProductCard(
-                                        name: item['name']?.toString() ?? 'Unknown',
-                                        price: '₦${NumberFormat('#,##0.00').format(item['price'])}',
-                                        icon: Icons.inventory,
-                                        backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
-                                        border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
-                                        onTap: () => _addItemToSale(item),
-                                      ),
+                                    ProductCard(
+                                      name: item['name']?.toString() ?? 'Unknown',
+                                      price: '₦${NumberFormat('#,##0.00').format(item['price'])}',
+                                      icon: Icons.inventory,
+                                      backgroundColor: isOutOfStock ? Colors.orange[50] : Colors.white,
+                                      border: isOutOfStock ? Border.all(color: Colors.orange[300]!, width: 1) : null,
+                                      onTap: () => _addItemToSale(item),
                                     ),
                                     if (showActions)
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.edit, size: 20),
-                                            tooltip: 'Edit',
-                                            onPressed: () async {
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: PopupMenuButton<String>(
+                                          padding: EdgeInsets.zero,
+                                          child: Container(
+                                            width: 28,
+                                            height: 28,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.black38,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.more_vert, color: Colors.white, size: 18),
+                                          ),
+                                          itemBuilder: (context) => const [
+                                            PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                            PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
+                                          ],
+                                          onSelected: (value) async {
+                                            if (value == 'edit') {
                                               final productForDialog = {
                                                 'id': item['id'],
                                                 'name': item['name'],
@@ -1293,12 +1303,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                                   },
                                                 ),
                                               );
-                                            },
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                                            tooltip: 'Delete',
-                                            onPressed: () async {
+                                            } else if (value == 'delete') {
                                               await showDeleteProductConfirmation(
                                                 context,
                                                 productName: item['name']?.toString() ?? 'this item',
@@ -1331,9 +1336,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                                   }
                                                 },
                                               );
-                                            },
-                                          ),
-                                        ],
+                                            }
+                                          },
+                                        ),
                                       ),
                                   ],
                                 );

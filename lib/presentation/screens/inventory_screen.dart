@@ -610,87 +610,88 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isManagement) ...[
-              IconButton(
-                icon: const Icon(Icons.edit, size: 20),
-                tooltip: 'Edit',
-                onPressed: () async {
-                  await showDialog(
-                    context: context,
-                    builder: (ctx) => ProductFormDialog(
-                      tableName: tableName,
-                      product: item,
-                      onSave: (updates, [priceChangeDetails]) async {
+            if (isManagement)
+              PopupMenuButton<String>(
+                iconSize: 20,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.more_vert, color: Colors.grey[700]),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                  PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
+                ],
+                onSelected: (value) async {
+                  if (value == 'edit') {
+                    await showDialog(
+                      context: context,
+                      builder: (ctx) => ProductFormDialog(
+                        tableName: tableName,
+                        product: item,
+                        onSave: (updates, [priceChangeDetails]) async {
+                          final authService = Provider.of<AuthService>(context, listen: false);
+                          final staffId = StaffAuthHelper.requireStaffProfileId(
+                            context,
+                            authService: authService,
+                          );
+                          if (staffId == null) return;
+                          await _dataService.updateProduct(
+                            tableName,
+                            item['id'].toString(),
+                            updates,
+                          );
+                          if (priceChangeDetails != null &&
+                              priceChangeDetails.isNotEmpty &&
+                              mounted) {
+                            final department = ProductCatalogConfig
+                                .tableToDepartmentName[tableName] ?? 'Inventory';
+                            await _dataService.logActivity(
+                              staffId,
+                              'Price Update',
+                              department,
+                              priceChangeDetails,
+                            );
+                          }
+                          if (mounted) {
+                            ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                            _loadInventory();
+                          }
+                        },
+                      ),
+                    );
+                  } else if (value == 'delete') {
+                    await showDeleteProductConfirmation(
+                      context,
+                      productName: item['name']?.toString() ?? 'this item',
+                      onConfirm: () async {
                         final authService = Provider.of<AuthService>(context, listen: false);
                         final staffId = StaffAuthHelper.requireStaffProfileId(
                           context,
                           authService: authService,
                         );
-                        if (staffId == null) return;
-                        await _dataService.updateProduct(
+                        if (staffId == null) {
+                          throw Exception('Session expired. Cannot delete without audit.');
+                        }
+                        final itemName = item['name']?.toString() ?? 'this item';
+                        await _dataService.deleteProduct(
                           tableName,
                           item['id'].toString(),
-                          updates,
                         );
-                        if (priceChangeDetails != null &&
-                            priceChangeDetails.isNotEmpty &&
-                            mounted) {
-                          final department = ProductCatalogConfig
-                              .tableToDepartmentName[tableName] ?? 'Inventory';
-                          await _dataService.logActivity(
-                            staffId,
-                            'Price Update',
-                            department,
-                            priceChangeDetails,
-                          );
-                        }
+                        final department = ProductCatalogConfig
+                            .tableToDepartmentName[tableName] ?? 'Inventory';
+                        await _dataService.logActivity(
+                          staffId,
+                          'Product Deletion',
+                          department,
+                          'Deleted $itemName from the catalog.',
+                        );
                         if (mounted) {
-                          ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                          ErrorHandler.showSuccessMessage(context, 'Product deleted.');
                           _loadInventory();
                         }
                       },
-                    ),
-                  );
+                    );
+                  }
                 },
               ),
-              IconButton(
-                icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                tooltip: 'Delete',
-                onPressed: () async {
-                  await showDeleteProductConfirmation(
-                    context,
-                    productName: item['name']?.toString() ?? 'this item',
-                    onConfirm: () async {
-                      final authService = Provider.of<AuthService>(context, listen: false);
-                      final staffId = StaffAuthHelper.requireStaffProfileId(
-                        context,
-                        authService: authService,
-                      );
-                      if (staffId == null) {
-                        throw Exception('Session expired. Cannot delete without audit.');
-                      }
-                      final itemName = item['name']?.toString() ?? 'this item';
-                      await _dataService.deleteProduct(
-                        tableName,
-                        item['id'].toString(),
-                      );
-                      final department = ProductCatalogConfig
-                          .tableToDepartmentName[tableName] ?? 'Inventory';
-                      await _dataService.logActivity(
-                        staffId,
-                        'Product Deletion',
-                        department,
-                        'Deleted $itemName from the catalog.',
-                      );
-                      if (mounted) {
-                        ErrorHandler.showSuccessMessage(context, 'Product deleted.');
-                        _loadInventory();
-                      }
-                    },
-                  );
-                },
-              ),
-            ],
             Text(
               'Department: ${item['department'] ?? 'Unknown'}',
               style: const TextStyle(fontSize: 12),

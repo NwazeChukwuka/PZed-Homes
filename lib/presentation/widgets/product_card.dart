@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Universal square product card for Inventory, Mini Mart, and Kitchen grids.
-/// - Icon area: 65% of card height
+/// - Icon area: 50% of card height
 /// - Text area: name (max 2 lines, scales down if too long) + price on next line
 class ProductCard extends StatelessWidget {
   final String name;
@@ -36,7 +36,7 @@ class ProductCard extends StatelessWidget {
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final iconHeight = constraints.maxHeight * 0.65;
+              final iconHeight = constraints.maxHeight * 0.50;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -62,7 +62,7 @@ class ProductCard extends StatelessWidget {
                           children: [
                             // Name: wraps to 2 lines at base font; scales down only if 2 lines overflow
                             ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 28),
+                              constraints: const BoxConstraints(maxHeight: 34),
                               child: FittedBox(
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
@@ -71,8 +71,8 @@ class ProductCard extends StatelessWidget {
                                   child: Text(
                                     name,
                                     style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
                                     ),
                                     maxLines: 2,
                                     softWrap: true,
@@ -88,7 +88,7 @@ class ProductCard extends StatelessWidget {
                               style: TextStyle(
                                 color: Colors.green[700],
                                 fontWeight: FontWeight.bold,
-                                fontSize: 10,
+                                fontSize: 11,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
