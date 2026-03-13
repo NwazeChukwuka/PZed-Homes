@@ -2803,8 +2803,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               ),
                               if (isOwnerOrManager)
                                 Positioned(
-                                  top: 4,
-                                  right: 4,
+                                  top: 10,
+                                  right: 10,
                                   child: PopupMenuButton<String>(
                                     padding: EdgeInsets.zero,
                                     child: Container(

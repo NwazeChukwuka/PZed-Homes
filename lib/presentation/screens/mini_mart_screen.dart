@@ -1241,8 +1241,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                     ),
                                     if (showActions)
                                       Positioned(
-                                        top: 4,
-                                        right: 4,
+                                        top: 10,
+                                        right: 10,
                                         child: PopupMenuButton<String>(
                                           padding: EdgeInsets.zero,
                                           child: Container(
