@@ -485,12 +485,44 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   List<Map<String, dynamic>> _filterCurrentStockItems(List<Map<String, dynamic>> items) {
     var list = _filterItemsByBar(items);
     final query = _currentStockSearchController.text.trim().toLowerCase();
-    if (query.isEmpty) return list;
-    return list.where((item) {
-      final name = (item['name'] as String? ?? '').toLowerCase();
-      final category = (item['category'] as String? ?? '').toLowerCase();
-      return name.contains(query) || category.contains(query);
-    }).toList();
+    if (query.isNotEmpty) {
+      list = list.where((item) {
+        final name = (item['name'] as String? ?? '').toLowerCase();
+        final category = (item['category'] as String? ?? '').toLowerCase();
+        return name.contains(query) || category.contains(query);
+      }).toList();
+    }
+    if (_selectedBar == null) {
+      list = _mergeItemsByName(list);
+    }
+    return list;
+  }
+
+  /// Groups inventory items by name (case-insensitive) for the "All Bars" view.
+  /// Each merged item carries `_vip_row` and `_outside_row` references to the original rows.
+  List<Map<String, dynamic>> _mergeItemsByName(List<Map<String, dynamic>> items) {
+    final grouped = <String, Map<String, dynamic>>{};
+    for (final item in items) {
+      final key = (item['name'] as String? ?? '').trim().toLowerCase();
+      if (key.isEmpty) continue;
+      if (!grouped.containsKey(key)) {
+        grouped[key] = {
+          'name': item['name'],
+          'category': item['category'],
+          'unit': item['unit'],
+          '_vip_row': null,
+          '_outside_row': null,
+        };
+      }
+      final dept = item['department'] as String?;
+      if (dept == 'vip_bar') {
+        grouped[key]!['_vip_row'] = item;
+      } else if (dept == 'outside_bar') {
+        grouped[key]!['_outside_row'] = item;
+      }
+    }
+    return grouped.values.toList()
+      ..sort((a, b) => (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? ''));
   }
 
   Widget _buildBarSelectionButtons() {
@@ -580,6 +612,44 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             r == AppRole.owner || r == AppRole.manager) ??
         false;
     final tableName = ProductCatalogConfig.departmentToTable['bars'] ?? 'inventory_items';
+    final isMerged = item.containsKey('_vip_row') || item.containsKey('_outside_row');
+    final unit = item['unit'] as String? ?? 'units';
+
+    // Build subtitle lines based on view context
+    final subtitleLines = <Widget>[];
+    if (isMerged) {
+      final vipRow = item['_vip_row'] as Map<String, dynamic>?;
+      final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
+      final vipStock = vipRow != null ? _getCurrentStockForBar(vipRow, 'vip_bar') : 0;
+      final outsideStock = outsideRow != null ? _getCurrentStockForBar(outsideRow, 'outside_bar') : 0;
+      final stockParts = <String>[];
+      if (vipRow != null) stockParts.add('VIP: $vipStock $unit');
+      if (outsideRow != null) stockParts.add('Outside: $outsideStock $unit');
+      subtitleLines.add(Text(stockParts.join(' | '), style: TextStyle(color: Colors.grey[600], fontSize: 12)));
+
+      final priceParts = <String>[];
+      if (vipRow != null && vipRow['vip_bar_price'] != null) {
+        priceParts.add('VIP: ₦${NumberFormat('#,##0').format(PaymentService.koboToNaira((vipRow['vip_bar_price'] as num).toInt()))}');
+      }
+      if (outsideRow != null && outsideRow['outside_bar_price'] != null) {
+        priceParts.add('Outside: ₦${NumberFormat('#,##0').format(PaymentService.koboToNaira((outsideRow['outside_bar_price'] as num).toInt()))}');
+      }
+      if (priceParts.isNotEmpty) {
+        subtitleLines.add(Text(priceParts.join(' | '), style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w600, fontSize: 12)));
+      }
+    } else {
+      final stock = _getCurrentStock(item);
+      subtitleLines.add(Text('$stock $unit', style: TextStyle(color: Colors.grey[600], fontSize: 12)));
+
+      final priceKey = _selectedBar == 'outside_bar' ? 'outside_bar_price' : 'vip_bar_price';
+      final priceKobo = (item[priceKey] as num?)?.toInt() ?? 0;
+      if (priceKobo > 0) {
+        subtitleLines.add(Text(
+          '₦${NumberFormat('#,##0').format(PaymentService.koboToNaira(priceKobo))}',
+          style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w600, fontSize: 12),
+        ));
+      }
+    }
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -591,27 +661,16 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             color: Colors.green[700],
           ),
         ),
-        title: Text(item['name'] ?? 'Unknown Item'),
+        title: Text(
+          item['name'] ?? 'Unknown Item',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Category: ${item['category'] ?? 'Unknown'}'),
-            Text('Stock: ${_getCurrentStock(item)} ${item['unit'] ?? 'units'}'),
-            if (item['vip_bar_price'] != null)
-              Text(
-                'VIP Price: ₦${PaymentService.koboToNaira((item['vip_bar_price'] as num?)?.toInt() ?? 0).toStringAsFixed(2)}',
-              ),
-            if (item['outside_bar_price'] != null)
-              Text(
-                'Outside Price: ₦${PaymentService.koboToNaira((item['outside_bar_price'] as num?)?.toInt() ?? 0).toStringAsFixed(2)}',
-              ),
-          ],
+          children: subtitleLines,
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isManagement)
-              PopupMenuButton<String>(
+        trailing: isManagement
+            ? PopupMenuButton<String>(
                 iconSize: 20,
                 padding: EdgeInsets.zero,
                 icon: Icon(Icons.more_vert, color: Colors.grey[700]),
@@ -621,84 +680,117 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 ],
                 onSelected: (value) async {
                   if (value == 'edit') {
-                    await showDialog(
-                      context: context,
-                      builder: (ctx) => ProductFormDialog(
-                        tableName: tableName,
-                        product: item,
-                        onSave: (updates, [priceChangeDetails]) async {
-                          final authService = Provider.of<AuthService>(context, listen: false);
-                          final staffId = StaffAuthHelper.requireStaffProfileId(
-                            context,
-                            authService: authService,
-                          );
-                          if (staffId == null) return;
-                          await _dataService.updateProduct(
-                            tableName,
-                            item['id'].toString(),
-                            updates,
-                          );
-                          if (priceChangeDetails != null &&
-                              priceChangeDetails.isNotEmpty &&
-                              mounted) {
-                            final department = ProductCatalogConfig
-                                .tableToDepartmentName[tableName] ?? 'Inventory';
-                            await _dataService.logActivity(
-                              staffId,
-                              'Price Update',
-                              department,
-                              priceChangeDetails,
-                            );
-                          }
-                          if (mounted) {
-                            ErrorHandler.showSuccessMessage(context, 'Product updated.');
-                            _loadInventory();
-                          }
-                        },
-                      ),
-                    );
+                    await _handleEditInventoryItem(item, tableName, isMerged);
                   } else if (value == 'delete') {
-                    await showDeleteProductConfirmation(
-                      context,
-                      productName: item['name']?.toString() ?? 'this item',
-                      onConfirm: () async {
-                        final authService = Provider.of<AuthService>(context, listen: false);
-                        final staffId = StaffAuthHelper.requireStaffProfileId(
-                          context,
-                          authService: authService,
-                        );
-                        if (staffId == null) {
-                          throw Exception('Session expired. Cannot delete without audit.');
-                        }
-                        final itemName = item['name']?.toString() ?? 'this item';
-                        await _dataService.deleteProduct(
-                          tableName,
-                          item['id'].toString(),
-                        );
-                        final department = ProductCatalogConfig
-                            .tableToDepartmentName[tableName] ?? 'Inventory';
-                        await _dataService.logActivity(
-                          staffId,
-                          'Product Deletion',
-                          department,
-                          'Deleted $itemName from the catalog.',
-                        );
-                        if (mounted) {
-                          ErrorHandler.showSuccessMessage(context, 'Product deleted.');
-                          _loadInventory();
-                        }
-                      },
-                    );
+                    await _handleDeleteInventoryItem(item, tableName, isMerged);
                   }
                 },
-              ),
-            Text(
-              'Department: ${item['department'] ?? 'Unknown'}',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
+              )
+            : null,
       ),
+    );
+  }
+
+  /// Edit handler for inventory items. For merged items, builds a combined product
+  /// map with both prices and updates both rows on save.
+  Future<void> _handleEditInventoryItem(Map<String, dynamic> item, String tableName, bool isMerged) async {
+    Map<String, dynamic> productForDialog;
+    if (isMerged) {
+      final vipRow = item['_vip_row'] as Map<String, dynamic>?;
+      final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
+      productForDialog = {
+        'name': item['name'],
+        'category': item['category'],
+        'vip_bar_price': vipRow?['vip_bar_price'],
+        'outside_bar_price': outsideRow?['outside_bar_price'],
+      };
+    } else {
+      productForDialog = item;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => ProductFormDialog(
+        tableName: tableName,
+        product: productForDialog,
+        onSave: (updates, [priceChangeDetails]) async {
+          final authService = Provider.of<AuthService>(context, listen: false);
+          final staffId = StaffAuthHelper.requireStaffProfileId(
+            context,
+            authService: authService,
+          );
+          if (staffId == null) return;
+
+          if (isMerged) {
+            final vipRow = item['_vip_row'] as Map<String, dynamic>?;
+            final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
+            final commonUpdates = <String, dynamic>{};
+            if (updates.containsKey('name')) commonUpdates['name'] = updates['name'];
+            if (updates.containsKey('category')) commonUpdates['category'] = updates['category'];
+
+            if (vipRow != null) {
+              final vipUpdates = Map<String, dynamic>.from(commonUpdates);
+              if (updates.containsKey('vip_bar_price')) vipUpdates['vip_bar_price'] = updates['vip_bar_price'];
+              await _dataService.updateProduct(tableName, vipRow['id'].toString(), vipUpdates);
+            }
+            if (outsideRow != null) {
+              final outsideUpdates = Map<String, dynamic>.from(commonUpdates);
+              if (updates.containsKey('outside_bar_price')) outsideUpdates['outside_bar_price'] = updates['outside_bar_price'];
+              await _dataService.updateProduct(tableName, outsideRow['id'].toString(), outsideUpdates);
+            }
+          } else {
+            await _dataService.updateProduct(tableName, item['id'].toString(), updates);
+          }
+
+          if (priceChangeDetails != null && priceChangeDetails.isNotEmpty && mounted) {
+            final department = ProductCatalogConfig.tableToDepartmentName[tableName] ?? 'Inventory';
+            await _dataService.logActivity(staffId, 'Price Update', department, priceChangeDetails);
+          }
+          if (mounted) {
+            ErrorHandler.showSuccessMessage(context, 'Product updated.');
+            _loadInventory();
+          }
+        },
+      ),
+    );
+  }
+
+  /// Delete handler for inventory items. For merged items, deletes both bar rows.
+  Future<void> _handleDeleteInventoryItem(Map<String, dynamic> item, String tableName, bool isMerged) async {
+    await showDeleteProductConfirmation(
+      context,
+      productName: item['name']?.toString() ?? 'this item',
+      onConfirm: () async {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        final staffId = StaffAuthHelper.requireStaffProfileId(
+          context,
+          authService: authService,
+        );
+        if (staffId == null) {
+          throw Exception('Session expired. Cannot delete without audit.');
+        }
+        final itemName = item['name']?.toString() ?? 'this item';
+        final department = ProductCatalogConfig.tableToDepartmentName[tableName] ?? 'Inventory';
+
+        if (isMerged) {
+          final vipRow = item['_vip_row'] as Map<String, dynamic>?;
+          final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
+          if (vipRow != null) {
+            await _dataService.deleteProduct(tableName, vipRow['id'].toString());
+          }
+          if (outsideRow != null) {
+            await _dataService.deleteProduct(tableName, outsideRow['id'].toString());
+          }
+        } else {
+          await _dataService.deleteProduct(tableName, item['id'].toString());
+        }
+
+        await _dataService.logActivity(staffId, 'Product Deletion', department, 'Deleted $itemName from the catalog.');
+        if (mounted) {
+          ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+          _loadInventory();
+        }
+      },
     );
   }
 
