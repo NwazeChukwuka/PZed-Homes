@@ -105,10 +105,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
 
   // Add Menu Item (owner/manager)
   final _addMenuNameController = TextEditingController();
-  final _addMenuDescriptionController = TextEditingController();
-  final _addMenuCategoryController = TextEditingController();
   final _addMenuPriceController = TextEditingController();
   bool _addMenuAvailable = true;
+  String _addMenuCategory = 'Main Dishes';
+  static const _kitchenCategories = ['Soups', 'Main Dishes', 'Sides', 'Drinks', 'Snacks', 'Other'];
 
   @override
   void initState() {
@@ -2182,66 +2182,63 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _saleCreditCustomerNameController.dispose();
     _saleCreditCustomerPhoneController.dispose();
     _addMenuNameController.dispose();
-    _addMenuDescriptionController.dispose();
-    _addMenuCategoryController.dispose();
     _addMenuPriceController.dispose();
     super.dispose();
   }
 
   void _showAddMenuItemDialog() {
     _addMenuNameController.clear();
-    _addMenuDescriptionController.clear();
-    _addMenuCategoryController.clear();
     _addMenuPriceController.clear();
-    setState(() => _addMenuAvailable = true);
+    setState(() {
+      _addMenuAvailable = true;
+      _addMenuCategory = 'Main Dishes';
+    });
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Menu Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _addMenuNameController,
-                decoration: const InputDecoration(labelText: 'Item Name *'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addMenuDescriptionController,
-                decoration: const InputDecoration(labelText: 'Description'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addMenuCategoryController,
-                decoration: const InputDecoration(labelText: 'Category (e.g. Soups, Main)'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addMenuPriceController,
-                decoration: const InputDecoration(labelText: 'Price (₦)'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                title: const Text('Available'),
-                value: _addMenuAvailable,
-                onChanged: (v) => setState(() => _addMenuAvailable = v),
-              ),
-            ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Menu Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _addMenuNameController,
+                  decoration: const InputDecoration(labelText: 'Item Name *'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _addMenuPriceController,
+                  decoration: const InputDecoration(labelText: 'Price (₦)'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _addMenuCategory,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: _kitchenCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) => setDialogState(() => _addMenuCategory = v ?? 'Main Dishes'),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('Available'),
+                  value: _addMenuAvailable,
+                  onChanged: (v) => setDialogState(() => _addMenuAvailable = v),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async => await _saveNewMenuItem(dialogContext),
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async => await _saveNewMenuItem(context),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
@@ -2267,14 +2264,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     try {
       await _dataService.addMenuItem(
         name: name,
-        description: _addMenuDescriptionController.text.trim().isEmpty
-            ? null
-            : _addMenuDescriptionController.text.trim(),
         priceKobo: PaymentService.nairaToKobo(priceNaira),
         department: 'restaurant',
-        category: _addMenuCategoryController.text.trim().isEmpty
-            ? null
-            : _addMenuCategoryController.text.trim(),
+        category: _addMenuCategory,
         isAvailable: _addMenuAvailable,
       );
       await _dataService.logActivity(staffId, 'Added menu item', 'Kitchen', 'Added $name');

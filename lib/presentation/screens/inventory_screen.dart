@@ -44,12 +44,13 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   
   // Controllers for add item dialog
   final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
   final _quantityController = TextEditingController();
-  final _unitController = TextEditingController();
   final _vipPriceController = TextEditingController();
   final _outsidePriceController = TextEditingController();
-  final _categoryController = TextEditingController();
+  String _addItemUnit = 'bottles';
+  String _addItemCategory = 'Alcoholic Drinks';
+  static const _inventoryUnits = ['bottles', 'cans', 'packs', 'pieces', 'kg', 'units'];
+  static const _inventoryCategories = ['Alcoholic Drinks', 'Soft Drinks', 'Snacks', 'Other'];
 
   // Bar selection for management
   String? _selectedBar;
@@ -129,12 +130,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _currentSaleScrollController.dispose();
     _tabController.dispose();
     _nameController.dispose();
-    _descriptionController.dispose();
     _quantityController.dispose();
-    _unitController.dispose();
     _vipPriceController.dispose();
     _outsidePriceController.dispose();
-    _categoryController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _approvedByController.dispose();
@@ -1927,61 +1925,74 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   void _showAddItemDialog() {
+    _nameController.clear();
+    _quantityController.clear();
+    _vipPriceController.clear();
+    _outsidePriceController.clear();
+    _addItemUnit = 'bottles';
+    _addItemCategory = 'Alcoholic Drinks';
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Item Name'),
-              ),
-              TextField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(labelText: 'Description'),
-              ),
-              TextField(
-                controller: _quantityController,
-                decoration: const InputDecoration(labelText: 'Initial Quantity'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: _unitController,
-                decoration: const InputDecoration(labelText: 'Unit'),
-              ),
-              TextField(
-                controller: _vipPriceController,
-                decoration: const InputDecoration(labelText: 'VIP Bar Price (₦)'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: _outsidePriceController,
-                decoration: const InputDecoration(labelText: 'Outside Bar Price (₦)'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: _categoryController,
-                decoration: const InputDecoration(labelText: 'Category'),
-              ),
-            ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add New Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(labelText: 'Item Name *'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _vipPriceController,
+                  decoration: const InputDecoration(labelText: 'VIP Bar Price (₦)'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _outsidePriceController,
+                  decoration: const InputDecoration(labelText: 'Outside Bar Price (₦)'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _quantityController,
+                  decoration: const InputDecoration(labelText: 'Initial Quantity'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _addItemUnit,
+                  decoration: const InputDecoration(labelText: 'Unit'),
+                  items: _inventoryUnits.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
+                  onChanged: (v) => setDialogState(() => _addItemUnit = v ?? 'bottles'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _addItemCategory,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: _inventoryCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) => setDialogState(() => _addItemCategory = v ?? 'Alcoholic Drinks'),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _saveNewItem();
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _saveNewItem();
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
@@ -2013,18 +2024,16 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // 1. Create stock_items row first so bar stock can be tracked.
       final stockItemId = await _dataService.addStockItem(
         name: name,
-        description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
-        unit: _unitController.text.trim().isEmpty ? 'units' : _unitController.text.trim(),
-        category: _categoryController.text.trim().isEmpty ? null : _categoryController.text.trim(),
+        unit: _addItemUnit,
+        category: _addItemCategory,
       );
 
       final item = {
         'name': name,
-        'description': _descriptionController.text,
-        'unit': _unitController.text,
+        'unit': _addItemUnit,
         'vip_bar_price': PaymentService.nairaToKobo(vipPriceNaira),
         'outside_bar_price': PaymentService.nairaToKobo(outsidePriceNaira),
-        'category': _categoryController.text,
+        'category': _addItemCategory,
         'department': _selectedBar,
         'stock_item_id': stockItemId,
       };
@@ -2095,12 +2104,11 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   void _clearAddItemForm() {
     _nameController.clear();
-    _descriptionController.clear();
     _quantityController.clear();
-    _unitController.clear();
     _vipPriceController.clear();
     _outsidePriceController.clear();
-    _categoryController.clear();
+    _addItemUnit = 'bottles';
+    _addItemCategory = 'Alcoholic Drinks';
   }
 
   Future<void> _retryInitialStock(String stockItemId, String locationId, int quantity, String itemName) async {

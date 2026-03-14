@@ -65,12 +65,11 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   // Add Item (owner/manager)
   final _addItemNameController = TextEditingController();
-  final _addItemDescriptionController = TextEditingController();
   final _addItemPriceController = TextEditingController();
-  final _addItemCategoryController = TextEditingController();
   final _addItemStockController = TextEditingController(text: '0');
-  final _addItemMinStockController = TextEditingController(text: '0');
   bool _addItemAvailable = true;
+  String _addItemCategory = 'Snacks';
+  static const _miniMartCategories = ['Snacks', 'Drinks', 'Toiletries', 'Other'];
 
   // Phase 4: Sales history pagination (load 50 per page, load more on scroll)
   static const int _salesHistoryPageSize = 50;
@@ -123,82 +122,71 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _customerPhoneController.dispose();
     _approvedByController.dispose();
     _addItemNameController.dispose();
-    _addItemDescriptionController.dispose();
     _addItemPriceController.dispose();
-    _addItemCategoryController.dispose();
     _addItemStockController.dispose();
-    _addItemMinStockController.dispose();
     super.dispose();
   }
 
   void _showAddMiniMartItemDialog() {
     _addItemNameController.clear();
-    _addItemDescriptionController.clear();
     _addItemPriceController.clear();
-    _addItemCategoryController.clear();
     _addItemStockController.text = '0';
-    _addItemMinStockController.text = '0';
-    setState(() => _addItemAvailable = true);
+    setState(() {
+      _addItemAvailable = true;
+      _addItemCategory = 'Snacks';
+    });
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Mini Mart Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _addItemNameController,
-                decoration: const InputDecoration(labelText: 'Item Name *'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addItemDescriptionController,
-                decoration: const InputDecoration(labelText: 'Description'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addItemPriceController,
-                decoration: const InputDecoration(labelText: 'Price (₦)'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addItemCategoryController,
-                decoration: const InputDecoration(labelText: 'Category'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addItemStockController,
-                decoration: const InputDecoration(labelText: 'Initial Stock'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addItemMinStockController,
-                decoration: const InputDecoration(labelText: 'Min Stock Level'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                title: const Text('Available'),
-                value: _addItemAvailable,
-                onChanged: (v) => setState(() => _addItemAvailable = v),
-              ),
-            ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Mini Mart Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _addItemNameController,
+                  decoration: const InputDecoration(labelText: 'Item Name *'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _addItemPriceController,
+                  decoration: const InputDecoration(labelText: 'Price (₦)'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _addItemCategory,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: _miniMartCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) => setDialogState(() => _addItemCategory = v ?? 'Snacks'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _addItemStockController,
+                  decoration: const InputDecoration(labelText: 'Initial Stock'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('Available'),
+                  value: _addItemAvailable,
+                  onChanged: (v) => setDialogState(() => _addItemAvailable = v),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async => await _saveNewMiniMartItem(dialogContext),
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async => await _saveNewMiniMartItem(context),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
@@ -222,19 +210,12 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     );
     if (staffId == null) return;
     final stock = int.tryParse(_addItemStockController.text.trim()) ?? 0;
-    final minStock = int.tryParse(_addItemMinStockController.text.trim()) ?? 0;
     try {
       await _dataService.addMiniMartItem(
         name: name,
-        description: _addItemDescriptionController.text.trim().isEmpty
-            ? null
-            : _addItemDescriptionController.text.trim(),
         priceKobo: PaymentService.nairaToKobo(priceNaira),
-        category: _addItemCategoryController.text.trim().isEmpty
-            ? null
-            : _addItemCategoryController.text.trim(),
+        category: _addItemCategory,
         stockQuantity: stock,
-        minStockLevel: minStock,
         isAvailable: _addItemAvailable,
       );
       await _dataService.logActivity(staffId, 'Added item', 'MiniMart', 'Added $name');
