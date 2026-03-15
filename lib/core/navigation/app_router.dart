@@ -510,7 +510,7 @@ class AppRouter {
               'runId': 'run1',
               'hypothesisId': 'S'
             });
-            print('DEBUG Router: route=$location, roles=${currentUser.roles.map((r) => r.name)}, hasAccess=$hasAccess');
+            // if (kDebugMode) debugPrint('DEBUG Router: route=$location, roles=${currentUser.roles.map((r) => r.name)}, hasAccess=$hasAccess');
             // #endregion
             
             if (!hasAccess) {

@@ -436,7 +436,7 @@ class DataService {
           })
           .select('id')
           .single();
-      return response['id'] as String;
+      return response['id']?.toString() ?? '';
     });
   }
 
@@ -1637,6 +1637,7 @@ class DataService {
         await _supabase.from(tableName).update(payload).eq('id', id);
       });
     } on PostgrestException catch (e) {
+      if (kDebugMode) debugPrint('PostgrestException in updateProduct: code=${e.code} message=${e.message} tableName=$tableName id=$id');
       final msg = (e.message ?? '').toLowerCase();
       final isColumnError = e.code == '42703' ||
           msg.contains('updated_at') ||
@@ -2023,8 +2024,9 @@ class DataService {
           .select('id')
           .single();
 
-      final orderId = orderResponse['id'] as String;
-      
+      final orderId = orderResponse['id']?.toString() ?? '';
+      if (orderId.isEmpty) throw Exception('Failed to create purchase order: no id returned');
+
       // Insert items
       if (order['items'] != null) {
         final items = order['items'] as List;

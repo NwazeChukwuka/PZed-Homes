@@ -2321,7 +2321,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     return const SizedBox.shrink();
     // #region agent log
     debugLog({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"});
-    print('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');
+    // if (kDebugMode) debugPrint('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');
     // #endregion
     if (_isLoadingAttendance) return const LinearProgressIndicator();
 
@@ -2363,13 +2363,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             builder: (context) {
               // #region agent log
               debugLog({"location":"staff_dashboard_screen.dart:2061","message":"Rendering clock button","data":{"isClockedIn":_isClockedIn,"handlerExists":true},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"});
-              print('DEBUG: Rendering clock button - isClockedIn: $_isClockedIn');
+              // if (kDebugMode) debugPrint('DEBUG: Rendering clock button - isClockedIn: $_isClockedIn');
               // #endregion
               return ElevatedButton(
                 onPressed: () {
                   // #region agent log
                   debugLog({"location":"staff_dashboard_screen.dart:2062","message":"Button onPressed triggered","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"R"});
-                  print('DEBUG: Button pressed! isClockedIn: $_isClockedIn');
+                  // if (kDebugMode) debugPrint('DEBUG: Button pressed! isClockedIn: $_isClockedIn');
                   // #endregion
                   if (_isClockedIn) {
                     _handleClockOut();

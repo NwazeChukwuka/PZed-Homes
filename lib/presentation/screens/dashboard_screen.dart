@@ -922,18 +922,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _handleClockIn() async {
     // #region agent log
     debugLog({"location":"dashboard_screen.dart:267","message":"Clock-in button clicked (dashboard)","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"});
-    print('DEBUG: Clock-in button clicked in dashboard');
+    // if (kDebugMode) debugPrint('DEBUG: Clock-in button clicked in dashboard');
     // #endregion
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       // #region agent log
       debugLog({"location":"dashboard_screen.dart:270","message":"Before clockIn call (dashboard)","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"});
-      print('DEBUG: Before clockIn - userId: ${authService.currentUser?.id}, isClockedIn: ${authService.isClockedIn}');
+      // if (kDebugMode) debugPrint('DEBUG: Before clockIn - userId: ${authService.currentUser?.id}, isClockedIn: ${authService.isClockedIn}');
       // #endregion
       await authService.clockIn();
       // #region agent log
       debugLog({"location":"dashboard_screen.dart:272","message":"After clockIn call - success (dashboard)","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"});
-      print('DEBUG: ClockIn success - clockInTime: ${authService.clockInTime}');
+      // if (kDebugMode) debugPrint('DEBUG: ClockIn success - clockInTime: ${authService.clockInTime}');
       // #endregion
       if (mounted) {
         setState(() {

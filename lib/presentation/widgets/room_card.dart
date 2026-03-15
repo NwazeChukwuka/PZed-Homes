@@ -63,7 +63,7 @@ class _RoomCardState extends State<RoomCard> {
                     ),
                   );
                 } catch (e) {
-                  print('DEBUG: Room card navigation error: $e');
+                  if (kDebugMode) debugPrint('DEBUG: Room card navigation error: $e');
                 } finally {
                   if (mounted) {
                     setState(() => _isNavigating = false);

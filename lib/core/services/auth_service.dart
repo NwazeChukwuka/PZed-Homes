@@ -386,7 +386,7 @@ class AuthService with ChangeNotifier {
         'runId': 'run1',
         'hypothesisId': 'U'
       });
-      print('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
+      // if (kDebugMode) debugPrint('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
       // #endregion
       
       // Ensure we have at least one role

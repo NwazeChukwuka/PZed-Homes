@@ -67,6 +67,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   final _addItemNameController = TextEditingController();
   final _addItemPriceController = TextEditingController();
   final _addItemStockController = TextEditingController(text: '0');
+  final _addItemSavingNotifier = ValueNotifier<bool>(false);
   bool _addItemAvailable = true;
   String _addItemCategory = 'Snacks';
   static const _miniMartCategories = ['Snacks', 'Drinks', 'Toiletries', 'Other'];
@@ -121,6 +122,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _approvedByController.dispose();
+    _addItemSavingNotifier.dispose();
     _addItemNameController.dispose();
     _addItemPriceController.dispose();
     _addItemStockController.dispose();
@@ -137,8 +139,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     });
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => ValueListenableBuilder<bool>(
+        valueListenable: _addItemSavingNotifier,
+        builder: (context, saving, _) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
           title: const Text('Add Mini Mart Item'),
           content: SingleChildScrollView(
             child: Column(
@@ -182,12 +186,22 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () async => await _saveNewMiniMartItem(dialogContext),
-              child: const Text('Save'),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      _addItemSavingNotifier.value = true;
+                      try {
+                        await _saveNewMiniMartItem(dialogContext);
+                      } finally {
+                        _addItemSavingNotifier.value = false;
+                      }
+                    },
+              child: Text(saving ? 'Saving...' : 'Save'),
             ),
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -1253,33 +1267,44 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                                   tableName: tableName,
                                                   product: productForDialog,
                                                   onSave: (updates, [priceChangeDetails]) async {
-                                                    final authService = Provider.of<AuthService>(context, listen: false);
-                                                    final staffId = StaffAuthHelper.requireStaffProfileId(
-                                                      context,
-                                                      authService: authService,
-                                                      supabase: _supabase,
-                                                    );
-                                                    if (staffId == null) return;
-                                                    await _dataService.updateProduct(
-                                                      tableName,
-                                                      item['id'].toString(),
-                                                      updates,
-                                                    );
-                                                    if (priceChangeDetails != null &&
-                                                        priceChangeDetails.isNotEmpty &&
-                                                        mounted) {
-                                                      final department = ProductCatalogConfig
-                                                          .tableToDepartmentName[tableName] ?? 'MiniMart';
-                                                      await _dataService.logActivity(
-                                                        staffId,
-                                                        'Price Update',
-                                                        department,
-                                                        priceChangeDetails,
+                                                    try {
+                                                      final authService = Provider.of<AuthService>(context, listen: false);
+                                                      final staffId = StaffAuthHelper.requireStaffProfileId(
+                                                        context,
+                                                        authService: authService,
+                                                        supabase: _supabase,
                                                       );
-                                                    }
-                                                    if (mounted) {
-                                                      ErrorHandler.showSuccessMessage(context, 'Product updated.');
-                                                      _loadMiniMartData();
+                                                      if (staffId == null) return;
+                                                      await _dataService.updateProduct(
+                                                        tableName,
+                                                        item['id'].toString(),
+                                                        updates,
+                                                      );
+                                                      if (priceChangeDetails != null &&
+                                                          priceChangeDetails.isNotEmpty &&
+                                                          mounted) {
+                                                        final department = ProductCatalogConfig
+                                                            .tableToDepartmentName[tableName] ?? 'MiniMart';
+                                                        await _dataService.logActivity(
+                                                          staffId,
+                                                          'Price Update',
+                                                          department,
+                                                          priceChangeDetails,
+                                                        );
+                                                      }
+                                                      if (mounted) {
+                                                        ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                        _loadMiniMartData();
+                                                      }
+                                                    } on PostgrestException catch (e) {
+                                                      if (mounted) {
+                                                        final message = e.code == '42501'
+                                                            ? 'Permission Denied: Only Managers or Owners can change prices.'
+                                                            : null;
+                                                        ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
+                                                      }
+                                                    } catch (e, stackTrace) {
+                                                      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
                                                     }
                                                   },
                                                 ),

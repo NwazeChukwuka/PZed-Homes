@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -118,7 +119,7 @@ class _AuthFormState extends State<AuthForm> {
                 'Welcome! Redirecting to Staff Portal...',
               );
             } catch (e) {
-              print('DEBUG: Guest auth navigation error: $e');
+              if (kDebugMode) debugPrint('DEBUG: Guest auth navigation error: $e');
             }
           }
         } else {

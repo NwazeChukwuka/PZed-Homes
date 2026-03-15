@@ -919,38 +919,58 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   void _showEditRoomTypePriceDialog(Map<String, dynamic> roomType) {
     final id = roomType['id']?.toString();
     final typeName = roomType['type']?.toString() ?? 'Unknown';
-    final priceKobo = (roomType['price'] as num?)?.toInt() ?? 0;
+    final priceKobo = int.tryParse(roomType['price']?.toString() ?? '0') ?? 0;
     final priceNaira = PaymentService.koboToNaira(priceKobo);
     final controller = TextEditingController(text: priceNaira.toStringAsFixed(2));
+    final saving = [false];
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Edit price: $typeName'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Price (₦)'),
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final naira = double.tryParse(controller.text);
-              if (naira == null || naira < 0 || id == null) return;
-              try {
-                await _dataService.updateRoomTypePrice(id, PaymentService.nairaToKobo(naira));
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(context, 'Price updated.');
-                  _loadManageRoomTypes();
-                }
-              } catch (e, stackTrace) {
-                if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
-              }
-            },
-            child: const Text('Save'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Edit price: $typeName'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(labelText: 'Price (₦)'),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: saving[0] ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: saving[0]
+                  ? null
+                  : () async {
+                      final naira = double.tryParse(controller.text);
+                      if (naira == null || naira < 0 || id == null) return;
+                      setDialogState(() => saving[0] = true);
+                      try {
+                        await _dataService.updateRoomTypePrice(id, PaymentService.nairaToKobo(naira));
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ErrorHandler.showSuccessMessage(context, 'Price updated.');
+                          _loadManageRoomTypes();
+                        }
+                      } on PostgrestException catch (e) {
+                        if (mounted) {
+                          setDialogState(() => saving[0] = false);
+                          final message = e.code == '42501'
+                              ? 'Permission Denied: Only Managers or Owners can update room type prices.'
+                              : null;
+                          ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
+                        }
+                      } catch (e, stackTrace) {
+                        if (mounted) {
+                          setDialogState(() => saving[0] = false);
+                          ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+                        }
+                      }
+                    },
+              child: Text(saving[0] ? 'Saving...' : 'Save'),
+            ),
+          ],
+        ),
       ),
     );
   }

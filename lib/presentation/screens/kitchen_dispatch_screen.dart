@@ -106,6 +106,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   // Add Menu Item (owner/manager)
   final _addMenuNameController = TextEditingController();
   final _addMenuPriceController = TextEditingController();
+  final _addMenuSavingNotifier = ValueNotifier<bool>(false);
   bool _addMenuAvailable = true;
   String _addMenuCategory = 'Main Dishes';
   static const _kitchenCategories = ['Soups', 'Main Dishes', 'Sides', 'Drinks', 'Snacks', 'Other'];
@@ -2181,6 +2182,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _saleCustomNameController.dispose();
     _saleCreditCustomerNameController.dispose();
     _saleCreditCustomerPhoneController.dispose();
+    _addMenuSavingNotifier.dispose();
     _addMenuNameController.dispose();
     _addMenuPriceController.dispose();
     super.dispose();
@@ -2195,8 +2197,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     });
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => ValueListenableBuilder<bool>(
+        valueListenable: _addMenuSavingNotifier,
+        builder: (context, saving, _) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
           title: const Text('Add Menu Item'),
           content: SingleChildScrollView(
             child: Column(
@@ -2234,12 +2238,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () async => await _saveNewMenuItem(dialogContext),
-              child: const Text('Save'),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      _addMenuSavingNotifier.value = true;
+                      try {
+                        await _saveNewMenuItem(dialogContext);
+                      } finally {
+                        _addMenuSavingNotifier.value = false;
+                      }
+                    },
+              child: Text(saving ? 'Saving...' : 'Save'),
             ),
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -2820,33 +2834,44 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                             tableName: tableName,
                                             product: item,
                                             onSave: (updates, [priceChangeDetails]) async {
-                                              final authService = Provider.of<AuthService>(context, listen: false);
-                                              final staffId = StaffAuthHelper.requireStaffProfileId(
-                                                context,
-                                                authService: authService,
-                                                supabase: _requireSupabase(),
-                                              );
-                                              if (staffId == null) return;
-                                              await _dataService.updateProduct(
-                                                tableName,
-                                                item['id'].toString(),
-                                                updates,
-                                              );
-                                              if (priceChangeDetails != null &&
-                                                  priceChangeDetails.isNotEmpty &&
-                                                  mounted) {
-                                                final department = ProductCatalogConfig
-                                                    .tableToDepartmentName[tableName] ?? 'Kitchen';
-                                                await _dataService.logActivity(
-                                                  staffId,
-                                                  'Price Update',
-                                                  department,
-                                                  priceChangeDetails,
+                                              try {
+                                                final authService = Provider.of<AuthService>(context, listen: false);
+                                                final staffId = StaffAuthHelper.requireStaffProfileId(
+                                                  context,
+                                                  authService: authService,
+                                                  supabase: _requireSupabase(),
                                                 );
-                                              }
-                                              if (mounted) {
-                                                ErrorHandler.showSuccessMessage(context, 'Product updated.');
-                                                _loadStockAndLocations();
+                                                if (staffId == null) return;
+                                                await _dataService.updateProduct(
+                                                  tableName,
+                                                  item['id'].toString(),
+                                                  updates,
+                                                );
+                                                if (priceChangeDetails != null &&
+                                                    priceChangeDetails.isNotEmpty &&
+                                                    mounted) {
+                                                  final department = ProductCatalogConfig
+                                                      .tableToDepartmentName[tableName] ?? 'Kitchen';
+                                                  await _dataService.logActivity(
+                                                    staffId,
+                                                    'Price Update',
+                                                    department,
+                                                    priceChangeDetails,
+                                                  );
+                                                }
+                                                if (mounted) {
+                                                  ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                  _loadStockAndLocations();
+                                                }
+                                              } on PostgrestException catch (e) {
+                                                if (mounted) {
+                                                  final message = e.code == '42501'
+                                                      ? 'Permission Denied: Only Managers or Owners can change prices.'
+                                                      : null;
+                                                  ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
+                                                }
+                                              } catch (e, stackTrace) {
+                                                if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
                                               }
                                             },
                                           ),

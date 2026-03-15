@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
@@ -264,12 +265,17 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
       return;
     }
 
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final staffId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (staffId == null) return;
+
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final staffId = authService.currentUser?.id ?? 'system';
       final quantity = int.parse(_quantityController.text);
-      
       final stockItemId = _selectedStockItemId!;
 
       // Record stock transaction using stock_item_id
@@ -329,7 +335,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  initialValue: _selectedStockItemId,
+                  value: _selectedStockItemId,
                   decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
                   items: _stockItems.map((item) => DropdownMenuItem<String>(
                     value: item['id']?.toString(),
@@ -343,7 +349,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _locations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  initialValue: _selectedLocationId,
+                  value: _selectedLocationId,
                   decoration: const InputDecoration(labelText: 'Receiving Location', border: OutlineInputBorder()),
                   items: _locations.map((loc) => DropdownMenuItem<String>(
                     value: loc['id']?.toString(),
@@ -368,7 +374,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : ElevatedButton(
-                  onPressed: _recordDirectEntry,
+                  onPressed: _isLoading ? null : _recordDirectEntry,
                   style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: const Text('Add to Stock Ledger'),
                 ),
@@ -441,6 +447,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
   }
 
   String? _defaultMainStoreLocationId() {
+    // Guard: avoid .first / .firstWhere on empty list to prevent runtime exception.
     if (_locations.isEmpty) return null;
     final match = _locations.firstWhere(
       (loc) {
@@ -449,7 +456,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
       },
       orElse: () => <String, dynamic>{},
     );
-    return match.isNotEmpty ? match['id']?.toString() : _locations.first['id']?.toString();
+    if (match.isEmpty) return _locations.isNotEmpty ? _locations.first['id']?.toString() : null;
+    return match['id']?.toString();
   }
 
   List<Map<String, dynamic>> _eligibleRecipients() {
@@ -498,10 +506,16 @@ class _StockTransferFormState extends State<StockTransferForm> {
       return;
     }
 
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final issuedById = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (issuedById == null) return;
+
     setState(() => _isLoading = true);
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final issuedById = authService.currentUser?.id ?? 'system';
       final quantity = int.parse(_quantityController.text.trim());
 
       await _dataService.createStockTransfer(
@@ -557,7 +571,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  initialValue: _selectedStockItemId,
+                  value: _selectedStockItemId,
                   decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
                   items: _stockItems.map((item) => DropdownMenuItem<String>(
                     value: item['id']?.toString(),
@@ -570,7 +584,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _locations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  initialValue: _sourceLocationId,
+                  value: _sourceLocationId,
                   decoration: const InputDecoration(labelText: 'Source Location', border: OutlineInputBorder()),
                   items: _locations.map((loc) => DropdownMenuItem<String>(
                     value: loc['id']?.toString(),
@@ -583,7 +597,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _locations.isEmpty
               ? const SizedBox.shrink()
               : DropdownButtonFormField<String>(
-                  initialValue: _destinationLocationId,
+                  value: _destinationLocationId,
                   decoration: const InputDecoration(labelText: 'Destination Location', border: OutlineInputBorder()),
                   items: _locations
                       .where((loc) => loc['id']?.toString() != _sourceLocationId)
@@ -602,7 +616,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
           recipients.isEmpty
               ? const Text('No eligible staff found for selected location.')
               : DropdownButtonFormField<String>(
-                  initialValue: _selectedRecipientId,
+                  value: _selectedRecipientId,
                   decoration: const InputDecoration(labelText: 'Recipient Staff', border: OutlineInputBorder()),
                   items: recipients.map((staff) => DropdownMenuItem<String>(
                     value: staff['id']?.toString(),
@@ -635,7 +649,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
               : SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _submitTransfer,
+                    onPressed: _isLoading ? null : _submitTransfer,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
                       padding: const EdgeInsets.symmetric(vertical: 14),

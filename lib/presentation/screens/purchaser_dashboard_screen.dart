@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:intl/intl.dart';
@@ -36,6 +37,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   List<Map<String, dynamic>> _purchaseHistory = [];
   List<Map<String, dynamic>> _pendingOrders = [];
   bool _isLoading = true;
+  bool _recordPurchaseLoading = false;
   List<Map<String, dynamic>> _suppliers = [];
   String? _selectedSupplierId;
 
@@ -233,13 +235,16 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       return;
     }
 
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final purchaserId = authService.currentUser?.id;
-      if (purchaserId == null) {
-        throw Exception('User not authenticated');
-      }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final purchaserId = StaffAuthHelper.requireStaffProfileId(
+      context,
+      authService: authService,
+      supabase: _dataService.supabase,
+    );
+    if (purchaserId == null) return;
 
+    if (mounted) setState(() => _recordPurchaseLoading = true);
+    try {
       // Get or create stock item
       final stockItems = await _dataService.getStockItems();
       final existingItem = stockItems.firstWhere(
@@ -309,6 +314,8 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           onRetry: _recordPurchase,
         );
       }
+    } finally {
+      if (mounted) setState(() => _recordPurchaseLoading = false);
     }
   }
 
@@ -654,13 +661,13 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _recordPurchase,
+                onPressed: _recordPurchaseLoading ? null : _recordPurchase,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[800],
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                child: const Text('Record Purchase'),
+                child: Text(_recordPurchaseLoading ? 'Saving...' : 'Record Purchase'),
               ),
             ),
           ],

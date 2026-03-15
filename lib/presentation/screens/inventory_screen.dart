@@ -47,6 +47,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   final _quantityController = TextEditingController();
   final _vipPriceController = TextEditingController();
   final _outsidePriceController = TextEditingController();
+  final _addItemSavingNotifier = ValueNotifier<bool>(false);
   String _addItemUnit = 'bottles';
   String _addItemCategory = 'Alcoholic Drinks';
   static const _inventoryUnits = ['bottles', 'cans', 'packs', 'pieces', 'kg', 'units'];
@@ -129,6 +130,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _transactionsScrollController.dispose();
     _currentSaleScrollController.dispose();
     _tabController.dispose();
+    _addItemSavingNotifier.dispose();
     _nameController.dispose();
     _quantityController.dispose();
     _vipPriceController.dispose();
@@ -195,7 +197,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       'runId': 'run1',
       'hypothesisId': 'X'
     });
-    print('DEBUG InventoryScreen: Starting _loadInventory');
+    // if (kDebugMode) debugPrint('DEBUG InventoryScreen: Starting _loadInventory');
     // #endregion
     setState(() {
       _isLoading = true;
@@ -712,41 +714,66 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         tableName: tableName,
         product: productForDialog,
         onSave: (updates, [priceChangeDetails]) async {
-          final authService = Provider.of<AuthService>(context, listen: false);
-          final staffId = StaffAuthHelper.requireStaffProfileId(
-            context,
-            authService: authService,
-          );
-          if (staffId == null) return;
+          try {
+            final authService = Provider.of<AuthService>(context, listen: false);
+            final staffId = StaffAuthHelper.requireStaffProfileId(
+              context,
+              authService: authService,
+            );
+            if (staffId == null) return;
 
-          if (isMerged) {
-            final vipRow = item['_vip_row'] as Map<String, dynamic>?;
-            final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
-            final commonUpdates = <String, dynamic>{};
-            if (updates.containsKey('name')) commonUpdates['name'] = updates['name'];
-            if (updates.containsKey('category')) commonUpdates['category'] = updates['category'];
+            if (isMerged) {
+              final vipRow = item['_vip_row'] as Map<String, dynamic>?;
+              final outsideRow = item['_outside_row'] as Map<String, dynamic>?;
+              final commonUpdates = <String, dynamic>{};
+              if (updates.containsKey('name')) commonUpdates['name'] = updates['name'];
+              if (updates.containsKey('category')) commonUpdates['category'] = updates['category'];
 
-            if (vipRow != null) {
-              final vipUpdates = Map<String, dynamic>.from(commonUpdates);
-              if (updates.containsKey('vip_bar_price')) vipUpdates['vip_bar_price'] = updates['vip_bar_price'];
-              await _dataService.updateProduct(tableName, vipRow['id'].toString(), vipUpdates);
+              if (vipRow != null) {
+                final vipUpdates = Map<String, dynamic>.from(commonUpdates);
+                if (updates.containsKey('vip_bar_price')) vipUpdates['vip_bar_price'] = updates['vip_bar_price'];
+                await _dataService.updateProduct(tableName, vipRow['id'].toString(), vipUpdates);
+              }
+              if (outsideRow != null) {
+                final outsideUpdates = Map<String, dynamic>.from(commonUpdates);
+                if (updates.containsKey('outside_bar_price')) outsideUpdates['outside_bar_price'] = updates['outside_bar_price'];
+                try {
+                  await _dataService.updateProduct(tableName, outsideRow['id'].toString(), outsideUpdates);
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Partial Success: VIP price updated, but Outside Bar price failed. Please try again.',
+                        ),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
+                  rethrow;
+                }
+              }
+            } else {
+              await _dataService.updateProduct(tableName, item['id'].toString(), updates);
             }
-            if (outsideRow != null) {
-              final outsideUpdates = Map<String, dynamic>.from(commonUpdates);
-              if (updates.containsKey('outside_bar_price')) outsideUpdates['outside_bar_price'] = updates['outside_bar_price'];
-              await _dataService.updateProduct(tableName, outsideRow['id'].toString(), outsideUpdates);
-            }
-          } else {
-            await _dataService.updateProduct(tableName, item['id'].toString(), updates);
-          }
 
-          if (priceChangeDetails != null && priceChangeDetails.isNotEmpty && mounted) {
-            final department = ProductCatalogConfig.tableToDepartmentName[tableName] ?? 'Inventory';
-            await _dataService.logActivity(staffId, 'Price Update', department, priceChangeDetails);
-          }
-          if (mounted) {
-            ErrorHandler.showSuccessMessage(context, 'Product updated.');
-            _loadInventory();
+            if (priceChangeDetails != null && priceChangeDetails.isNotEmpty && mounted) {
+              final department = ProductCatalogConfig.tableToDepartmentName[tableName] ?? 'Inventory';
+              await _dataService.logActivity(staffId, 'Price Update', department, priceChangeDetails);
+            }
+            if (mounted) {
+              ErrorHandler.showSuccessMessage(context, 'Product updated.');
+              _loadInventory();
+            }
+          } on PostgrestException catch (e) {
+            if (mounted) {
+              final message = e.code == '42501'
+                  ? 'Permission Denied: Only Managers or Owners can change prices.'
+                  : null;
+              ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
+            }
+          } catch (e, stackTrace) {
+            if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
           }
         },
       ),
@@ -1933,8 +1960,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _addItemCategory = 'Alcoholic Drinks';
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => ValueListenableBuilder<bool>(
+        valueListenable: _addItemSavingNotifier,
+        builder: (context, saving, _) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
           title: const Text('Add New Item'),
           content: SingleChildScrollView(
             child: Column(
@@ -1985,22 +2014,31 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () async {
-                await _saveNewItem();
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-              },
-              child: const Text('Save'),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      _addItemSavingNotifier.value = true;
+                      try {
+                        final ok = await _saveNewItem();
+                        if (ok == true && dialogContext.mounted) Navigator.pop(dialogContext);
+                      } finally {
+                        _addItemSavingNotifier.value = false;
+                      }
+                    },
+              child: Text(saving ? 'Saving...' : 'Save'),
             ),
           ],
         ),
       ),
+    ),
     );
   }
 
-  Future<void> _saveNewItem() async {
+  /// Returns true if item was added successfully (dialog should close); false on validation or error (dialog stays open).
+  Future<bool> _saveNewItem() async {
     if (_selectedBar == null) {
       ErrorHandler.showWarningMessage(context, 'Please select a bar before adding a new item.');
-      return;
+      return false;
     }
     final authService = Provider.of<AuthService>(context, listen: false);
     final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
@@ -2009,7 +2047,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       ErrorHandler.showWarningMessage(context, 'Item name is required.');
-      return;
+      return false;
     }
 
     // Require valid session for add + audit log (and for initial stock when initialQty > 0)
@@ -2018,7 +2056,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       authService: authService,
       supabase: _dataService.supabase,
     );
-    if (staffId == null) return; // Session dialog already shown
+    if (staffId == null) return false; // Session dialog already shown
 
     try {
       // 1. Create stock_items row first so bar stock can be tracked.
@@ -2027,6 +2065,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         unit: _addItemUnit,
         category: _addItemCategory,
       );
+      if (stockItemId.isEmpty) {
+        if (mounted) {
+          ErrorHandler.showWarningMessage(
+            context,
+            'Failed to generate Stock ID. Please try again.',
+          );
+        }
+        return false;
+      }
 
       final item = {
         'name': name,
@@ -2071,7 +2118,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
               stackTrace: stackTrace,
             );
           }
-          return; // Don't clear form so user can see what was added
+          return false; // Don't clear form so user can see what was added
         }
       }
 
@@ -2081,6 +2128,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         ErrorHandler.showSuccessMessage(context, 'Item added successfully.');
       }
       await _loadInventorySafe();
+      return true;
     } on PostgrestException catch (e) {
       if (mounted) {
         ErrorHandler.handleError(
@@ -2089,6 +2137,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           customMessage: ErrorHandler.getAdminErrorMessage(e, itemName: name, department: _selectedBar),
         );
       }
+      return false;
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG add item: $e\n$stackTrace');
       if (mounted) {
@@ -2099,6 +2148,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           stackTrace: stackTrace,
         );
       }
+      return false;
     }
   }
 
