@@ -3,7 +3,7 @@ import 'package:pzed_homes/data/models/room.dart';
 import 'package:pzed_homes/data/models/menu_item.dart';
 
 // Time filters - now includes yearly and custom
-enum TimePeriod { today, thisWeek, thisMonth, lastMonth, yearly, custom }
+enum TimePeriod { today, thisWeek, thisMonth, lastMonth, last30Days, yearly, custom }
 
 // Existing class for operational reports (keep this for backward compatibility)
 class ReportData {
@@ -101,6 +101,9 @@ class ReportingService {
         final lastMonth = now.month == 1 ? 12 : now.month - 1;
         final lastYear = now.month == 1 ? now.year - 1 : now.year;
         startDate = DateTime(lastYear, lastMonth, 1);
+        break;
+      case TimePeriod.last30Days:
+        startDate = now.subtract(const Duration(days: 30));
         break;
       case TimePeriod.yearly:
         startDate = DateTime(now.year, 1, 1);
@@ -559,6 +562,112 @@ class ReportingService {
     }
   }
 
+  /// Booking stats for the Guest tab (counts by status, total revenue, avg per booking).
+  Future<Map<String, dynamic>> getGuestStats({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+  }) async {
+    final now = DateTime.now();
+    final range = _getDateRange(period, now, customStart, customEnd);
+    final rows = await _supabase
+        .from('bookings')
+        .select('id, status, total_amount, paid_amount, check_in_date, check_out_date')
+        .gte('created_at', range.start.toIso8601String())
+        .lte('created_at', range.end.toIso8601String());
+
+    int total = 0, checkedIn = 0, checkedOut = 0, pending = 0, cancelled = 0, confirmed = 0;
+    int revenueSum = 0;
+    int totalNights = 0;
+
+    for (final b in rows as List) {
+      total++;
+      final status = _normalizeBookingStatus(b['status']?.toString());
+      if (status == 'checked-in') checkedIn++;
+      else if (status == 'checked-out') checkedOut++;
+      else if (status == 'pending') pending++;
+      else if (status == 'cancelled') cancelled++;
+      else if (status == 'confirmed') confirmed++;
+
+      revenueSum += (b['total_amount'] as num?)?.toInt() ?? (b['paid_amount'] as num?)?.toInt() ?? 0;
+      try {
+        final ci = DateTime.parse(b['check_in_date'] as String);
+        final co = DateTime.parse(b['check_out_date'] as String);
+        totalNights += co.difference(ci).inDays.abs();
+      } catch (_) {}
+    }
+
+    return {
+      'total': total,
+      'checked_in': checkedIn,
+      'checked_out': checkedOut,
+      'pending': pending,
+      'cancelled': cancelled,
+      'confirmed': confirmed,
+      'revenue': revenueSum,
+      'avg_revenue': total > 0 ? (revenueSum / total).round() : 0,
+      'avg_nights': total > 0 ? (totalNights / total).toStringAsFixed(1) : '0',
+    };
+  }
+
+  /// Operations stats for the Operations tab (staff activity, stock adjustments).
+  Future<Map<String, dynamic>> getOperationsStats({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+  }) async {
+    final now = DateTime.now();
+    final range = _getDateRange(period, now, customStart, customEnd);
+
+    int activityCount = 0;
+    int uniqueStaff = 0;
+    String topDepartment = 'N/A';
+    int negativeAdjustments = 0;
+
+    try {
+      final activities = await _supabase
+          .from('staff_activities')
+          .select('id, staff_profile_id, department')
+          .gte('created_at', range.start.toIso8601String())
+          .lte('created_at', range.end.toIso8601String());
+
+      activityCount = (activities as List).length;
+      final staffIds = <String>{};
+      final deptCounts = <String, int>{};
+      for (final a in activities) {
+        final sid = a['staff_profile_id']?.toString();
+        if (sid != null) staffIds.add(sid);
+        final dept = a['department']?.toString() ?? 'Unknown';
+        deptCounts[dept] = (deptCounts[dept] ?? 0) + 1;
+      }
+      uniqueStaff = staffIds.length;
+      if (deptCounts.isNotEmpty) {
+        topDepartment = deptCounts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+      }
+    } catch (_) {}
+
+    try {
+      final transactions = await _supabase
+          .from('stock_transactions')
+          .select('id, quantity, transaction_type')
+          .gte('created_at', range.start.toIso8601String())
+          .lte('created_at', range.end.toIso8601String());
+
+      for (final t in transactions as List) {
+        final qty = (t['quantity'] as num?)?.toInt() ?? 0;
+        final type = t['transaction_type']?.toString() ?? '';
+        if (qty < 0 || type == 'Wastage') negativeAdjustments++;
+      }
+    } catch (_) {}
+
+    return {
+      'activity_count': activityCount,
+      'unique_staff': uniqueStaff,
+      'top_department': topDepartment,
+      'negative_adjustments': negativeAdjustments,
+    };
+  }
+
   // Enhanced date range helper with custom date support
   ({DateTime start, DateTime end}) _getDateRange(
     TimePeriod period,
@@ -592,6 +701,10 @@ class ReportingService {
         final lastYear = now.month == 1 ? now.year - 1 : now.year;
         startDate = DateTime(lastYear, lastMonth, 1);
         endDate = DateTime(lastYear, lastMonth + 1, 0, 23, 59, 59);
+        break;
+      case TimePeriod.last30Days:
+        startDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 30));
+        endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
         break;
       case TimePeriod.yearly:
         startDate = DateTime(now.year, 1, 1);

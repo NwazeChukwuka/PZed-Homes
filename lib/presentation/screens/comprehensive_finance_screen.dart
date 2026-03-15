@@ -10,10 +10,11 @@ import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
 import '../../presentation/widgets/finance_record_dialog.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pzed_homes/core/utils/file_download_helper.dart';
 
 /// Wraps a tab child to preserve state and isolate errors so one broken tab doesn't crash the whole screen.
 class _KeepAliveTab extends StatefulWidget {
@@ -107,7 +108,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   // Data lists
   List<Map<String, dynamic>> _debts = [];
-  List<Map<String, dynamic>> _purchases = [];
   List<Map<String, dynamic>> _incomeRecords = [];
   List<Map<String, dynamic>> _expenses = [];
   List<Map<String, dynamic>> _payrollRecords = [];
@@ -117,11 +117,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   Map<String, List<Map<String, dynamic>>> _departmentSales = {};
   List<Map<String, dynamic>> _departmentPerformance = [];
   bool _isLoadingData = false;
-  bool _isGeneratingReport = false;
   DateTimeRange? _summaryRange;
   bool _showPendingExpenses = false;
   bool _showPendingPayroll = false;
   bool _showOverdueDebtsOnly = false;
+  String? _auditFilterTable;
+  String? _auditFilterAction;
 
   // Controllers for debt recording
   final _debtAmountController = TextEditingController();
@@ -176,7 +177,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 9, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     final now = DateTime.now();
     _summaryRange = DateTimeRange(
       start: DateTime(now.year, now.month, 1),
@@ -237,71 +238,69 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       if (userId == null) {
         throw Exception('User must be logged in to record debts');
       }
+      final range = _effectiveSummaryRange;
       final summary = await _dataService.getFinancialSummary(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
       final debts = await _dataService.getDebts(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
       final income = await _dataService.getIncomeRecords(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
       final expenses = await _dataService.getExpenses(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
         status: _showPendingExpenses ? 'Pending' : null,
       );
       final payroll = await _dataService.getPayrollRecords(
-        startMonth: _summaryRange?.start,
-        endMonth: _summaryRange?.end,
+        startMonth: range.start,
+        endMonth: range.end,
         approvalStatus: _showPendingPayroll ? 'pending' : null,
       );
       final deposits = await _dataService.getCashDeposits(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
-      final purchases = await _dataService.getRecentPurchases();
       final auditLogs = await _dataService.getFinanceAuditLogs(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
       final debtClaims = await _dataService.getDebtPaymentClaims(status: 'pending');
       final performance = await _dataService.getDepartmentPerformance(
-        startDate: _summaryRange?.start,
-        endDate: _summaryRange?.end,
+        startDate: range.start,
+        endDate: range.end,
       );
 
-      // Department sales snapshots (today)
-      final today = DateTime.now();
+      // Department sales for the selected summary range
       final vipSales = await _dataService.getDepartmentSales(
         department: 'vip_bar',
-        startDate: today,
-        endDate: today,
+        startDate: range.start,
+        endDate: range.end,
       );
       final outsideSales = await _dataService.getDepartmentSales(
         department: 'outside_bar',
-        startDate: today,
-        endDate: today,
+        startDate: range.start,
+        endDate: range.end,
       );
       final miniMartSales = await _dataService.getDepartmentSales(
         department: 'mini_mart',
-        startDate: today,
-        endDate: today,
+        startDate: range.start,
+        endDate: range.end,
       );
       final kitchenSales = await _dataService.getDepartmentSales(
         department: 'restaurant',
-        startDate: today,
-        endDate: today,
+        startDate: range.start,
+        endDate: range.end,
       );
 
       setState(() {
         _financialSummary = summary;
         _departmentPerformance = performance;
         _debts = debts;
-        _purchases = purchases;
         _incomeRecords = income;
         _expenses = expenses;
         _payrollRecords = payroll;
@@ -397,6 +396,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       ),
                     ),
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    onPressed: _isLoadingData ? null : _loadFinancialData,
+                    tooltip: 'Refresh',
+                  ),
                   const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
                 ],
               ),
@@ -428,12 +432,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             tabs: const [
               Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
               Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
-              Tab(text: 'Purchases', icon: Icon(Icons.shopping_cart)),
               Tab(text: 'Income', icon: Icon(Icons.trending_up)),
               Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
               Tab(text: 'Payroll', icon: Icon(Icons.payment)),
               Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
-              Tab(text: 'Reports', icon: Icon(Icons.assessment)),
               Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
             ],
           ),
@@ -444,13 +446,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             children: [
               _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
               _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildPurchasesTab(canRecord)),
-              _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
-              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 6, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
-              _LazyTab(index: 7, controller: _tabController, builder: _buildReportsTab),
-              _LazyTab(index: 8, controller: _tabController, builder: _buildAuditTab),
+              _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
+              _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
+              _LazyTab(index: 6, controller: _tabController, builder: _buildAuditTab),
             ],
           ),
         ),
@@ -459,24 +459,85 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildOverviewTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSummaryRangeSelector(),
-          const SizedBox(height: 16),
-          _buildFinancialSummaryCard(),
-          const SizedBox(height: 20),
-          _buildDepartmentPerformanceCard(),
-          const SizedBox(height: 20),
-          _buildDepartmentSalesCard(),
-        ],
+    return RefreshIndicator(
+      onRefresh: _loadFinancialData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummaryRangeSelector(),
+            const SizedBox(height: 16),
+            _buildFinancialSummaryCard(),
+            const SizedBox(height: 16),
+            _buildAuditorExportsCard(),
+            const SizedBox(height: 20),
+            _buildDepartmentPerformanceCard(),
+            const SizedBox(height: 20),
+            _buildDepartmentSalesCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAuditorExportsCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.fact_check, color: Colors.green[700], size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  'Exports for Auditors',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Generate CSV or PDF for the selected date range. Use for external audit or records.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isLoadingData ? null : _downloadFinanceCsv,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Download CSV'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _isLoadingData ? null : _exportAuditorPackPdf,
+                  icon: const Icon(Icons.description, size: 18),
+                  label: const Text('Auditor Pack PDF'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDepartmentSalesCard() {
+    final range = _effectiveSummaryRange;
+    final rangeLabel = '${range.start.toIso8601String().split('T')[0]} – ${range.end.toIso8601String().split('T')[0]}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -484,10 +545,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Department Sales (Today)',
+              'Department Sales',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              rangeLabel,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
             ..._departmentSales.entries.map((entry) {
@@ -517,13 +583,34 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
+  DateTimeRange get _effectiveSummaryRange {
+    final now = DateTime.now();
+    if (_summaryRange != null) return _summaryRange!;
+    return DateTimeRange(
+      start: DateTime(now.year, now.month, 1),
+      end: DateTime(now.year, now.month + 1, 0),
+    );
+  }
+
   Widget _buildSummaryRangeSelector() {
     final now = DateTime.now();
     final defaultStart = DateTime(now.year, now.month, 1);
     final defaultEnd = DateTime(now.year, now.month + 1, 0);
+    final lastMonth = now.month == 1 ? 12 : now.month - 1;
+    final lastYear = now.month == 1 ? now.year - 1 : now.year;
+    final lastMonthStart = DateTime(lastYear, lastMonth, 1);
+    final lastMonthEnd = DateTime(lastYear, lastMonth + 1, 0);
+    final last30Start = now.subtract(const Duration(days: 30));
+    final range = _effectiveSummaryRange;
     final label =
-        '${_summaryRange!.start.toIso8601String().split('T')[0]}'
-        ' → ${_summaryRange!.end.toIso8601String().split('T')[0]}';
+        '${range.start.toIso8601String().split('T')[0]}'
+        ' → ${range.end.toIso8601String().split('T')[0]}';
+    final isThisMonth = range.start == defaultStart && range.end == defaultEnd;
+    final isLastMonth = range.start == lastMonthStart && range.end == lastMonthEnd;
+    final last30End = now;
+    final isLast30 = range.start.year == last30Start.year && range.start.month == last30Start.month && range.start.day == last30Start.day &&
+        range.end.year == last30End.year && range.end.month == last30End.month && range.end.day == last30End.day;
+    final isCustom = !isThisMonth && !isLastMonth && !isLast30;
 
     return Card(
       child: Padding(
@@ -544,7 +631,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               children: [
                 ChoiceChip(
                   label: const Text('This Month'),
-                  selected: _summaryRange!.start == defaultStart && _summaryRange!.end == defaultEnd,
+                  selected: isThisMonth,
                   onSelected: (_) {
                     setState(() {
                       _summaryRange = DateTimeRange(start: defaultStart, end: defaultEnd);
@@ -553,12 +640,22 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   },
                 ),
                 ChoiceChip(
+                  label: const Text('Last Month'),
+                  selected: isLastMonth,
+                  onSelected: (_) {
+                    setState(() {
+                      _summaryRange = DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
+                    });
+                    _loadFinancialData();
+                  },
+                ),
+                ChoiceChip(
                   label: const Text('Last 30 Days'),
-                  selected: now.difference(_summaryRange!.start).inDays == 30,
+                  selected: isLast30,
                   onSelected: (_) {
                     setState(() {
                       _summaryRange = DateTimeRange(
-                        start: now.subtract(const Duration(days: 30)),
+                        start: last30Start,
                         end: now,
                       );
                     });
@@ -567,13 +664,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ),
                 ChoiceChip(
                   label: const Text('Custom'),
-                  selected: !(_summaryRange!.start == defaultStart && _summaryRange!.end == defaultEnd),
+                  selected: isCustom,
                   onSelected: (_) async {
                     final picked = await showDateRangePicker(
                       context: context,
                       firstDate: DateTime(2020),
                       lastDate: now,
-                      initialDateRange: _summaryRange,
+                      initialDateRange: _summaryRange ?? DateTimeRange(start: defaultStart, end: defaultEnd),
                     );
                     if (picked != null) {
                       setState(() {
@@ -605,6 +702,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Summary from recorded income, expenses and cash.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
             Row(
@@ -852,6 +954,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildDepartmentPerformanceCard() {
+    final range = _effectiveSummaryRange;
+    final rangeLabel = '${range.start.toIso8601String().split('T')[0]} – ${range.end.toIso8601String().split('T')[0]}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -863,6 +967,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              rangeLabel,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
             if (_isLoadingData)
@@ -1154,50 +1263,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  Widget _buildPurchasesTab(bool canRecord) {
-    return ListView.builder(
-      itemCount: _purchases.length,
-      itemBuilder: (context, index) {
-        final p = _purchases[index];
-        // purchase_orders: supplier_name, total_cost, created_at; items in purchase_order_items
-        final items = p['purchase_order_items'] as List? ?? [];
-        final itemCount = items.fold<int>(0, (sum, i) => sum + ((i['quantity'] as int?) ?? 0));
-        final firstItemName = (items.isNotEmpty && items[0] is Map)
-            ? (items[0] as Map)['stock_items'] is Map
-                ? ((items[0] as Map)['stock_items'] as Map)['name']?.toString()
-                : null
-            : null;
-        final title = p['supplier_name']?.toString().trim().isNotEmpty == true
-            ? p['supplier_name'].toString()
-            : (firstItemName ?? 'Purchase Order');
-        final dateStr = p['created_at'] != null
-            ? _formatDate(p['created_at'].toString())
-            : '';
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: ListTile(
-            leading: const Icon(Icons.shopping_bag),
-            title: Text(title),
-            subtitle: Text(
-              '${itemCount > 0 ? "$itemCount items • " : ""}Supplier: ${p['supplier_name'] ?? '-'}',
-            ),
-            trailing: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('₦${_formatKobo(p['total_cost'] ?? 0)}'),
-                if (dateStr.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(dateStr),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildIncomeTab(bool canRecord) {
     return Column(
       children: [
@@ -1395,126 +1460,162 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildReportsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Monthly Export',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () => context.push('/reporting'),
-                        icon: const Icon(Icons.assessment),
-                        label: const Text('Open Reporting'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _exportFinanceCsv,
-                        icon: const Icon(Icons.copy),
-                        label: const Text('Copy CSV'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _exportFinancePdf,
-                        icon: const Icon(Icons.picture_as_pdf),
-                        label: const Text('Share PDF'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Department Reports',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => _generateDepartmentReport(),
-                    child: const Text('Generate Department Report'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Financial Reports',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _isGeneratingReport ? null : () => _generateFinancialReport(),
-                    child: _isGeneratingReport
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Generate Financial Report'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  List<Map<String, dynamic>> _getFilteredAuditLogs() {
+    var list = _auditLogs;
+    if ((_auditFilterTable != null && _auditFilterTable != 'All') && _auditFilterTable!.isNotEmpty) {
+      list = list.where((e) => (e['table_name'] as String? ?? '') == _auditFilterTable).toList();
+    }
+    if ((_auditFilterAction != null && _auditFilterAction != 'All') && _auditFilterAction!.isNotEmpty) {
+      list = list.where((e) => (e['action'] as String? ?? '') == _auditFilterAction).toList();
+    }
+    return list;
+  }
+
+  Future<void> _downloadAuditCsv() async {
+    try {
+      final filtered = _getFilteredAuditLogs();
+      final buffer = StringBuffer();
+      final r = _effectiveSummaryRange;
+      final rangeLabel = '${r.start.toIso8601String().split('T')[0]}_to_${r.end.toIso8601String().split('T')[0]}';
+      buffer.writeln('Audit Log,PZed Homes Finance');
+      buffer.writeln('Period,$rangeLabel');
+      buffer.writeln('Generated,${DateTime.now().toIso8601String()}');
+      buffer.writeln('');
+      buffer.writeln('created_at,action,table_name,actor');
+      for (final log in filtered) {
+        final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
+        buffer.writeln('${log['created_at']?.toString() ?? ''},${_escapeCsv(log['action']?.toString() ?? '')},${_escapeCsv(log['table_name']?.toString() ?? '')},${_escapeCsv(actor)}');
+      }
+      final filename = 'PZed_Homes_Audit_Log_$rangeLabel.csv';
+      await triggerCsvDownload(buffer.toString(), filename);
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(
+          context,
+          kIsWeb ? 'Audit log downloaded' : 'Audit log copied to clipboard.',
+        );
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG export audit CSV: $e\n$stackTrace');
+      if (mounted) {
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to export audit log.',
+          stackTrace: stackTrace,
+        );
+      }
+    }
   }
 
   Widget _buildAuditTab() {
     if (_isLoadingData) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_auditLogs.isEmpty) {
-      return const Center(child: Text('No audit logs available'));
-    }
-    return ListView.builder(
-      itemCount: _auditLogs.length,
-      itemBuilder: (context, index) {
-        final log = _auditLogs[index];
-        final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
-        final createdAt = log['created_at']?.toString() ?? '';
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: ListTile(
-            leading: const Icon(Icons.security),
-            title: Text('${log['action']} on ${log['table_name']}'),
-            subtitle: Text('By $actor'),
-            trailing: Text(createdAt),
+    final filtered = _getFilteredAuditLogs();
+    final tables = _auditLogs.map((e) => e['table_name']?.toString() ?? '').where((s) => s.isNotEmpty).toSet().toList()..sort();
+    final actions = _auditLogs.map((e) => e['action']?.toString() ?? '').where((s) => s.isNotEmpty).toSet().toList()..sort();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Filter & Export',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: (_auditFilterTable != null && tables.contains(_auditFilterTable)) ? _auditFilterTable! : 'All',
+                          decoration: const InputDecoration(
+                            labelText: 'Table',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: 'All', child: Text('All tables')),
+                            ...tables.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+                          ],
+                          onChanged: (v) => setState(() => _auditFilterTable = (v == null || v == 'All') ? null : v),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: (_auditFilterAction != null && actions.contains(_auditFilterAction)) ? _auditFilterAction! : 'All',
+                          decoration: const InputDecoration(
+                            labelText: 'Action',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: 'All', child: Text('All actions')),
+                            ...actions.map((a) => DropdownMenuItem(value: a, child: Text(a))),
+                          ],
+                          onChanged: (v) => setState(() => _auditFilterAction = (v == null || v == 'All') ? null : v),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: _auditLogs.isEmpty ? null : _downloadAuditCsv,
+                        icon: const Icon(Icons.download, size: 18),
+                        label: const Text('Export CSV'),
+                      ),
+                    ],
+                  ),
+                  if (filtered.length != _auditLogs.length)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Showing ${filtered.length} of ${_auditLogs.length} entries',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
-        );
-      },
+        ),
+        if (filtered.isEmpty)
+          Expanded(
+            child: Center(
+              child: Text(
+                _auditLogs.isEmpty
+                    ? 'No audit logs in the selected period.'
+                    : 'No audit logs match the selected filters.',
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: ListView.builder(
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final log = filtered[index];
+                final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
+                final createdAt = log['created_at']?.toString() ?? '';
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: ListTile(
+                    leading: const Icon(Icons.security),
+                    title: Text('${log['action']} on ${log['table_name']}'),
+                    subtitle: Text('By $actor'),
+                    trailing: Text(createdAt.length > 19 ? createdAt.substring(0, 19) : createdAt),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 
@@ -1545,7 +1646,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _debtorType,
+            value: _debtorType,
             decoration: const InputDecoration(
               labelText: 'Debtor Type *',
               border: OutlineInputBorder(),
@@ -1608,7 +1709,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _debtDepartment,
+            value: _debtDepartment,
             decoration: const InputDecoration(
               labelText: 'Department',
               border: OutlineInputBorder(),
@@ -1760,7 +1861,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _incomeDepartment,
+            value: _incomeDepartment,
             decoration: const InputDecoration(labelText: 'Department'),
             items: const [
               DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
@@ -1779,7 +1880,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _incomePaymentMethod,
+            value: _incomePaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -1820,7 +1921,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _expenseDepartment,
+            value: _expenseDepartment,
             decoration: const InputDecoration(labelText: 'Department'),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('All Departments')),
@@ -1838,7 +1939,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: _expensePaymentMethod,
+            value: _expensePaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -1870,16 +1971,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _selectedPayrollStaffId,
+            value: _selectedPayrollStaffId ?? '',
             decoration: const InputDecoration(labelText: 'Staff'),
-            items: _staffProfiles.map((profile) {
-              final id = profile['id']?.toString();
-              final name = profile['full_name']?.toString() ?? 'Unknown';
-              return DropdownMenuItem(value: id, child: Text(name));
-            }).toList(),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('Select staff')),
+              ..._staffProfiles.map((profile) {
+                final id = profile['id']?.toString() ?? '';
+                final name = profile['full_name']?.toString() ?? 'Unknown';
+                return DropdownMenuItem(value: id, child: Text(name));
+              }),
+            ],
             onChanged: (value) {
               setState(() {
-                _selectedPayrollStaffId = value;
+                _selectedPayrollStaffId = (value == null || value.isEmpty) ? null : value;
               });
             },
           ),
@@ -1914,7 +2018,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            initialValue: _payrollPaymentMethod,
+            value: _payrollPaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
@@ -2298,7 +2402,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    initialValue: _paymentMethod,
+                    value: _paymentMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),
@@ -2465,62 +2569,17 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     _depositDescriptionController.clear();
   }
 
-  // Report generation methods
-  Future<void> _generateDepartmentReport() async {
-    if (_isGeneratingReport) return; // Prevent concurrent generation
-    
-    setState(() => _isGeneratingReport = true);
-    
-    try {
-      // Load department sales data
-      final departmentSales = await _dataService.getDepartmentSales();
-      
-      // Group by department
-      final Map<String, Map<String, dynamic>> departmentSummary = {};
-      for (final sale in departmentSales) {
-        final dept = sale['department']?.toString() ?? 'Unknown';
-        if (!departmentSummary.containsKey(dept)) {
-          departmentSummary[dept] = {
-            'department': dept,
-            'total_sales': 0,
-            'transaction_count': 0,
-          };
-        }
-        final totalSales = (int.tryParse(sale['total_sales']?.toString() ?? '') ?? 0);
-        final transactionCount = (int.tryParse(sale['transaction_count']?.toString() ?? '') ?? 0);
-        departmentSummary[dept]!['total_sales'] = 
-            (int.tryParse(departmentSummary[dept]!['total_sales']?.toString() ?? '') ?? 0) + totalSales;
-        departmentSummary[dept]!['transaction_count'] = 
-            (int.tryParse(departmentSummary[dept]!['transaction_count']?.toString() ?? '') ?? 0) + transactionCount;
-      }
-
-      setState(() => _isGeneratingReport = false);
-      
-      if (mounted) {
-        _showReportDialog('Department Sales Report', departmentSummary.values.toList());
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG generate department report: $e\n$stackTrace');
-      setState(() => _isGeneratingReport = false);
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to generate department report. Please try again.',
-          stackTrace: stackTrace,
-        );
-      }
-    }
-  }
-
-  Future<void> _exportFinanceCsv() async {
+  Future<void> _downloadFinanceCsv() async {
     try {
       final csv = _buildFinanceCsv();
-      await Clipboard.setData(ClipboardData(text: csv));
+      final r = _effectiveSummaryRange;
+      final rangeLabel = '${r.start.toIso8601String().split('T')[0]}_to_${r.end.toIso8601String().split('T')[0]}';
+      final filename = 'PZed_Homes_Finance_$rangeLabel.csv';
+      await triggerCsvDownload(csv, filename);
       if (mounted) {
         ErrorHandler.showSuccessMessage(
           context,
-          'Finance CSV copied to clipboard',
+          kIsWeb ? 'CSV downloaded as $filename' : 'CSV copied to clipboard. Paste into a spreadsheet to save.',
         );
       }
     } catch (e, stackTrace) {
@@ -2536,32 +2595,158 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  Future<void> _exportFinancePdf() async {
+  Future<void> _exportAuditorPackPdf() async {
     try {
-      final pdf = await _buildFinancePdf();
+      final pdf = await _buildAuditorPackPdf();
+      final r = _effectiveSummaryRange;
+      final rangeStr = '${r.start.toIso8601String().split('T')[0]}_to_${r.end.toIso8601String().split('T')[0]}';
       await Printing.sharePdf(
         bytes: Uint8List.fromList(pdf),
-        filename: 'finance_report_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        filename: 'PZed_Homes_Auditor_Pack_$rangeStr.pdf',
       );
+      if (mounted) {
+        ErrorHandler.showSuccessMessage(context, 'Auditor Pack PDF ready to save or share.');
+      }
     } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG export PDF: $e\n$stackTrace');
+      if (kDebugMode) debugPrint('DEBUG auditor pack PDF: $e\n$stackTrace');
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: 'Failed to generate PDF. Please try again.',
+          customMessage: 'Failed to generate Auditor Pack PDF. Please try again.',
           stackTrace: stackTrace,
         );
       }
     }
   }
 
+  Future<List<int>> _buildAuditorPackPdf() async {
+    final pdf = pw.Document();
+    final r = _effectiveSummaryRange;
+    final rangeLabel = '${r.start.toIso8601String().split('T')[0]} to ${r.end.toIso8601String().split('T')[0]}';
+    final generatedAt = DateFormat('MMMM dd, yyyy – HH:mm').format(DateTime.now());
+    final totalIncome = (_financialSummary['total_income'] as num?)?.toInt() ?? 0;
+    final totalExpenses = (_financialSummary['total_expenses'] as num?)?.toInt() ?? 0;
+    final netProfit = (_financialSummary['net_profit'] as num?)?.toInt() ?? 0;
+
+    pdf.addPage(
+      pw.MultiPage(
+        build: (context) {
+          return [
+            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+            pw.SizedBox(height: 4),
+            pw.Text('Financial Auditor Pack', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.Text('Period: $rangeLabel'),
+            pw.Text('Generated: $generatedAt'),
+            pw.Divider(thickness: 2, color: PdfColors.green800),
+            pw.SizedBox(height: 12),
+            pw.Text('Summary', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            _pdfSummaryRow('Total Income', totalIncome),
+            _pdfSummaryRow('Total Expenses', totalExpenses),
+            _pdfSummaryRow('Net Profit', netProfit),
+            pw.SizedBox(height: 16),
+            _buildPdfTable(
+              title: 'Income Records',
+              headers: ['Date', 'Description', 'Amount (₦)', 'Department', 'Payment'],
+              rows: _incomeRecords.map((r) {
+                final amt = (r['amount'] as num?)?.toInt() ?? 0;
+                return [
+                  r['date']?.toString() ?? '',
+                  (r['description']?.toString() ?? '').replaceAll('\n', ' '),
+                  _formatKobo(amt),
+                  r['department']?.toString() ?? '',
+                  r['payment_method']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Expenses',
+              headers: ['Date', 'Description', 'Amount (₦)', 'Department', 'Status'],
+              rows: _expenses.map((r) {
+                final amt = (r['amount'] as num?)?.toInt() ?? 0;
+                return [
+                  r['transaction_date']?.toString() ?? '',
+                  (r['description']?.toString() ?? '').replaceAll('\n', ' '),
+                  _formatKobo(amt),
+                  r['department']?.toString() ?? '',
+                  r['status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Debts',
+              headers: ['Date', 'Debtor', 'Amount (₦)', 'Paid', 'Status'],
+              rows: _debts.map((r) {
+                final amt = (r['amount'] as num?)?.toInt() ?? 0;
+                final paid = (r['paid_amount'] as num?)?.toInt() ?? 0;
+                return [
+                  r['date']?.toString() ?? '',
+                  r['debtor_name']?.toString() ?? '',
+                  _formatKobo(amt),
+                  _formatKobo(paid),
+                  r['status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Payroll',
+              headers: ['Month', 'Staff', 'Amount (₦)', 'Status'],
+              rows: _payrollRecords.map((r) {
+                final amt = (r['amount'] as num?)?.toInt() ?? 0;
+                return [
+                  r['month']?.toString() ?? '',
+                  r['staff_name']?.toString() ?? '',
+                  _formatKobo(amt),
+                  r['approval_status']?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+            _buildPdfTable(
+              title: 'Cash Deposits',
+              headers: ['Date', 'Bank', 'Amount (₦)', 'Net'],
+              rows: _cashDeposits.map((r) {
+                final amt = (r['amount'] as num?)?.toInt() ?? 0;
+                final net = (r['net_amount'] as num?)?.toInt() ?? 0;
+                return [
+                  r['date']?.toString() ?? '',
+                  r['bank_name']?.toString() ?? '',
+                  _formatKobo(amt),
+                  _formatKobo(net),
+                ];
+              }).toList(),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Text('Audit: ${_auditLogs.length} log entries in period.', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.SizedBox(height: 8),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text('PZed Homes – Financial Auditor Pack – $generatedAt', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+            ),
+          ];
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
+  pw.Widget _pdfSummaryRow(String label, int amountKobo) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: const pw.TextStyle(fontSize: 12)),
+          pw.Text('₦${_formatKobo(amountKobo)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
   String _buildFinanceCsv() {
     final buffer = StringBuffer();
-    final rangeLabel = _summaryRange == null
-        ? 'This Month'
-        : '${_summaryRange!.start.toIso8601String().split('T')[0]}'
-            ' to ${_summaryRange!.end.toIso8601String().split('T')[0]}';
+    final r = _effectiveSummaryRange;
+    final rangeLabel = '${r.start.toIso8601String().split('T')[0]} to ${r.end.toIso8601String().split('T')[0]}';
 
     buffer.writeln('Finance Report,$rangeLabel');
     buffer.writeln('Generated At,${DateTime.now().toIso8601String()}');
@@ -2661,91 +2846,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return '"$escaped"';
   }
 
-  Future<List<int>> _buildFinancePdf() async {
-    final pdf = pw.Document();
-    final rangeLabel = _summaryRange == null
-        ? 'This Month'
-        : '${_summaryRange!.start.toIso8601String().split('T')[0]}'
-            ' to ${_summaryRange!.end.toIso8601String().split('T')[0]}';
-
-    pdf.addPage(
-      pw.MultiPage(
-        build: (context) {
-          return [
-            pw.Text('Finance Report', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-            pw.Text('Range: $rangeLabel'),
-            pw.Text('Generated: ${DateTime.now().toIso8601String()}'),
-            pw.SizedBox(height: 12),
-            pw.Text('Summary', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-            pw.Bullet(text: 'Total Income: ${_financialSummary['total_income'] ?? 0}'),
-            pw.Bullet(text: 'Total Expenses: ${_financialSummary['total_expenses'] ?? 0}'),
-            pw.Bullet(text: 'Net Profit: ${_financialSummary['net_profit'] ?? 0}'),
-            pw.SizedBox(height: 12),
-            _buildPdfTable(
-              title: 'Income Records',
-              headers: ['Date', 'Description', 'Amount'],
-              rows: _incomeRecords.take(50).map((r) {
-                return [
-                  r['date']?.toString() ?? '',
-                  r['description']?.toString() ?? '',
-                  r['amount']?.toString() ?? '0',
-                ];
-              }).toList(),
-            ),
-            _buildPdfTable(
-              title: 'Expenses',
-              headers: ['Date', 'Description', 'Amount', 'Status'],
-              rows: _expenses.take(50).map((r) {
-                return [
-                  r['transaction_date']?.toString() ?? '',
-                  r['description']?.toString() ?? '',
-                  r['amount']?.toString() ?? '0',
-                  r['status']?.toString() ?? '',
-                ];
-              }).toList(),
-            ),
-            _buildPdfTable(
-              title: 'Debts',
-              headers: ['Date', 'Debtor', 'Amount', 'Status'],
-              rows: _debts.take(50).map((r) {
-                return [
-                  r['date']?.toString() ?? '',
-                  r['debtor_name']?.toString() ?? '',
-                  r['amount']?.toString() ?? '0',
-                  r['status']?.toString() ?? '',
-                ];
-              }).toList(),
-            ),
-            _buildPdfTable(
-              title: 'Payroll',
-              headers: ['Month', 'Staff', 'Amount', 'Status'],
-              rows: _payrollRecords.take(50).map((r) {
-                return [
-                  r['month']?.toString() ?? '',
-                  r['staff_name']?.toString() ?? '',
-                  r['amount']?.toString() ?? '0',
-                  r['approval_status']?.toString() ?? '',
-                ];
-              }).toList(),
-            ),
-            _buildPdfTable(
-              title: 'Cash Deposits',
-              headers: ['Date', 'Bank', 'Amount'],
-              rows: _cashDeposits.take(50).map((r) {
-                return [
-                  r['date']?.toString() ?? '',
-                  r['bank_name']?.toString() ?? '',
-                  r['amount']?.toString() ?? '0',
-                ];
-              }).toList(),
-            ),
-          ];
-        },
-      ),
-    );
-    return pdf.save();
-  }
-
   pw.Widget _buildPdfTable({
     required String title,
     required List<String> headers,
@@ -2762,149 +2862,4 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Future<void> _generateFinancialReport() async {
-    if (_isGeneratingReport) return; // Prevent concurrent generation
-    
-    setState(() => _isGeneratingReport = true);
-    
-    try {
-      // Load financial summary
-      final summary = await _dataService.getFinancialSummary();
-      final incomeRecords = await _dataService.getIncomeRecords();
-      final expenses = await _dataService.getExpenses();
-      
-      final reportData = {
-        'summary': summary,
-        'total_income_records': incomeRecords.length,
-        'total_expense_records': expenses.length,
-        'income_total': incomeRecords.fold<int>(0, (sum, record) => 
-            sum + ((double.tryParse(record['amount']?.toString() ?? '') ?? 0).toInt())),
-        'expense_total': expenses.fold<int>(0, (sum, expense) => 
-            sum + ((double.tryParse(expense['amount']?.toString() ?? '') ?? 0).toInt())),
-      };
-
-      setState(() => _isGeneratingReport = false);
-      
-      if (mounted) {
-        _showFinancialReportDialog(reportData);
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG generate financial report: $e\n$stackTrace');
-      setState(() => _isGeneratingReport = false);
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to generate financial report. Please try again.',
-          stackTrace: stackTrace,
-        );
-      }
-    }
-  }
-
-  void _showReportDialog(String title, List<Map<String, dynamic>> data) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final dept in data)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              dept['department']?.toString() ?? 'Unknown',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Total Sales: ₦${PaymentService.koboToNaira(int.tryParse(dept['total_sales']?.toString() ?? '') ?? 0).toStringAsFixed(2)}',
-                            ),
-                            Text(
-                              'Transactions: ${dept['transaction_count'] ?? 0}',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showFinancialReportDialog(Map<String, dynamic> data) {
-    final summary = data['summary'] as Map<String, dynamic>;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Financial Report'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildReportRow('Total Income', PaymentService.koboToNaira(int.tryParse(summary['total_income']?.toString() ?? '') ?? 0)),
-                _buildReportRow('Total Expenses', PaymentService.koboToNaira(int.tryParse(summary['total_expenses']?.toString() ?? '') ?? 0)),
-                _buildReportRow('Net Profit', PaymentService.koboToNaira(int.tryParse(summary['net_profit']?.toString() ?? '') ?? 0)),
-                const Divider(),
-                Text('Income Records: ${data['total_income_records']}'),
-                Text('Expense Records: ${data['total_expense_records']}'),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportRow(String label, double amount) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(
-            '₦${amount.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: amount < 0 ? Colors.red : Colors.green,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:pzed_homes/core/services/reporting_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
@@ -13,23 +16,24 @@ class ReportingScreen extends StatefulWidget {
 class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _reportingService = ReportingService();
-  final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+  final NumberFormat _currency = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
 
   PLData? _plData;
+  Map<String, dynamic>? _guestStats;
+  Map<String, dynamic>? _opsStats;
   TimePeriod _selectedPeriod = TimePeriod.thisMonth;
   DateTimeRange? _customDateRange;
   bool _isLoading = true;
+  String? _loadError;
 
-  // Form controllers
   final _startDateController = TextEditingController();
   final _endDateController = TextEditingController();
-  final _reportTypeController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _generateReport();
+    _loadAll();
   }
 
   @override
@@ -37,22 +41,49 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     _tabController.dispose();
     _startDateController.dispose();
     _endDateController.dispose();
-    _reportTypeController.dispose();
     super.dispose();
   }
 
-  Future<void> _generateReport() async {
-    setState(() => _isLoading = true);
-    final plData = await _reportingService.getProfitAndLoss(
-      period: _selectedPeriod,
-      customStart: _customDateRange?.start,
-      customEnd: _customDateRange?.end,
-    );
-    if (mounted) {
-      setState(() {
-        _plData = plData;
-        _isLoading = false;
-      });
+  Future<void> _loadAll() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final results = await Future.wait([
+        _reportingService.getProfitAndLoss(
+          period: _selectedPeriod,
+          customStart: _customDateRange?.start,
+          customEnd: _customDateRange?.end,
+        ),
+        _reportingService.getGuestStats(
+          period: _selectedPeriod,
+          customStart: _customDateRange?.start,
+          customEnd: _customDateRange?.end,
+        ),
+        _reportingService.getOperationsStats(
+          period: _selectedPeriod,
+          customStart: _customDateRange?.start,
+          customEnd: _customDateRange?.end,
+        ),
+      ]);
+      if (mounted) {
+        setState(() {
+          _plData = results[0] as PLData;
+          _guestStats = results[1] as Map<String, dynamic>;
+          _opsStats = results[2] as Map<String, dynamic>;
+          _isLoading = false;
+          _loadError = null;
+        });
+      }
+    } catch (e, stackTrace) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _loadError = e is Exception ? e.toString() : 'Failed to load reports.';
+        });
+        // No dialog: in-tab Retry and header Refresh are the recovery paths.
+      }
     }
   }
 
@@ -63,10 +94,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       firstDate: DateTime(2020),
       lastDate: now,
       initialDateRange: _customDateRange ??
-          DateTimeRange(
-            start: DateTime(now.year, now.month, 1),
-            end: now,
-          ),
+          DateTimeRange(start: DateTime(now.year, now.month, 1), end: now),
     );
     if (picked != null) {
       setState(() {
@@ -75,9 +103,32 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _startDateController.text = DateFormat('MMM dd, yyyy').format(picked.start);
         _endDateController.text = DateFormat('MMM dd, yyyy').format(picked.end);
       });
-      _generateReport();
+      _loadAll();
     }
   }
+
+  String _periodLabel() {
+    switch (_selectedPeriod) {
+      case TimePeriod.thisMonth:
+        return DateFormat('MMMM yyyy').format(DateTime.now());
+      case TimePeriod.lastMonth:
+        final lm = DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
+        return DateFormat('MMMM yyyy').format(lm);
+      case TimePeriod.last30Days:
+        return 'Last 30 days';
+      case TimePeriod.custom:
+        if (_customDateRange != null) {
+          return '${DateFormat('MMM dd').format(_customDateRange!.start)} – ${DateFormat('MMM dd, yyyy').format(_customDateRange!.end)}';
+        }
+        return 'Last 30 days (default)';
+      default:
+        return _selectedPeriod.name;
+    }
+  }
+
+  String _fmtNaira(int kobo) => _currency.format(PaymentService.koboToNaira(kobo));
+
+  // ────────────────────────── BUILD ──────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -86,37 +137,14 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       body: Column(
         children: [
           _buildHeader(context),
-          Container(
-            color: Colors.white,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 2,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-            ),
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.green[700],
-              unselectedLabelColor: Colors.grey[700],
-              indicatorColor: Colors.green[700],
-              tabs: const [
-                Tab(text: 'Financial', icon: Icon(Icons.account_balance)),
-                Tab(text: 'Guest', icon: Icon(Icons.people)),
-                Tab(text: 'Operations', icon: Icon(Icons.engineering)),
-              ],
-            ),
-          ),
+          _buildTabBar(),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildFinancialReportsTab(),
-                _buildGuestReportsTab(),
-                _buildOperationsReportsTab(),
+                _buildFinancialTab(),
+                _buildGuestTab(),
+                _buildOperationsTab(),
               ],
             ),
           ),
@@ -130,576 +158,742 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Reports & Analytics',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Generate comprehensive reports and analytics',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green[200]!),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.analytics, color: Colors.green[700], size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  'Business Intelligence',
-                  style: TextStyle(
-                    color: Colors.green[700],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFinancialReportsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildReportGenerationForm(),
-          const SizedBox(height: 24),
-          if (_isLoading)
-            const Center(child: CircularProgressIndicator())
-          else if (_plData == null)
-            const Center(child: Text('No data available'))
-          else
-            _buildFinancialReportResults(),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Reports & Analytics',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green[800])),
+                    const SizedBox(height: 4),
+                    Text(_periodLabel(), style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _isLoading ? null : () {
+                  setState(() => _loadError = null);
+                  _loadAll();
+                },
+                tooltip: 'Refresh',
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green[200]!)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.analytics, color: Colors.green[700], size: 16),
+                    const SizedBox(width: 8),
+                    Text('Business Intelligence', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildPeriodSelector(),
         ],
       ),
     );
   }
 
-  Widget _buildGuestReportsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+  Widget _buildErrorRetry() {
+    return _card(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildGuestReportForm(),
-          const SizedBox(height: 24),
-          _buildGuestReportResults(),
+          Icon(Icons.error_outline, size: 48, color: Colors.red[400]),
+          const SizedBox(height: 12),
+          Text(_loadError ?? 'Something went wrong.', style: TextStyle(color: Colors.grey[800]), textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isLoading ? null : () { setState(() => _loadError = null); _loadAll(); },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], foregroundColor: Colors.white),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildOperationsReportsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildOperationsReportForm(),
-          const SizedBox(height: 24),
-          _buildOperationsReportResults(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportGenerationForm() {
+  Widget _buildTabBar() {
     return Container(
-      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 2, offset: const Offset(0, 1))],
+      ),
+      child: TabBar(
+        controller: _tabController,
+        labelColor: Colors.green[700],
+        unselectedLabelColor: Colors.grey[700],
+        indicatorColor: Colors.green[700],
+        tabs: const [
+          Tab(text: 'Financial', icon: Icon(Icons.account_balance)),
+          Tab(text: 'Guest', icon: Icon(Icons.people)),
+          Tab(text: 'Operations', icon: Icon(Icons.engineering)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Financial Report Generator',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 20),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 400;
-              return isNarrow
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+    );
+  }
+
+  // ────────────────────── SHARED WIDGETS ──────────────────────
+
+  Widget _buildPeriodSelector() {
+    const chipSpacing = 8.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 500;
+        final chips = [
+          ChoiceChip(label: const Text('This Month'), selected: _selectedPeriod == TimePeriod.thisMonth,
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.thisMonth); _loadAll(); }),
+          ChoiceChip(label: const Text('Last Month'), selected: _selectedPeriod == TimePeriod.lastMonth,
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.lastMonth); _loadAll(); }),
+          ChoiceChip(label: const Text('Last 30 Days'), selected: _selectedPeriod == TimePeriod.last30Days,
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.last30Days); _loadAll(); }),
+          ChoiceChip(label: const Text('Custom'), selected: _selectedPeriod == TimePeriod.custom,
+            onSelected: (_) => _selectCustomDateRange()),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            isNarrow
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildPeriodSelector(),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: _generateReport,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Generate Report'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green[800],
-                            foregroundColor: Colors.white,
+                        for (var i = 0; i < chips.length; i++) ...[
+                          if (i > 0) const SizedBox(width: chipSpacing),
+                          chips[i],
+                        ],
+                      ],
+                    ),
+                  )
+                : Wrap(
+                    spacing: chipSpacing,
+                    runSpacing: chipSpacing,
+                    children: chips,
+                  ),
+            if (_selectedPeriod == TimePeriod.custom && _customDateRange != null) ...[
+              const SizedBox(height: 12),
+              isNarrow
+                  ? Column(
+                      children: [
+                        TextField(
+                          controller: _startDateController,
+                          readOnly: true,
+                          onTap: _selectCustomDateRange,
+                          decoration: const InputDecoration(
+                            labelText: 'Start Date',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.calendar_today),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _endDateController,
+                          readOnly: true,
+                          onTap: _selectCustomDateRange,
+                          decoration: const InputDecoration(
+                            labelText: 'End Date',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.calendar_today),
                           ),
                         ),
                       ],
                     )
                   : Row(
                       children: [
-                        Expanded(child: _buildPeriodSelector()),
+                        Expanded(
+                          child: TextField(
+                            controller: _startDateController,
+                            readOnly: true,
+                            onTap: _selectCustomDateRange,
+                            decoration: const InputDecoration(
+                              labelText: 'Start Date',
+                              border: OutlineInputBorder(),
+                              suffixIcon: Icon(Icons.calendar_today),
+                            ),
+                          ),
+                        ),
                         const SizedBox(width: 16),
-                        ElevatedButton.icon(
-                          onPressed: _generateReport,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Generate Report'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green[800],
-                            foregroundColor: Colors.white,
+                        Expanded(
+                          child: TextField(
+                            controller: _endDateController,
+                            readOnly: true,
+                            onTap: _selectCustomDateRange,
+                            decoration: const InputDecoration(
+                              labelText: 'End Date',
+                              border: OutlineInputBorder(),
+                              suffixIcon: Icon(Icons.calendar_today),
+                            ),
                           ),
                         ),
                       ],
-                    );
-            },
+                    ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _card({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white, borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _kpiCard(String label, String value, IconData icon, Color color) {
+    return Expanded(
+      child: _card(
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600]), textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+    );
+  }
+
+  // ────────────────────── FINANCIAL TAB ──────────────────────
+
+  Widget _buildFinancialTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
           ),
+          const SizedBox(height: 24),
+          if (_loadError != null)
+            _buildErrorRetry()
+          else if (_isLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_plData == null)
+            const Center(child: Text('No report data for this period.'))
+          else ...[
+            _buildFinancialKPIs(),
+            const SizedBox(height: 16),
+            _buildTopDepartmentCard(),
+            const SizedBox(height: 16),
+            _buildSummaryCard(),
+            const SizedBox(height: 16),
+            _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
+            const SizedBox(height: 16),
+            _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generatePDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildPeriodSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          children: [
-            ChoiceChip(
-              label: const Text('This Month'),
-              selected: _selectedPeriod == TimePeriod.thisMonth,
-              onSelected: (_) {
-                setState(() => _selectedPeriod = TimePeriod.thisMonth);
-                _generateReport();
-              },
-            ),
-            ChoiceChip(
-              label: const Text('Last Month'),
-              selected: _selectedPeriod == TimePeriod.lastMonth,
-              onSelected: (_) {
-                setState(() => _selectedPeriod = TimePeriod.lastMonth);
-                _generateReport();
-              },
-            ),
-            ChoiceChip(
-              label: const Text('Custom'),
-              selected: _selectedPeriod == TimePeriod.custom,
-              onSelected: (_) => _selectCustomDateRange(),
-            ),
-          ],
-        ),
-        if (_selectedPeriod == TimePeriod.custom && _customDateRange != null) ...[
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _startDateController,
-                  decoration: const InputDecoration(
-                    labelText: 'Start Date',
-                    border: OutlineInputBorder(),
-                    suffixIcon: Icon(Icons.calendar_today),
-                  ),
-                  readOnly: true,
-                  onTap: _selectCustomDateRange,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextField(
-                  controller: _endDateController,
-                  decoration: const InputDecoration(
-                    labelText: 'End Date',
-                    border: OutlineInputBorder(),
-                    suffixIcon: Icon(Icons.calendar_today),
-                  ),
-                  readOnly: true,
-                  onTap: _selectCustomDateRange,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildFinancialReportResults() {
+  Widget _buildFinancialKPIs() {
     final revenue = _plData!.totalRevenue;
     final expenses = _plData!.totalExpenses;
     final netProfit = revenue - expenses;
-
-    return Column(
-      children: [
-        _buildSummaryCard(revenue, expenses, netProfit),
-        const SizedBox(height: 16),
-        _buildBreakdownSection(
-          'Revenue Breakdown',
-          _plData!.revenueBreakdown,
-          Colors.green,
-        ),
-        const SizedBox(height: 16),
-        _buildBreakdownSection(
-          'Expense Breakdown',
-          _plData!.expenseBreakdown,
-          Colors.red,
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 500;
+        final cards = [
+          _kpiCard('Total Revenue', _fmtNaira(revenue), Icons.trending_up, Colors.green[700]!),
+          _kpiCard('Total Expenses', _fmtNaira(expenses), Icons.trending_down, Colors.red[600]!),
+          _kpiCard('Net Profit', _fmtNaira(netProfit), Icons.account_balance_wallet, netProfit >= 0 ? Colors.green[800]! : Colors.red[800]!),
+        ];
+        if (isNarrow) {
+          return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+        }
+        return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+      },
     );
   }
 
-  Widget _buildSummaryCard(int revenue, int expenses, int netProfit) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
+  Widget _buildTopDepartmentCard() {
+    final breakdown = _plData!.revenueBreakdown;
+    if (breakdown.isEmpty) return const SizedBox.shrink();
+    final top = breakdown.reduce((a, b) => a.amount >= b.amount ? a : b);
+    if (top.amount <= 0) return const SizedBox.shrink();
+    return _card(
+      child: Row(
         children: [
-          Text(
-            'Financial Summary',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+          Icon(Icons.emoji_events, color: Colors.amber[700], size: 36),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Top Performing', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                Text(top.category, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
-          _buildSummaryRow('Total Revenue', revenue, Colors.green),
-          _buildSummaryRow('Total Expenses', expenses, Colors.red),
-          const Divider(),
-          _buildSummaryRow(
-            'Net Profit/Loss',
-            netProfit,
-            netProfit >= 0 ? Colors.green : Colors.red,
-            isTotal: true,
-          ),
+          Text(_fmtNaira(top.amount), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green[700])),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryRow(String title, int amount, Color color, {bool isTotal = false}) {
+  Widget _buildSummaryCard() {
+    final revenue = _plData!.totalRevenue;
+    final expenses = _plData!.totalExpenses;
+    final net = revenue - expenses;
+    return _card(child: Column(
+      children: [
+        _sectionTitle('Financial Summary'),
+        _summaryRow('Total Revenue', revenue, Colors.green),
+        _summaryRow('Total Expenses', expenses, Colors.red),
+        const Divider(),
+        _summaryRow('Net Profit/Loss', net, net >= 0 ? Colors.green : Colors.red, bold: true),
+      ],
+    ));
+  }
+
+  Widget _summaryRow(String title, int amount, Color color, {bool bold = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: isTotal ? 18 : 16,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          Text(
-            currencyFormatter.format(PaymentService.koboToNaira(amount)),
-            style: TextStyle(
-              fontSize: isTotal ? 18 : 16,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
+          Text(title, style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+          Text(_fmtNaira(amount), style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
   }
 
   Widget _buildBreakdownSection(String title, List<CategoryAmount> items, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 16),
-          ...items.map(
-            (item) => ListTile(
-              title: Text(
-                item.category,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      currencyFormatter.format(PaymentService.koboToNaira(item.amount)),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.end,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGuestReportForm() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Guest Report Generator',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
+    return _card(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(title),
+        ...items.map((item) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  decoration: const InputDecoration(
-                    labelText: 'Report Type',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'guest_analytics', child: Text('Guest Analytics')),
-                    DropdownMenuItem(value: 'booking_trends', child: Text('Booking Trends')),
-                    DropdownMenuItem(value: 'guest_satisfaction', child: Text('Guest Satisfaction')),
-                  ],
-                  onChanged: (value) {
-                    setState(() {
-                      _reportTypeController.text = value ?? '';
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // Generate guest report
-                },
-                icon: const Icon(Icons.analytics),
-                label: const Text('Generate Report'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800],
-                  foregroundColor: Colors.white,
-                ),
-              ),
+              Flexible(child: Text(item.category, overflow: TextOverflow.ellipsis)),
+              Text(_fmtNaira(item.amount), style: TextStyle(fontWeight: FontWeight.w600, color: color)),
             ],
           ),
-        ],
-      ),
-    );
+        )),
+      ],
+    ));
   }
 
-  Widget _buildGuestReportResults() {
-    return Container(
+  // ────────────────────── GUEST TAB ──────────────────────
+
+  Widget _buildGuestTab() {
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Guest Analytics',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Guest metrics for the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
           ),
-          const SizedBox(height: 16),
-          const Text('Guest report data will be displayed here...'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOperationsReportForm() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Operations Report Generator',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  decoration: const InputDecoration(
-                    labelText: 'Report Type',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'occupancy', child: Text('Occupancy Report')),
-                    DropdownMenuItem(value: 'housekeeping', child: Text('Housekeeping Report')),
-                    DropdownMenuItem(value: 'maintenance', child: Text('Maintenance Report')),
-                  ],
-                  onChanged: (value) {
-                    setState(() {
-                      _reportTypeController.text = value ?? '';
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // Generate operations report
-                },
-                icon: const Icon(Icons.engineering),
-                label: const Text('Generate Report'),
+          const SizedBox(height: 24),
+          if (_loadError != null)
+            _buildErrorRetry()
+          else if (_isLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_guestStats == null)
+            const Center(child: Text('No report data for this period.'))
+          else ...[
+            _buildGuestKPIs(),
+            const SizedBox(height: 16),
+            _buildGuestBreakdown(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generateGuestPDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800],
-                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuestKPIs() {
+    final g = _guestStats!;
+    return LayoutBuilder(builder: (context, constraints) {
+      final isNarrow = constraints.maxWidth < 500;
+      final cards = [
+        _kpiCard('Total Bookings', '${g['total']}', Icons.book_online, Colors.blue[700]!),
+        _kpiCard('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0), Icons.hotel, Colors.green[700]!),
+        _kpiCard('Avg Stay', '${g['avg_nights']} nights', Icons.nights_stay, Colors.purple[600]!),
+      ];
+      if (isNarrow) {
+        return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+      }
+      return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+    });
+  }
+
+  Widget _buildGuestBreakdown() {
+    final g = _guestStats!;
+    final statuses = [
+      ('Checked In', g['checked_in'] ?? 0, Colors.green),
+      ('Checked Out', g['checked_out'] ?? 0, Colors.blue),
+      ('Confirmed', g['confirmed'] ?? 0, Colors.teal),
+      ('Pending', g['pending'] ?? 0, Colors.orange),
+      ('Cancelled', g['cancelled'] ?? 0, Colors.red),
+    ];
+    return _card(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Booking Status Breakdown'),
+        ...statuses.map((s) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Container(width: 12, height: 12, decoration: BoxDecoration(color: s.$3, shape: BoxShape.circle)),
+              const SizedBox(width: 12),
+              Expanded(child: Text(s.$1, style: const TextStyle(fontSize: 15))),
+              Text('${s.$2}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ],
           ),
+        )),
+        const Divider(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Avg Revenue / Booking', style: TextStyle(fontSize: 14)),
+            Text(_fmtNaira(g['avg_revenue'] ?? 0), style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[700])),
+          ],
+        ),
+      ],
+    ));
+  }
+
+  // ────────────────────── OPERATIONS TAB ──────────────────────
+
+  Widget _buildOperationsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Operations metrics for the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (_loadError != null)
+            _buildErrorRetry()
+          else if (_isLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_opsStats == null)
+            const Center(child: Text('No report data for this period.'))
+          else ...[
+            _buildOpsKPIs(),
+            const SizedBox(height: 16),
+            _buildOpsDetails(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generateOperationsPDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildOperationsReportResults() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Operations Analytics',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+  Widget _buildOpsKPIs() {
+    final o = _opsStats!;
+    return LayoutBuilder(builder: (context, constraints) {
+      final isNarrow = constraints.maxWidth < 500;
+      final cards = [
+        _kpiCard('Staff Activities', '${o['activity_count']}', Icons.assignment, Colors.blue[700]!),
+        _kpiCard('Active Staff', '${o['unique_staff']}', Icons.people, Colors.teal[600]!),
+        _kpiCard('Stock Warnings', '${o['negative_adjustments']}', Icons.warning_amber, (o['negative_adjustments'] ?? 0) > 0 ? Colors.red[600]! : Colors.green[600]!),
+      ];
+      if (isNarrow) {
+        return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+      }
+      return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+    });
+  }
+
+  Widget _buildOpsDetails() {
+    final o = _opsStats!;
+    final negAdj = o['negative_adjustments'] ?? 0;
+    return _card(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Operational Summary'),
+        _opsRow(Icons.assignment_turned_in, 'Total Logged Activities', '${o['activity_count']}'),
+        _opsRow(Icons.badge, 'Unique Active Staff', '${o['unique_staff']}'),
+        _opsRow(Icons.star, 'Most Active Department', o['top_department'] ?? 'N/A'),
+        const Divider(height: 24),
+        _opsRow(
+          negAdj > 0 ? Icons.warning : Icons.check_circle,
+          'Stock Wastage / Losses',
+          '$negAdj',
+          valueColor: negAdj > 0 ? Colors.red : Colors.green,
+        ),
+        if (negAdj > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 36),
+            child: Text(
+              'Includes wastage entries and negative-quantity transactions. Review with the storekeeper.',
+              style: TextStyle(fontSize: 12, color: Colors.red[400]),
             ),
           ),
-          const SizedBox(height: 16),
-          const Text('Operations report data will be displayed here...'),
+      ],
+    ));
+  }
+
+  Widget _opsRow(IconData icon, String label, String value, {Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: valueColor)),
+        ],
+      ),
+    );
+  }
+
+  // ────────────────────── PDF GENERATION ──────────────────────
+
+  Future<void> _generatePDF() async {
+    if (_plData == null) return;
+    final pdf = pw.Document();
+    final revenue = _plData!.totalRevenue;
+    final expenses = _plData!.totalExpenses;
+    final net = revenue - expenses;
+    final period = _periodLabel();
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(40),
+      build: (pw.Context ctx) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+            pw.SizedBox(height: 4),
+            pw.Text('Monthly Financial Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+            pw.Divider(thickness: 2, color: PdfColors.green800),
+            pw.SizedBox(height: 16),
+
+            pw.Text('Financial Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            _pdfRow('Total Revenue', _fmtNaira(revenue)),
+            _pdfRow('Total Expenses', _fmtNaira(expenses)),
+            pw.Divider(),
+            _pdfRow('Net Profit/Loss', _fmtNaira(net), bold: true),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Revenue Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            ..._plData!.revenueBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Expense Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            ..._plData!.expenseBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
+            pw.SizedBox(height: 30),
+
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              ),
+            ),
+          ],
+        );
+      },
+    ));
+
+    await Printing.layoutPdf(onLayout: (format) => pdf.save());
+  }
+
+  Future<void> _generateGuestPDF() async {
+    if (_guestStats == null) return;
+    final g = _guestStats!;
+    final pdf = pw.Document();
+    final period = _periodLabel();
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(40),
+      build: (pw.Context ctx) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+            pw.SizedBox(height: 4),
+            pw.Text('Guest Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+            pw.Divider(thickness: 2, color: PdfColors.green800),
+            pw.SizedBox(height: 16),
+
+            pw.Text('Guest KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            _pdfRow('Total Bookings', '${g['total']}'),
+            _pdfRow('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0)),
+            _pdfRow('Avg Stay', '${g['avg_nights']} nights'),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Booking Status Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            _pdfRow('Checked In', '${g['checked_in'] ?? 0}'),
+            _pdfRow('Checked Out', '${g['checked_out'] ?? 0}'),
+            _pdfRow('Confirmed', '${g['confirmed'] ?? 0}'),
+            _pdfRow('Pending', '${g['pending'] ?? 0}'),
+            _pdfRow('Cancelled', '${g['cancelled'] ?? 0}'),
+            pw.Divider(),
+            _pdfRow('Avg Revenue / Booking', _fmtNaira(g['avg_revenue'] ?? 0), bold: true),
+            pw.SizedBox(height: 30),
+
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              ),
+            ),
+          ],
+        );
+      },
+    ));
+
+    await Printing.layoutPdf(onLayout: (format) => pdf.save());
+  }
+
+  Future<void> _generateOperationsPDF() async {
+    if (_opsStats == null) return;
+    final o = _opsStats!;
+    final negAdj = o['negative_adjustments'] ?? 0;
+    final pdf = pw.Document();
+    final period = _periodLabel();
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(40),
+      build: (pw.Context ctx) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+            pw.SizedBox(height: 4),
+            pw.Text('Operations Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+            pw.Divider(thickness: 2, color: PdfColors.green800),
+            pw.SizedBox(height: 16),
+
+            pw.Text('Operations KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            _pdfRow('Staff Activities', '${o['activity_count']}'),
+            _pdfRow('Active Staff', '${o['unique_staff']}'),
+            _pdfRow('Stock Warnings', '${o['negative_adjustments']}'),
+            pw.SizedBox(height: 20),
+
+            pw.Text('Operational Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            _pdfRow('Total Logged Activities', '${o['activity_count']}'),
+            _pdfRow('Unique Active Staff', '${o['unique_staff']}'),
+            _pdfRow('Most Active Department', o['top_department'] ?? 'N/A'),
+            _pdfRow('Stock Wastage / Losses', '$negAdj'),
+            pw.SizedBox(height: 30),
+
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              ),
+            ),
+          ],
+        );
+      },
+    ));
+
+    await Printing.layoutPdf(onLayout: (format) => pdf.save());
+  }
+
+  static pw.Widget _pdfRow(String label, String value, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: pw.TextStyle(fontSize: 12, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+          pw.Text(value, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
         ],
       ),
     );
