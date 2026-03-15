@@ -2036,18 +2036,30 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   /// Returns true if item was added successfully (dialog should close); false on validation or error (dialog stays open).
   Future<bool> _saveNewItem() async {
-    if (_selectedBar == null) {
-      ErrorHandler.showWarningMessage(context, 'Please select a bar before adding a new item.');
-      return false;
-    }
     final authService = Provider.of<AuthService>(context, listen: false);
     final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
     final outsidePriceNaira = double.tryParse(_outsidePriceController.text) ?? 0.0;
     final initialQty = int.tryParse(_quantityController.text) ?? 0;
     final name = _nameController.text.trim();
+
     if (name.isEmpty) {
       ErrorHandler.showWarningMessage(context, 'Item name is required.');
       return false;
+    }
+
+    // When a specific bar is selected, we add to that bar only. When "All Bars" is selected, we add to both bars if at least one price is set.
+    final addToBothBars = _selectedBar == null;
+    if (addToBothBars) {
+      if (vipPriceNaira <= 0 && outsidePriceNaira <= 0) {
+        ErrorHandler.showWarningMessage(context, 'Enter at least one bar price (VIP and/or Outside) when adding from All Bars.');
+        return false;
+      }
+    } else {
+      // Single bar selected
+      if (vipPriceNaira <= 0 && outsidePriceNaira <= 0) {
+        ErrorHandler.showWarningMessage(context, 'Enter a price for this bar.');
+        return false;
+      }
     }
 
     // Require valid session for add + audit log (and for initial stock when initialQty > 0)
@@ -2075,57 +2087,84 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         return false;
       }
 
-      final item = {
-        'name': name,
-        'unit': _addItemUnit,
-        'vip_bar_price': PaymentService.nairaToKobo(vipPriceNaira),
-        'outside_bar_price': PaymentService.nairaToKobo(outsidePriceNaira),
-        'category': _addItemCategory,
-        'department': _selectedBar,
-        'stock_item_id': stockItemId,
-      };
+      final vipKobo = PaymentService.nairaToKobo(vipPriceNaira);
+      final outsideKobo = PaymentService.nairaToKobo(outsidePriceNaira);
 
-      await _dataService.addInventoryItem(item);
+      if (addToBothBars) {
+        // Add one row per bar so the item appears in both bars (same stock_item_id, same prices on both rows).
+        await _dataService.addInventoryItem({
+          'name': name,
+          'unit': _addItemUnit,
+          'vip_bar_price': vipKobo,
+          'outside_bar_price': outsideKobo,
+          'category': _addItemCategory,
+          'department': 'vip_bar',
+          'stock_item_id': stockItemId,
+        });
+        await _dataService.addInventoryItem({
+          'name': name,
+          'unit': _addItemUnit,
+          'vip_bar_price': vipKobo,
+          'outside_bar_price': outsideKobo,
+          'category': _addItemCategory,
+          'department': 'outside_bar',
+          'stock_item_id': stockItemId,
+        });
+      } else {
+        final item = {
+          'name': name,
+          'unit': _addItemUnit,
+          'vip_bar_price': vipKobo,
+          'outside_bar_price': outsideKobo,
+          'category': _addItemCategory,
+          'department': _selectedBar,
+          'stock_item_id': stockItemId,
+        };
+        await _dataService.addInventoryItem(item);
+      }
 
-      // 2. Record initial stock using validated staff_profile_id (transactional pattern)
+      // 2. Record initial stock
       if (initialQty > 0) {
-        final locationName = _selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
-        final location = await _dataService.supabase
-            .from('locations')
-            .select('id')
-            .eq('name', locationName)
-            .maybeSingle();
-        if (location == null) {
-          throw Exception('Location "$locationName" not found.');
-        }
-        try {
-          await _dataService.recordStockTransaction({
-            'stock_item_id': stockItemId,
-            'location_id': location['id'],
-            'staff_profile_id': staffId,
-            'transaction_type': 'Adjustment',
-            'quantity': initialQty,
-            'notes': 'Initial stock for $name',
-          });
-        } catch (e, stackTrace) {
-          if (kDebugMode) debugPrint('DEBUG recordStockTransaction: $e\n$stackTrace');
-          if (mounted) {
-            ErrorHandler.handleError(
-              context,
-              e,
-              customMessage: 'Item was added, but initial stock could not be recorded. You can retry or add stock later from Stock / Adjustments.',
-              onRetry: () => _retryInitialStock(stockItemId, location['id'] as String, initialQty, name),
-              stackTrace: stackTrace,
-            );
+        final locationNames = addToBothBars ? ['VIP Bar', 'Outside Bar'] : [_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'];
+        for (final locationName in locationNames) {
+          final location = await _dataService.supabase
+              .from('locations')
+              .select('id')
+              .eq('name', locationName)
+              .maybeSingle();
+          if (location == null) throw Exception('Location "$locationName" not found.');
+          try {
+            await _dataService.recordStockTransaction({
+              'stock_item_id': stockItemId,
+              'location_id': location['id'],
+              'staff_profile_id': staffId,
+              'transaction_type': 'Adjustment',
+              'quantity': initialQty,
+              'notes': 'Initial stock for $name',
+            });
+          } catch (e, stackTrace) {
+            if (kDebugMode) debugPrint('DEBUG recordStockTransaction: $e\n$stackTrace');
+            if (mounted) {
+              ErrorHandler.handleError(
+                context,
+                e,
+                customMessage: 'Item was added to both bars, but initial stock could not be recorded for $locationName. You can add stock later from Stock / Adjustments.',
+                onRetry: () => _retryInitialStock(stockItemId, location['id'] as String, initialQty, name),
+                stackTrace: stackTrace,
+              );
+            }
+            return false;
           }
-          return false; // Don't clear form so user can see what was added
         }
       }
 
       _clearAddItemForm();
-      await _dataService.logActivity(staffId, 'Added item', 'Inventory', 'Added $name');
+      await _dataService.logActivity(staffId, 'Added item', 'Inventory', addToBothBars ? 'Added $name to both bars' : 'Added $name');
       if (mounted) {
-        ErrorHandler.showSuccessMessage(context, 'Item added successfully.');
+        ErrorHandler.showSuccessMessage(
+          context,
+          addToBothBars ? 'Item added to VIP Bar and Outside Bar.' : 'Item added successfully.',
+        );
       }
       await _loadInventorySafe();
       return true;
@@ -2134,7 +2173,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: ErrorHandler.getAdminErrorMessage(e, itemName: name, department: _selectedBar),
+          customMessage: ErrorHandler.getAdminErrorMessage(e, itemName: name, department: _selectedBar ?? 'bars'),
         );
       }
       return false;
