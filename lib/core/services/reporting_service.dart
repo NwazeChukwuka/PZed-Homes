@@ -573,7 +573,7 @@ class ReportingService {
     final range = _getDateRange(period, now, customStart, customEnd);
     final rows = await _supabase
         .from('bookings')
-        .select('id, status, total_amount, paid_amount, check_in_date, check_out_date')
+        .select('id, guest_name, status, total_amount, paid_amount, check_in_date, check_out_date')
         .gte('created_at', range.start.toIso8601String())
         .lte('created_at', range.end.toIso8601String());
 

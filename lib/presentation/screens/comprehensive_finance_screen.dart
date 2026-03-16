@@ -554,21 +554,27 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               bottom: BorderSide(color: Colors.grey[300]!, width: 1),
             ),
           ),
-          child: TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            labelColor: Colors.green[800],
-            unselectedLabelColor: Colors.grey[700],
-            indicatorColor: Colors.green[800],
-            tabs: const [
-              Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-              Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
-              Tab(text: 'Income', icon: Icon(Icons.trending_up)),
-              Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
-              Tab(text: 'Payroll', icon: Icon(Icons.payment)),
-              Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
-              Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 800;
+              return TabBar(
+                controller: _tabController,
+                isScrollable: !isWide,
+                labelColor: Colors.green[800],
+                unselectedLabelColor: Colors.grey[700],
+                indicatorColor: Colors.green[800],
+                tabAlignment: isWide ? TabAlignment.fill : TabAlignment.start,
+                tabs: const [
+                  Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+                  Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
+                  Tab(text: 'Income', icon: Icon(Icons.trending_up)),
+                  Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
+                  Tab(text: 'Payroll', icon: Icon(Icons.payment)),
+                  Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
+                  Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
+                ],
+              );
+            },
           ),
         ),
         // 3. Date range strip (visible on all tabs, below tab row)

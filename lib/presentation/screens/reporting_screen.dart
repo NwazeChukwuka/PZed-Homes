@@ -522,57 +522,68 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── FINANCIAL TAB ──────────────────────
 
   Widget _buildFinancialTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (_financialLoadError != null)
-            _buildErrorRetry(
-              message: _financialLoadError,
-              onRetry: _loadFinancial,
-              isLoading: _financialLoading,
-            )
-          else if (_financialLoading)
-            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-          else if (_plData == null)
-            const Center(child: Text('No financial transactions recorded for this period.'))
-          else ...[
-            _buildFinancialKPIs(),
-            const SizedBox(height: 16),
-            _buildTopDepartmentCard(),
-            const SizedBox(height: 16),
-            _buildSummaryCard(),
-            const SizedBox(height: 16),
-            _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
-            const SizedBox(height: 16),
-            _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
-            const SizedBox(height: 24),
-            _buildFinancialDetailTables(),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _generatePDF,
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Save / Print Report as PDF'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Container(
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_financialLoadError != null)
+                    _buildErrorRetry(
+                      message: _financialLoadError,
+                      onRetry: _loadFinancial,
+                      isLoading: _financialLoading,
+                    )
+                  else if (_financialLoading)
+                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                  else if (_plData == null)
+                    const Center(child: Text('No financial transactions recorded for this period.'))
+                  else ...[
+                    _buildFinancialKPIs(),
+                    const SizedBox(height: 16),
+                    _buildTopDepartmentCard(),
+                    const SizedBox(height: 16),
+                    _buildSummaryCard(),
+                    const SizedBox(height: 16),
+                    _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
+                    const SizedBox(height: 16),
+                    _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
+                    const SizedBox(height: 24),
+                    _buildFinancialDetailTables(),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _generatePDF,
+                        icon: const Icon(Icons.picture_as_pdf),
+                        label: const Text('Save / Print Report as PDF'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -838,51 +849,62 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── GUEST TAB ──────────────────────
 
   Widget _buildGuestTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              'Guest metrics for the selected period.',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (_guestLoadError != null)
-            _buildErrorRetry(
-              message: _guestLoadError,
-              onRetry: _loadGuest,
-              isLoading: _guestLoading,
-            )
-          else if (_guestLoading)
-            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-          else if (_guestStats == null)
-            const Center(child: Text('No guest bookings recorded for this period.'))
-          else ...[
-            _buildGuestKPIs(),
-            const SizedBox(height: 16),
-            _buildGuestBreakdown(),
-            const SizedBox(height: 24),
-            _buildGuestDetailsTable(),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _generateGuestPDF,
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Save / Print Report as PDF'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Container(
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Guest metrics for the selected period.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_guestLoadError != null)
+                    _buildErrorRetry(
+                      message: _guestLoadError,
+                      onRetry: _loadGuest,
+                      isLoading: _guestLoading,
+                    )
+                  else if (_guestLoading)
+                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                  else if (_guestStats == null)
+                    const Center(child: Text('No guest bookings recorded for this period.'))
+                  else ...[
+                    _buildGuestKPIs(),
+                    const SizedBox(height: 16),
+                    _buildGuestBreakdown(),
+                    const SizedBox(height: 24),
+                    _buildGuestDetailsTable(),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _generateGuestPDF,
+                        icon: const Icon(Icons.picture_as_pdf),
+                        label: const Text('Save / Print Report as PDF'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -971,14 +993,14 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
                   columns: const [
-                    DataColumn(label: Text('Booking ID')),
+                    DataColumn(label: Text('Guest')),
                     DataColumn(label: Text('Check-in')),
                     DataColumn(label: Text('Check-out')),
                     DataColumn(label: Text('Status')),
                     DataColumn(label: Text('Total (₦)')),
                   ],
                   rows: rows.map<DataRow>((b) {
-                    final id = b['id']?.toString() ?? '';
+                    final guestName = b['guest_name']?.toString()?.trim() ?? '—';
                     final status = b['status']?.toString() ?? '';
                     String ciStr = '';
                     String coStr = '';
@@ -999,7 +1021,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                     final amount = totalAmount ?? paidAmount;
                     return DataRow(
                       cells: [
-                        DataCell(Text(id)),
+                        DataCell(Text(guestName)),
                         DataCell(Text(ciStr)),
                         DataCell(Text(coStr)),
                         DataCell(Text(status)),
@@ -1019,51 +1041,62 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── OPERATIONS TAB ──────────────────────
 
   Widget _buildOperationsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              'Operations metrics for the selected period.',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (_opsLoadError != null)
-            _buildErrorRetry(
-              message: _opsLoadError,
-              onRetry: _loadOperations,
-              isLoading: _opsLoading,
-            )
-          else if (_opsLoading)
-            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-          else if (_opsStats == null)
-            const Center(child: Text('No operations activity recorded for this period.'))
-          else ...[
-            _buildOpsKPIs(),
-            const SizedBox(height: 16),
-            _buildOpsDetails(),
-            const SizedBox(height: 24),
-            _buildOpsActivityTable(),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _generateOperationsPDF,
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Save / Print Report as PDF'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Container(
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Operations metrics for the selected period.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_opsLoadError != null)
+                    _buildErrorRetry(
+                      message: _opsLoadError,
+                      onRetry: _loadOperations,
+                      isLoading: _opsLoading,
+                    )
+                  else if (_opsLoading)
+                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                  else if (_opsStats == null)
+                    const Center(child: Text('No operations activity recorded for this period.'))
+                  else ...[
+                    _buildOpsKPIs(),
+                    const SizedBox(height: 16),
+                    _buildOpsDetails(),
+                    const SizedBox(height: 24),
+                    _buildOpsActivityTable(),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _generateOperationsPDF,
+                        icon: const Icon(Icons.picture_as_pdf),
+                        label: const Text('Save / Print Report as PDF'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
