@@ -405,7 +405,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           else if (_isLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_plData == null)
-            const Center(child: Text('No report data for this period.'))
+            const Center(child: Text('No financial transactions recorded for this period.'))
           else ...[
             _buildFinancialKPIs(),
             const SizedBox(height: 16),
@@ -416,6 +416,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
             const SizedBox(height: 16),
             _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
+            const SizedBox(height: 24),
+            _buildFinancialDetailTables(),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -527,6 +529,132 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     ));
   }
 
+  Widget _buildFinancialDetailTables() {
+    final revenueItems = _plData!.revenueItems;
+    final expenseItems = _plData!.expenseItems;
+
+    if (revenueItems.isEmpty && expenseItems.isEmpty) {
+      return Center(
+        child: Text(
+          'No financial transactions recorded for this period.',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Revenue Transactions'),
+        if (revenueItems.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text('No revenue transactions for this period.', style: TextStyle(color: Colors.grey[600])),
+          )
+        else
+          _card(
+            child: SizedBox(
+              height: 260,
+              child: Scrollbar(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Check-out Date')),
+                      DataColumn(label: Text('Room Type')),
+                      DataColumn(label: Text('Status')),
+                      DataColumn(label: Text('Amount (₦)')),
+                      DataColumn(label: Text('Booking ID')),
+                    ],
+                    rows: revenueItems.map((b) {
+                      final id = b['id']?.toString() ?? '';
+                      final status = b['status']?.toString() ?? '';
+                      final rooms = b['rooms'];
+                      String roomType = '';
+                      if (rooms is Map && rooms['type'] != null) {
+                        roomType = rooms['type']?.toString() ?? '';
+                      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
+                        roomType = (rooms.first as Map)['type']?.toString() ?? '';
+                      } else {
+                        roomType = b['requested_room_type']?.toString() ?? '';
+                      }
+                      final rawDate = b['check_out_date']?.toString();
+                      String dateStr = rawDate ?? '';
+                      try {
+                        if (rawDate != null) {
+                          final dt = DateTime.parse(rawDate);
+                          dateStr = DateFormat('MMM dd, yyyy').format(dt);
+                        }
+                      } catch (_) {}
+                      final totalAmount = (b['total_amount'] as num?)?.toInt();
+                      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+                      final amount = totalAmount ?? paidAmount;
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(dateStr)),
+                          DataCell(Text(roomType.isEmpty ? 'Room' : roomType)),
+                          DataCell(Text(status)),
+                          DataCell(Text(_fmtNaira(amount))),
+                          DataCell(Text(id)),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 24),
+        _sectionTitle('Expense & Payroll Transactions'),
+        if (expenseItems.isEmpty)
+          Text('No expense or payroll transactions for this period.', style: TextStyle(color: Colors.grey[600]))
+        else
+          _card(
+            child: SizedBox(
+              height: 260,
+              child: Scrollbar(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Date')),
+                      DataColumn(label: Text('Category')),
+                      DataColumn(label: Text('Department')),
+                      DataColumn(label: Text('Description')),
+                      DataColumn(label: Text('Amount (₦)')),
+                    ],
+                    rows: expenseItems.map((e) {
+                      final rawDate = e['transaction_date']?.toString();
+                      String dateStr = rawDate ?? '';
+                      try {
+                        if (rawDate != null) {
+                          final dt = DateTime.parse(rawDate);
+                          dateStr = DateFormat('MMM dd, yyyy').format(dt);
+                        }
+                      } catch (_) {}
+                      final category = e['category']?.toString() ?? '';
+                      final dept = e['department']?.toString() ?? '';
+                      final desc = e['description']?.toString() ?? '';
+                      final amount = (e['amount'] as num?)?.toInt() ?? 0;
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(dateStr)),
+                          DataCell(Text(category)),
+                          DataCell(Text(dept.isEmpty ? 'General' : dept)),
+                          DataCell(SizedBox(width: 260, child: Text(desc, overflow: TextOverflow.ellipsis))),
+                          DataCell(Text(_fmtNaira(amount))),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   // ────────────────────── GUEST TAB ──────────────────────
 
   Widget _buildGuestTab() {
@@ -548,11 +676,13 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           else if (_isLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_guestStats == null)
-            const Center(child: Text('No report data for this period.'))
+            const Center(child: Text('No guest bookings recorded for this period.'))
           else ...[
             _buildGuestKPIs(),
             const SizedBox(height: 16),
             _buildGuestBreakdown(),
+            const SizedBox(height: 24),
+            _buildGuestDetailsTable(),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -624,6 +754,73 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     ));
   }
 
+  Widget _buildGuestDetailsTable() {
+    final rows = (_guestStats?['rows'] as List?) ?? const [];
+    if (rows.isEmpty) {
+      return Center(
+        child: Text(
+          'No guest bookings recorded for this period.',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Booking Details'),
+        _card(
+          child: SizedBox(
+            height: 260,
+            child: Scrollbar(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('Booking ID')),
+                    DataColumn(label: Text('Check-in')),
+                    DataColumn(label: Text('Check-out')),
+                    DataColumn(label: Text('Status')),
+                    DataColumn(label: Text('Total (₦)')),
+                  ],
+                  rows: rows.map<DataRow>((b) {
+                    final id = b['id']?.toString() ?? '';
+                    final status = b['status']?.toString() ?? '';
+                    String ciStr = '';
+                    String coStr = '';
+                    try {
+                      final ci = b['check_in_date']?.toString();
+                      if (ci != null) {
+                        ciStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(ci));
+                      }
+                    } catch (_) {}
+                    try {
+                      final co = b['check_out_date']?.toString();
+                      if (co != null) {
+                        coStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(co));
+                      }
+                    } catch (_) {}
+                    final totalAmount = (b['total_amount'] as num?)?.toInt();
+                    final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+                    final amount = totalAmount ?? paidAmount;
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(id)),
+                        DataCell(Text(ciStr)),
+                        DataCell(Text(coStr)),
+                        DataCell(Text(status)),
+                        DataCell(Text(_fmtNaira(amount))),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ────────────────────── OPERATIONS TAB ──────────────────────
 
   Widget _buildOperationsTab() {
@@ -645,11 +842,13 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           else if (_isLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_opsStats == null)
-            const Center(child: Text('No report data for this period.'))
+            const Center(child: Text('No operations activity recorded for this period.'))
           else ...[
             _buildOpsKPIs(),
             const SizedBox(height: 16),
             _buildOpsDetails(),
+            const SizedBox(height: 24),
+            _buildOpsActivityTable(),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -712,6 +911,62 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           ),
       ],
     ));
+  }
+
+  Widget _buildOpsActivityTable() {
+    final activities = (_opsStats?['activities'] as List?) ?? const [];
+    if (activities.isEmpty) {
+      return Center(
+        child: Text(
+          'No staff activities recorded for this period.',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Staff Activity Details'),
+        _card(
+          child: SizedBox(
+            height: 260,
+            child: Scrollbar(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('Timestamp')),
+                    DataColumn(label: Text('Department')),
+                    DataColumn(label: Text('Action')),
+                    DataColumn(label: Text('Details')),
+                  ],
+                  rows: activities.map<DataRow>((a) {
+                    final raw = a['created_at']?.toString();
+                    String ts = raw ?? '';
+                    try {
+                      if (raw != null) {
+                        ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
+                      }
+                    } catch (_) {}
+                    final dept = a['department']?.toString() ?? '';
+                    final action = a['action']?.toString() ?? '';
+                    final details = a['details']?.toString() ?? '';
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(ts)),
+                        DataCell(Text(dept.isEmpty ? 'N/A' : dept)),
+                        DataCell(Text(action)),
+                        DataCell(SizedBox(width: 280, child: Text(details, overflow: TextOverflow.ellipsis))),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _opsRow(IconData icon, String label, String value, {Color? valueColor}) {

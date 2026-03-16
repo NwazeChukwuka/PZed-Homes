@@ -147,13 +147,17 @@ class DataService {
 
   /// Fetches bookings with pagination. Use limit 20-50 per page for list screens.
   /// Each page is cached separately; invalidate via invalidateCacheForTable('bookings').
+  /// When [filterByStayOverlap] is true, [startDate] and [endDate] filter by stay overlap
+  /// (check_out_date >= startDate AND check_in_date <= endDate) instead of created_at.
+  /// Use this for dashboard to fetch only bookings overlapping a date range (~20-50 rows).
   Future<List<Map<String, dynamic>>> getBookings({
     DateTime? startDate,
     DateTime? endDate,
     int limit = 1000,
     int offset = 0,
+    bool filterByStayOverlap = false,
   }) async {
-    final key = 'getBookings:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$offset';
+    final key = 'getBookings:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$offset:$filterByStayOverlap';
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: key,
       tables: const ['bookings'],
@@ -190,11 +194,32 @@ class DataService {
                 profiles!guest_profile_id(*),
                 created_by_profile:profiles!created_by(full_name)
               ''');
-          if (startDate != null) {
-            query = query.gte('created_at', startDate.toIso8601String());
-          }
-          if (endDate != null) {
-            query = query.lte('created_at', endDate.toIso8601String());
+          if (startDate != null && endDate != null) {
+            if (filterByStayOverlap) {
+              final startStr = startDate.toIso8601String().split('T')[0];
+              final endStr = endDate.toIso8601String().split('T')[0];
+              query = query
+                  .gte('check_out_date', startStr)
+                  .lte('check_in_date', endStr);
+            } else {
+              query = query
+                  .gte('created_at', startDate.toIso8601String())
+                  .lte('created_at', endDate.toIso8601String());
+            }
+          } else if (startDate != null) {
+            if (filterByStayOverlap) {
+              final startStr = startDate.toIso8601String().split('T')[0];
+              query = query.gte('check_out_date', startStr);
+            } else {
+              query = query.gte('created_at', startDate.toIso8601String());
+            }
+          } else if (endDate != null) {
+            if (filterByStayOverlap) {
+              final endStr = endDate.toIso8601String().split('T')[0];
+              query = query.lte('check_in_date', endStr);
+            } else {
+              query = query.lte('created_at', endDate.toIso8601String());
+            }
           }
           final response = await query
               .order('created_at', ascending: false)
@@ -694,18 +719,24 @@ class DataService {
   }
 
   // Financial Data
+  /// When [light] is true, only fetches columns needed for dashboard totals (smaller payload).
+  /// Default false for Finance screen and other callers that need full rows (e.g. description).
   Future<List<Map<String, dynamic>>> getExpenses({
     DateTime? startDate,
     DateTime? endDate,
     String? status,
     int limit = 200,
+    bool light = false,
   }) async {
-    final key = 'getExpenses:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$status:$limit';
+    final key = 'getExpenses:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$status:$limit:$light';
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: key,
       tables: const ['expenses'],
       fetch: () => _retryOperation(() async {
-        var query = _supabase.from('expenses').select();
+        final select = light
+            ? 'id, amount, transaction_date, department, category, status'
+            : '*';
+        var query = _supabase.from('expenses').select(select);
         if (status != null && status.isNotEmpty) {
           query = query.eq('status', status);
         }
@@ -767,17 +798,21 @@ class DataService {
     });
   }
 
+  /// When [light] is true, only fetches id, amount, date (smaller payload for dashboard).
+  /// Default false for Finance screen and other callers that need full rows.
   Future<List<Map<String, dynamic>>> getIncomeRecords({
     DateTime? startDate,
     DateTime? endDate,
     int limit = 200,
+    bool light = false,
   }) async {
-    final key = 'getIncomeRecords:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    final key = 'getIncomeRecords:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$light';
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: key,
       tables: const ['income_records'],
       fetch: () => _retryOperation(() async {
-        var query = _supabase.from('income_records').select();
+        final select = light ? 'id, amount, date' : '*';
+        var query = _supabase.from('income_records').select(select);
         if (startDate != null) {
           query = query.gte('date', startDate.toIso8601String().split('T')[0]);
         }
@@ -876,6 +911,68 @@ class DataService {
         'rejection_reason': reason,
       }).eq('id', payrollId);
     });
+  }
+
+  /// Updates a staff profile's monthly gross salary (in kobo). Used for payroll fallback when no actual is recorded.
+  Future<void> updateStaffMonthlySalary(String profileId, int amountKobo) async {
+    await _retryOperation(() async {
+      await _supabase.from('profiles').update({
+        'monthly_salary': amountKobo,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', profileId);
+    });
+  }
+
+  /// Calculates total payroll for a date range using: approved actuals from payroll_records where they exist,
+  /// otherwise staff monthly_salary (gross) from profiles. Sums per staff per month across all months in range.
+  /// Note: Payroll is MONTH-BASED, not day-based. A custom range of e.g. March 31–April 1 still includes two full
+  /// months of payroll (March + April). All amounts are in kobo.
+  Future<num> calculatePeriodPayroll(DateTime start, DateTime end) async {
+    final staff = await getStaffProfiles(); // Active staff only (status = 'Active'); deactivated staff are excluded.
+    final startMonth = DateTime(start.year, start.month, 1);
+    final endMonth = DateTime(end.year, end.month, 1);
+    final records = await getPayrollRecords(
+      startMonth: startMonth,
+      endMonth: endMonth,
+      approvalStatus: 'approved',
+      limit: 500,
+    );
+    // Build set of months in range (first day of each month). Dashboard is month-based: any day in a month includes full month payroll.
+    final months = <DateTime>{};
+    var m = DateTime(startMonth.year, startMonth.month, 1);
+    while (m.isBefore(endMonth) || m.isAtSameMomentAs(endMonth)) {
+      months.add(DateTime(m.year, m.month, 1));
+      m = DateTime(m.year, m.month + 1, 1);
+    }
+    if (kDebugMode && months.length >= 2 && end.difference(start).inDays <= 3) {
+      debugPrint('Payroll: period is month-based; ${months.length} month(s) in range (short date window still uses full months of salary).');
+    }
+    // All amounts below are in kobo (payroll_records.amount, profiles.monthly_salary).
+    num total = 0;
+    for (final month in months) {
+      for (final s in staff) {
+        final staffId = s['id']?.toString();
+        if (staffId == null) continue;
+        final actual = records.cast<Map<String, dynamic>>().where((r) {
+          final rMonth = r['month']?.toString();
+          final rStaff = r['staff_id']?.toString();
+          return rStaff == staffId && (rMonth?.startsWith('${month.year}-${month.month.toString().padLeft(2, '0')}') ?? false);
+        }).toList();
+        // Duplicate-record guard: if multiple approved records exist for same staff/month, use the latest by approved_at to avoid double-counting.
+        if (actual.length > 1) {
+          actual.sort((a, b) {
+            final at = a['approved_at']?.toString() ?? a['created_at']?.toString() ?? '';
+            final bt = b['approved_at']?.toString() ?? b['created_at']?.toString() ?? '';
+            return bt.compareTo(at);
+          });
+        }
+        final amount = actual.isNotEmpty
+            ? (actual.first['amount'] is int ? (actual.first['amount'] as int).toDouble() : (double.tryParse(actual.first['amount']?.toString() ?? '') ?? 0))
+            : ((s['monthly_salary'] is int ? (s['monthly_salary'] as int).toDouble() : (double.tryParse(s['monthly_salary']?.toString() ?? '') ?? 0)));
+        total += amount;
+      }
+    }
+    return total;
   }
 
   Future<List<Map<String, dynamic>>> getCashDeposits({
@@ -1148,101 +1245,128 @@ class DataService {
       final startStr = rangeStart.toIso8601String().split('T')[0];
       final endStr = rangeEnd.toIso8601String().split('T')[0];
 
-      // 1. Manual income records
-      final incomeResp = await _supabase
+      // Build typed futures so that Future.wait receives an Iterable<Future>.
+      final Future<dynamic> incomeFuture = _supabase
           .from('income_records')
           .select('amount')
           .gte('date', startStr)
           .lte('date', endStr);
-      var totalIncome = (incomeResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
 
-      // 2. Department sales (Kitchen, Mini Mart, VIP Bar, Outside Bar) - try department_sales first
-      int deptSalesTotal = 0;
-      try {
-        final deptResp = await _supabase
-            .from('department_sales')
-            .select('department, total_sales')
-            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
-            .gte('date', startStr)
-            .lte('date', endStr);
-        for (final r in deptResp as List) {
-          deptSalesTotal += (r['total_sales'] as num?)?.toInt() ?? 0;
-        }
-      } catch (_) {}
-      if (deptSalesTotal == 0) {
-        try {
-          final kResp = await _supabase
-              .from('kitchen_sales')
-              .select('total_amount')
-              .gte('created_at', rangeStart.toIso8601String())
-              .lte('created_at', rangeEnd.toIso8601String());
-          for (final r in kResp as List) {
-            deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
-          }
-          final mmResp = await _supabase
-              .from('mini_mart_sales')
-              .select('total_amount')
-              .gte('sale_date', startStr)
-              .lte('sale_date', endStr);
-          for (final r in mmResp as List) {
-            deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
-          }
-        } catch (_) {}
-      }
-      totalIncome += deptSalesTotal.toDouble();
+      final Future<dynamic> deptSalesFuture = _supabase
+          .from('department_sales')
+          .select('department, total_sales')
+          .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
+          .gte('date', startStr)
+          .lte('date', endStr);
 
-      // 3. Room booking revenue (checked-out bookings)
-      int roomRevenue = 0;
-      try {
-        final bookResp = await _supabase
-            .from('bookings')
-            .select('total_amount, paid_amount')
-            .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
-            .gte('check_out_date', startStr)
-            .lte('check_out_date', endStr);
-        for (final b in bookResp as List) {
-          final total = (b['total_amount'] as num?)?.toInt();
-          final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
-          roomRevenue += total ?? paid;
-        }
-      } catch (_) {}
-      totalIncome += roomRevenue.toDouble();
+      final Future<dynamic> kitchenSalesFuture = _supabase
+          .from('kitchen_sales')
+          .select('total_amount')
+          .gte('created_at', rangeStart.toIso8601String())
+          .lte('created_at', rangeEnd.toIso8601String());
 
-      // 4. Period expenses (all, for P&L display)
-      final expensesResp = await _supabase
+      final Future<dynamic> miniMartSalesFuture = _supabase
+          .from('mini_mart_sales')
+          .select('total_amount')
+          .gte('sale_date', startStr)
+          .lte('sale_date', endStr);
+
+      final Future<dynamic> bookingsFuture = _supabase
+          .from('bookings')
+          .select('total_amount, paid_amount')
+          .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
+          .gte('check_out_date', startStr)
+          .lte('check_out_date', endStr);
+
+      final Future<dynamic> expensesFuture = _supabase
           .from('expenses')
           .select('amount')
           .gte('transaction_date', startStr)
           .lte('transaction_date', endStr);
-      final totalExpenses = (expensesResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
 
-      // 5. Cash outflows: Approved expenses + approved payroll
-      var approvedExpenses = 0.0;
-      var approvedPayroll = 0.0;
-      try {
-        final expApproved = await _supabase
-            .from('expenses')
-            .select('amount')
-            .gte('transaction_date', startStr)
-            .lte('transaction_date', endStr)
-            .eq('status', 'Approved');
-        approvedExpenses = (expApproved as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-      } catch (_) {}
-      try {
-        final payrollResp = await _supabase
-            .from('payroll_records')
-            .select('amount')
-            .gte('month', startStr)
-            .lte('month', endStr)
-            .eq('approval_status', 'approved');
-        approvedPayroll = (payrollResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-      } catch (_) {}
+      final Future<dynamic> approvedExpensesFuture = _supabase
+          .from('expenses')
+          .select('amount')
+          .gte('transaction_date', startStr)
+          .lte('transaction_date', endStr)
+          .eq('status', 'Approved');
+
+      final Future<dynamic> payrollFuture = _supabase
+          .from('payroll_records')
+          .select('amount')
+          .gte('month', startStr)
+          .lte('month', endStr)
+          .eq('approval_status', 'approved');
+
+      final Future<num> openingBalanceFuture = _computeOpeningCashBalance(startStr);
+
+      final results = await Future.wait([
+        incomeFuture,
+        deptSalesFuture,
+        kitchenSalesFuture,
+        miniMartSalesFuture,
+        bookingsFuture,
+        expensesFuture,
+        approvedExpensesFuture,
+        payrollFuture,
+        openingBalanceFuture,
+      ]);
+
+      // Unpack results with safe typing.
+      final incomeResp = results[0] as List;
+      final deptResp = results[1] as List;
+      final kResp = results[2] as List;
+      final mmResp = results[3] as List;
+      final bookResp = results[4] as List;
+      final expensesResp = results[5] as List;
+      final expApproved = results[6] as List;
+      final payrollResp = results[7] as List;
+      final opening = results[8] as num;
+
+      var totalIncome = incomeResp.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
+
+      int deptSalesTotal = 0;
+      for (final r in deptResp) {
+        deptSalesTotal += (r['total_sales'] as num?)?.toInt() ?? 0;
+      }
+      if (deptSalesTotal == 0) {
+        for (final r in kResp) {
+          deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
+        }
+        for (final r in mmResp) {
+          deptSalesTotal += (r['total_amount'] as num?)?.toInt() ?? 0;
+        }
+      }
+      totalIncome += deptSalesTotal.toDouble();
+
+      int roomRevenue = 0;
+      for (final b in bookResp) {
+        final total = (b['total_amount'] as num?)?.toInt();
+        final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
+        roomRevenue += total ?? paid;
+      }
+      totalIncome += roomRevenue.toDouble();
+
+      final totalExpenses = expensesResp.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
+
+      final approvedExpenses = expApproved.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
+      final approvedPayroll = payrollResp.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
       final totalOutflows = approvedExpenses + approvedPayroll;
 
-      // 6. Available Cash: (Opening Balance + Period Inflows) - Period Outflows
-      final opening = await _computeOpeningCashBalance(startStr);
       final periodInflows = totalIncome;
-      final availableCash = opening + periodInflows - totalOutflows;
+      final availableCash = opening.toDouble() + periodInflows - totalOutflows;
 
       return {
         'total_income': totalIncome,
@@ -1705,9 +1829,11 @@ class DataService {
       key: key,
       tables: const ['department_sales'],
       fetch: () => _retryOperation(() async {
+        // Thin select: dashboard only needs these for totals and range filtering
+        const selectCols = 'id, department, total_sales, date, created_at, updated_at';
         var query = _supabase
             .from('department_sales')
-            .select();
+            .select(selectCols);
         if (department != null && department.isNotEmpty) {
           query = query.eq('department', department);
         }
@@ -1732,7 +1858,7 @@ class DataService {
     return await _retryOperation(() async {
       final response = await _supabase
           .from('department_sales')
-          .select()
+          .select('id, department, total_sales, date, created_at, updated_at')
           .eq('department', department)
           .gte('date', DateTime.now().toIso8601String().split('T')[0])
           .order('date', ascending: false);

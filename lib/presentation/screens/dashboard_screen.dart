@@ -16,7 +16,7 @@ import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
-enum TimeRange { today, week, month, custom }
+enum TimeRange { today, month, lastMonth, custom }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -94,7 +94,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   num _previousPayroll = 0;
   num _previousProfit = 0;
   int _previousCheckedInCount = 0;
-  
+  /// Period payroll (gross fallback + actual overrides) for current date range; used for Payroll card and Profit.
+  num _calculatedPayrollTotal = 0;
+  /// Current period KPI totals (computed once when data loads; used by _buildAllCards to avoid recomputing on every build).
+  num _currentIncome = 0;
+  num _currentExpenses = 0;
+  num _currentProfit = 0;
+
   // Pagination state
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
@@ -252,9 +258,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _refreshBookingsSlice() async {
     if (!mounted) return;
     try {
+      final timeRange = _currentRange();
+      final previousRange = _getPreviousRange(timeRange);
       final results = await Future.wait([
         _dataService.getCheckedInGuests(),
-        _dataService.getBookings(),
+        _dataService.getBookings(
+          startDate: previousRange.start,
+          endDate: timeRange.end,
+          filterByStayOverlap: true,
+          limit: 200,
+        ),
       ]);
       final checkedInGuests = results[0];
       final bookings = results[1];
@@ -434,9 +447,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final previousRange = getPreviousRange(timeRange);
 
       // Run all independent sections in parallel
+      // Bookings: only fetch stays overlapping current + previous range (~20-50 rows vs 1000)
       final bookingsSection = Future.wait([
         _dataService.getCheckedInGuests(),
-        _dataService.getBookings(),
+        _dataService.getBookings(
+          startDate: previousRange.start,
+          endDate: timeRange.end,
+          filterByStayOverlap: true,
+          limit: 200,
+        ),
       ]);
 
       final salesSection = Future.wait([
@@ -497,20 +516,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _dataService.getIncomeRecords(
           startDate: timeRange.start,
           endDate: timeRange.end,
+          light: true,
         ),
         _dataService.getIncomeRecords(
           startDate: previousRange.start,
           endDate: previousRange.end,
+          light: true,
         ),
         _dataService.getExpenses(
           startDate: timeRange.start,
           endDate: timeRange.end,
           status: 'Approved',
+          light: true,
         ),
         _dataService.getExpenses(
           startDate: previousRange.start,
           endDate: previousRange.end,
           status: 'Approved',
+          light: true,
         ),
         _dataService.getPurchaseOrders(
           startDate: timeRange.start,
@@ -538,6 +561,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           endMonth: DateTime(previousRange.end.year, previousRange.end.month, 1),
           approvalStatus: 'approved',
         ),
+        _dataService.calculatePeriodPayroll(timeRange.start, timeRange.end),
+        _dataService.calculatePeriodPayroll(previousRange.start, previousRange.end),
       ]);
 
       final otherSection = Future.wait([
@@ -582,6 +607,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final previousMaintenanceOrders = financeResults[7] as List<Map<String, dynamic>>;
       final payrollRecords = financeResults[8] as List<Map<String, dynamic>>;
       final previousPayrollList = financeResults[9] as List<Map<String, dynamic>>;
+      final calculatedCurrentPayroll = (financeResults[10] as num).toDouble();
+      final calculatedPreviousPayroll = (financeResults[11] as num).toDouble();
 
       final otherResults = results[3] as List;
       final locations = otherResults[0] as List<Map<String, dynamic>>;
@@ -717,9 +744,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
               && (mo['status'] == 'Completed');
         }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
         final previousExpenses = previousExpensesFromTable + previousExpensesFromPurchases + previousExpensesFromMaintenance;
-        final previousPayroll = previousPayrollList.fold<num>(0, (s, p) => s + (double.tryParse(p['amount']?.toString() ?? '') ?? 0));
+        final previousPayroll = calculatedPreviousPayroll;
         final previousProfit = previousIncome - previousExpenses - previousPayroll;
-        
+
+        // Current period KPI totals (once per load; used by _buildAllCards to avoid recomputing on every build)
+        num currentIncomeFromRecords = incomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
+        num currentIncomeFromBookings = bookings.where((b) {
+          final checkIn = _parseTimestamp(b['check_in_date']);
+          return checkIn != null && _isInRange(checkIn);
+        }).fold<num>(0, (s, b) => s + (double.tryParse(b['paid_amount']?.toString() ?? '') ?? 0));
+        num currentIncomeFromDeptSales = vipBarTotal + outsideBarTotal + miniMartTotal + kitchenTotal + receptionTotal;
+        final currentIncome = currentIncomeFromRecords + currentIncomeFromBookings + currentIncomeFromDeptSales;
+
+        num currentExpensesFromTable = expenses.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
+        num currentExpensesFromPurchases = purchaseOrders.where((po) {
+          final created = _parseTimestamp(po['created_at']);
+          return created != null && _isInRange(created);
+        }).fold<num>(0, (sum, po) {
+          final items = po['purchase_order_items'] as List?;
+          if (items != null && items.isNotEmpty) {
+            final itemsTotal = items.fold<num>(0, (itemSum, item) {
+              final qty = (item['quantity'] as num?) ?? 0;
+              final unitPrice = (item['unit_price'] as num?) ?? 0;
+              return itemSum + (qty * unitPrice);
+            });
+            return sum + itemsTotal;
+          }
+          return sum + ((po['total_cost'] as num?) ?? 0);
+        });
+        num currentExpensesFromMaintenance = maintenanceOrders.where((mo) {
+          final created = _parseTimestamp(mo['created_at']);
+          return created != null && _isInRange(created) && (mo['status'] == 'Completed');
+        }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
+        final currentExpenses = currentExpensesFromTable + currentExpensesFromPurchases + currentExpensesFromMaintenance;
+        final currentProfit = currentIncome - currentExpenses - calculatedCurrentPayroll;
+
         setState(() {
           _bookings = bookings;
           _checkedInGuests = checkedInGuests;
@@ -729,7 +788,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _pendingDirectSupplies = pendingSupplies;
           _isLoading = false;
           _isLoadingAttendance = false;
-          
+
+          _currentIncome = currentIncome;
+          _currentExpenses = currentExpenses;
+          _currentProfit = currentProfit;
+
           // Store current period totals
           _deptSalesTotals = {
             'VIP Bar': vipBarTotal,
@@ -752,6 +815,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _previousPayroll = previousPayroll;
           _previousProfit = previousProfit;
           _previousCheckedInCount = previousCheckedInCount;
+          _calculatedPayrollTotal = calculatedCurrentPayroll;
           
           // Debug: Log if totals are zero
           if (kDebugMode) {
@@ -1541,61 +1605,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final padding = screenWidth < 600 ? 16.0 : 24.0;
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
-    
-    // Calculate income from all sources (already filtered by date in query)
-    // 1. Income records
-    num incomeFromRecords = _incomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
-    
-    // 2. Bookings (paid amounts)
-    num incomeFromBookings = _bookings.where((b) {
-      final checkIn = _parseTimestamp(b['check_in_date']);
-      return checkIn != null && _isInRange(checkIn);
-    }).fold<num>(0, (s, b) => s + ((b['paid_amount'] as num?) ?? 0));
-    
-    // 3. Department sales (already filtered by date in query)
-    num incomeFromDeptSales = _deptSalesTotals.values.fold<num>(0, (s, v) => s + v);
-    
-    // Total income
-    final income = incomeFromRecords + incomeFromBookings + incomeFromDeptSales;
-    
-    // Calculate expenses from all sources (already filtered by date in query)
-    // 1. Expenses table
-    num expensesFromTable = _expenseRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
-    
-    // 2. Purchase orders (total_cost)
-    num expensesFromPurchases = _purchaseOrders.where((po) {
-      final created = _parseTimestamp(po['created_at']);
-      return created != null && _isInRange(created);
-    }).fold<num>(0, (sum, po) {
-      // Calculate total from purchase_order_items if available
-      final items = po['purchase_order_items'] as List?;
-      if (items != null && items.isNotEmpty) {
-        final itemsTotal = items.fold<num>(0, (itemSum, item) {
-          final qty = (item['quantity'] as num?) ?? 0;
-          final unitPrice = (item['unit_price'] as num?) ?? 0;
-          return itemSum + (qty * unitPrice);
-        });
-        return sum + itemsTotal;
-      }
-      // Fallback to total_cost if available
-      return sum + ((po['total_cost'] as num?) ?? 0);
-    });
-    
-    // 3. Maintenance work orders (actual_cost, only completed ones)
-    num expensesFromMaintenance = _maintenanceOrders.where((mo) {
-      final created = _parseTimestamp(mo['created_at']);
-      return created != null && _isInRange(created) && (mo['status'] == 'Completed');
-    }).fold<num>(0, (s, mo) => s + ((mo['actual_cost'] as num?) ?? 0));
-    
-    // Total expenses
-    final expenses = expensesFromTable + expensesFromPurchases + expensesFromMaintenance;
-    
-    // Payroll (approved records for current period, already filtered by month in query)
-    final payroll = _payrollRecords.fold<num>(0, (s, p) => s + (double.tryParse(p['amount']?.toString() ?? '') ?? 0));
-    
-    // Net profit (after expenses and payroll)
-    final profit = income - expenses - payroll;
-    
+
+    // Use precomputed KPI totals (set once in _loadData setState) to avoid heavy .fold()/.where() on every build
+    final income = _currentIncome;
+    final expenses = _currentExpenses;
+    final payroll = _calculatedPayrollTotal;
+    final profit = _currentProfit;
+
     // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Payroll, Profit
     final allCards = <Widget>[
       // 1. Checked In
@@ -2535,10 +2551,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       switch (r) {
         case TimeRange.today:
           return 'Today';
-        case TimeRange.week:
-          return 'This Week';
         case TimeRange.month:
           return 'This Month';
+        case TimeRange.lastMonth:
+          return 'Last Month';
         case TimeRange.custom:
           return 'Custom';
       }
@@ -2737,18 +2753,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final start = getBusinessDayStart(now);
         final end = getBusinessDayEnd(now);
         return DateTimeRange(start: start, end: end);
-      case TimeRange.week:
-        // This week: from 5 AM of Monday (or 7 days ago if before 5 AM) to end of current business day
-        final weekStart = now.subtract(Duration(days: now.weekday - 1));
-        final businessWeekStart = getBusinessDayStart(weekStart);
-        final businessWeekEnd = getBusinessDayEnd(now);
-        return DateTimeRange(start: businessWeekStart, end: businessWeekEnd);
       case TimeRange.month:
         // This month: from 5 AM of first day of month to end of current business day
         final monthStart = DateTime(now.year, now.month, 1);
         final businessMonthStart = getBusinessDayStart(monthStart);
         final businessMonthEnd = getBusinessDayEnd(now);
         return DateTimeRange(start: businessMonthStart, end: businessMonthEnd);
+      case TimeRange.lastMonth:
+        // Last month: full previous calendar month (start of day 1 to end of last day)
+        final lastMonthStart = DateTime(now.year, now.month - 1, 1);
+        final lastMonthEnd = DateTime(now.year, now.month, 0, 23, 59, 59, 999);
+        return DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
       case TimeRange.custom:
         return _customRange ?? DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
     }

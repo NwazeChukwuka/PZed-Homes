@@ -2559,6 +2559,9 @@ ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_by UUID REF
 ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 
+-- Staff monthly gross (kobo) for payroll fallback when no actual payment is recorded
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS monthly_salary INT8 DEFAULT 0;
+
 ALTER TABLE public.debts ADD COLUMN IF NOT EXISTS due_date DATE;
 
 CREATE TABLE IF NOT EXISTS public.finance_audit_logs (

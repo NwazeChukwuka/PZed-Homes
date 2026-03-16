@@ -207,6 +207,7 @@ class ReportingService {
           .from('bookings')
           .select('''
             id, total_amount, paid_amount, extra_charges, status, requested_room_type,
+            check_out_date,
             rooms!inner(type)
           ''')
           .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
@@ -607,6 +608,8 @@ class ReportingService {
       'revenue': revenueSum,
       'avg_revenue': total > 0 ? (revenueSum / total).round() : 0,
       'avg_nights': total > 0 ? (totalNights / total).toStringAsFixed(1) : '0',
+      // Attach raw rows so ReportingScreen can render a booking detail table.
+      'rows': rows,
     };
   }
 
@@ -623,11 +626,12 @@ class ReportingService {
     int uniqueStaff = 0;
     String topDepartment = 'N/A';
     int negativeAdjustments = 0;
+    List activities = [];
 
     try {
-      final activities = await _supabase
+      activities = await _supabase
           .from('staff_activities')
-          .select('id, staff_profile_id, department')
+          .select('id, staff_profile_id, department, action, details, created_at')
           .gte('created_at', range.start.toIso8601String())
           .lte('created_at', range.end.toIso8601String());
 
@@ -665,6 +669,8 @@ class ReportingService {
       'unique_staff': uniqueStaff,
       'top_department': topDepartment,
       'negative_adjustments': negativeAdjustments,
+      // Attach raw activities so ReportingScreen can render an activity detail table.
+      'activities': activities,
     };
   }
 

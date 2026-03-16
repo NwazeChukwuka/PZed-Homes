@@ -117,6 +117,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   Map<String, List<Map<String, dynamic>>> _departmentSales = {};
   List<Map<String, dynamic>> _departmentPerformance = [];
   bool _isLoadingData = false;
+  /// True only after a successful load for the currently selected _summaryRange; keeps exports disabled until data matches range.
+  bool _dataMatchesRange = false;
+  /// Non-null when last _loadFinancialData failed; shows banner and disables exports.
+  String? _loadError;
+  /// Separate from _isLoadingData so export buttons show spinner while generating file.
+  final ValueNotifier<bool> _isExporting = ValueNotifier<bool>(false);
   DateTimeRange? _summaryRange;
   bool _showPendingExpenses = false;
   bool _showPendingPayroll = false;
@@ -154,10 +160,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final _staffIdController = TextEditingController();
   final _payrollAmountController = TextEditingController();
   final _payrollMonthController = TextEditingController();
+  final _salaryAmountController = TextEditingController();
 
   // Finance form state
   final List<Map<String, dynamic>> _staffProfiles = [];
   String? _selectedPayrollStaffId;
+  String? _selectedSalaryStaffId;
   DateTime? _selectedPayrollMonth;
   String _payrollPaymentMethod = 'bank_transfer';
   String _expensePaymentMethod = 'cash';
@@ -200,8 +208,39 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
+  /// Non-blocking UI guard: when a staff + month are selected for payroll, warn if an approved
+  /// record already exists for that staff/month. Does not block save; just surfaces the risk.
+  Future<void> _maybeShowDuplicatePayrollWarning() async {
+    final staffId = _selectedPayrollStaffId;
+    final month = _selectedPayrollMonth;
+    if (staffId == null || staffId.isEmpty || month == null) return;
+    try {
+      final monthStart = DateTime(month.year, month.month, 1);
+      final records = await _dataService.getPayrollRecords(
+        startMonth: monthStart,
+        endMonth: monthStart,
+        approvalStatus: 'approved',
+      );
+      final hasExisting = records.any((r) => (r['staff_id']?.toString() ?? '') == staffId);
+      if (hasExisting && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Note: An approved payroll record already exists for this month. '
+              'Saving this will override the previous record in dashboard calculations.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      // Silently ignore; this is best-effort warning only.
+    }
+  }
+
   @override
   void dispose() {
+    _isExporting.dispose();
     _tabController.dispose();
     _debtAmountController.dispose();
     _debtorNameController.dispose();
@@ -217,6 +256,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     _staffIdController.dispose();
     _payrollAmountController.dispose();
     _payrollMonthController.dispose();
+    _salaryAmountController.dispose();
     _depositAmountController.dispose();
     _bankChargesController.dispose();
     _bankNameController.dispose();
@@ -229,9 +269,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Future<void> _loadFinancialData() async {
     if (_isLoadingData) return; // Prevent concurrent loads
-    
-    setState(() => _isLoadingData = true);
-    
+
+    setState(() {
+      _isLoadingData = true;
+      _loadError = null;
+    });
+
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = authService.currentUser?.id;
@@ -239,63 +282,78 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         throw Exception('User must be logged in to record debts');
       }
       final range = _effectiveSummaryRange;
-      final summary = await _dataService.getFinancialSummary(
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final debts = await _dataService.getDebts(
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final income = await _dataService.getIncomeRecords(
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final expenses = await _dataService.getExpenses(
-        startDate: range.start,
-        endDate: range.end,
-        status: _showPendingExpenses ? 'Pending' : null,
-      );
-      final payroll = await _dataService.getPayrollRecords(
-        startMonth: range.start,
-        endMonth: range.end,
-        approvalStatus: _showPendingPayroll ? 'pending' : null,
-      );
-      final deposits = await _dataService.getCashDeposits(
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final auditLogs = await _dataService.getFinanceAuditLogs(
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final debtClaims = await _dataService.getDebtPaymentClaims(status: 'pending');
-      final performance = await _dataService.getDepartmentPerformance(
-        startDate: range.start,
-        endDate: range.end,
-      );
+      final futures = await Future.wait([
+        _dataService.getFinancialSummary(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getDebts(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getIncomeRecords(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getExpenses(
+          startDate: range.start,
+          endDate: range.end,
+          status: _showPendingExpenses ? 'Pending' : null,
+        ),
+        _dataService.getPayrollRecords(
+          startMonth: range.start,
+          endMonth: range.end,
+          approvalStatus: _showPendingPayroll ? 'pending' : null,
+        ),
+        _dataService.getCashDeposits(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getFinanceAuditLogs(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getDebtPaymentClaims(status: 'pending'),
+        _dataService.getDepartmentPerformance(
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        // Department sales for the selected summary range
+        _dataService.getDepartmentSales(
+          department: 'vip_bar',
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'outside_bar',
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'mini_mart',
+          startDate: range.start,
+          endDate: range.end,
+        ),
+        _dataService.getDepartmentSales(
+          department: 'restaurant',
+          startDate: range.start,
+          endDate: range.end,
+        ),
+      ]);
 
-      // Department sales for the selected summary range
-      final vipSales = await _dataService.getDepartmentSales(
-        department: 'vip_bar',
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final outsideSales = await _dataService.getDepartmentSales(
-        department: 'outside_bar',
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final miniMartSales = await _dataService.getDepartmentSales(
-        department: 'mini_mart',
-        startDate: range.start,
-        endDate: range.end,
-      );
-      final kitchenSales = await _dataService.getDepartmentSales(
-        department: 'restaurant',
-        startDate: range.start,
-        endDate: range.end,
-      );
+      final summary = futures[0] as Map<String, dynamic>;
+      final debts = futures[1] as List<Map<String, dynamic>>;
+      final income = futures[2] as List<Map<String, dynamic>>;
+      final expenses = futures[3] as List<Map<String, dynamic>>;
+      final payroll = futures[4] as List<Map<String, dynamic>>;
+      final deposits = futures[5] as List<Map<String, dynamic>>;
+      final auditLogs = futures[6] as List<Map<String, dynamic>>;
+      final debtClaims = futures[7] as List<Map<String, dynamic>>;
+      final performance = futures[8] as List<Map<String, dynamic>>;
+      final vipSales = futures[9] as List<Map<String, dynamic>>;
+      final outsideSales = futures[10] as List<Map<String, dynamic>>;
+      final miniMartSales = futures[11] as List<Map<String, dynamic>>;
+      final kitchenSales = futures[12] as List<Map<String, dynamic>>;
 
       setState(() {
         _financialSummary = summary;
@@ -314,16 +372,23 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           'Kitchen': kitchenSales,
         };
         _isLoadingData = false;
+        _dataMatchesRange = true;
       });
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _loadFinancialData: $e\n$stackTrace');
-      setState(() => _isLoadingData = false);
+      setState(() {
+        _isLoadingData = false;
+        _loadError = e is Exception ? e.toString() : 'Failed to load financial data.';
+      });
       if (mounted) {
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load financial data. Please check your connection and try again.',
-          onRetry: _loadFinancialData,
+          onRetry: () {
+            setState(() => _loadError = null);
+            _loadFinancialData();
+          },
           stackTrace: stackTrace,
         );
       }
@@ -361,10 +426,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isAssumedAccountant = authService.hasAssumedRole(AppRole.accountant);
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final canApprove = isOwnerOrManager || isAccountant || isAssumedAccountant;
-    
+
     // Owner, manager, and accountant can record (expenses, income, debts, etc.); no need to assume role
     final canRecord = isOwnerOrManager || isAccountant || isAssumedAccountant;
-    final roleKey = ValueKey('$canRecord-$canApprove');
+    // Set monthly gross (staff salary) restricted to Owner/Manager only (same as price edits).
+    final canSetMonthlyGross = isOwnerOrManager;
+    final roleKey = ValueKey('$canRecord-$canApprove-$canSetMonthlyGross');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -448,7 +515,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
               _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
               _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove)),
+              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove, canSetMonthlyGross)),
               _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
               _LazyTab(index: 6, controller: _tabController, builder: _buildAuditTab),
             ],
@@ -469,8 +536,21 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           children: [
             _buildSummaryRangeSelector(),
             const SizedBox(height: 16),
+            if (_isLoadingData)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.green[700])),
+                    const SizedBox(width: 12),
+                    Text('Loading summary for selected range…', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                  ],
+                ),
+              ),
             _buildFinancialSummaryCard(),
             const SizedBox(height: 16),
+            if (_loadError != null) _buildDataLoadFailedBanner(),
+            if (_loadError != null) const SizedBox(height: 12),
             _buildAuditorExportsCard(),
             const SizedBox(height: 20),
             _buildDepartmentPerformanceCard(),
@@ -482,7 +562,43 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
+  Widget _buildDataLoadFailedBanner() {
+    return Material(
+      color: Colors.red[50],
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red[700], size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Data load failed', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red[800])),
+                  if (_loadError != null && _loadError!.isNotEmpty)
+                    Text(_loadError!, style: TextStyle(fontSize: 12, color: Colors.red[700]), maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() => _loadError = null);
+                _loadFinancialData();
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAuditorExportsCard() {
+    final canExport = _loadError == null && _dataMatchesRange;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -503,31 +619,44 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Generate CSV or PDF for the selected date range. Use for external audit or records.',
+              canExport
+                  ? 'Generate CSV or PDF for the selected date range. Use for external audit or records.'
+                  : (_loadError != null
+                      ? 'Export is disabled until the data load succeeds. Use Retry above.'
+                      : 'Select a date range and wait for data to load before exporting.'),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Colors.grey[600],
               ),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _isLoadingData ? null : _downloadFinanceCsv,
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('Download CSV'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _isLoadingData ? null : _exportAuditorPackPdf,
-                  icon: const Icon(Icons.description, size: 18),
-                  label: const Text('Auditor Pack PDF'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green[700],
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
+            ValueListenableBuilder<bool>(
+              valueListenable: _isExporting,
+              builder: (_, isExporting, __) {
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: (!canExport || isExporting) ? null : _downloadFinanceCsv,
+                      icon: isExporting
+                          ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.green[700]))
+                          : const Icon(Icons.download, size: 18),
+                      label: Text(isExporting ? 'Exporting…' : 'Download CSV'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: (!canExport || isExporting) ? null : _exportAuditorPackPdf,
+                      icon: isExporting
+                          ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.description, size: 18),
+                      label: Text(isExporting ? 'Exporting…' : 'Auditor Pack PDF'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: (!canExport || isExporting) ? Colors.grey : Colors.green[700],
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -1364,16 +1493,91 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildPayrollTab(bool canRecord, bool canApprove) {
+  Widget _buildPayrollTab(bool canRecord, bool canApprove, bool canSetMonthlyGross) {
+    // Salary configuration health check: find active staff with no monthly gross and no payroll for current month.
+    final now = DateTime.now();
+    final currentMonthPrefix = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final staffNeedingConfig = _staffProfiles.where((p) {
+      final id = p['id']?.toString() ?? '';
+      if (id.isEmpty) return false;
+      final monthly = p['monthly_salary'];
+      final monthlyKobo = monthly is int ? monthly : int.tryParse(monthly?.toString() ?? '') ?? 0;
+      if (monthlyKobo > 0) return false;
+      final hasPayrollThisMonth = _payrollRecords.any((r) {
+        final staffId = r['staff_id']?.toString() ?? '';
+        final month = r['month']?.toString() ?? '';
+        return staffId == id && month.startsWith(currentMonthPrefix);
+      });
+      return !hasPayrollThisMonth;
+    }).toList();
+
     return Column(
       children: [
         if (canRecord)
           Padding(
             padding: const EdgeInsets.all(16),
-            child: ElevatedButton.icon(
-              onPressed: () => _showAddPayrollDialog(),
-              icon: const Icon(Icons.add),
-              label: const Text('Record Payroll'),
+            child: Column(
+              children: [
+                if (canSetMonthlyGross && staffNeedingConfig.isNotEmpty)
+                  Card(
+                    color: Colors.orange[50],
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.warning_amber, color: Colors.orange[700], size: 18),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Configuration warning',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'These active staff have no monthly gross set and no payroll recorded for this month:',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 4),
+                          for (final p in staffNeedingConfig.take(5))
+                            Text(
+                              '• ${p['full_name'] ?? 'Unknown'}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          if (staffNeedingConfig.length > 5)
+                            Text(
+                              '+ ${staffNeedingConfig.length - 5} more staff...',
+                              style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (canSetMonthlyGross)
+                      ElevatedButton.icon(
+                        onPressed: () => _showSetMonthlyGrossDialog(),
+                        icon: const Icon(Icons.attach_money),
+                        label: const Text('Set monthly gross'),
+                      ),
+                    if (canSetMonthlyGross) const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: () => _showAddPayrollDialog(),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Record Payroll'),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         if (canApprove)
@@ -1959,6 +2163,116 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
+  void _showSetMonthlyGrossDialog() {
+    _selectedSalaryStaffId = null;
+    _salaryAmountController.clear();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Set monthly gross'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Set the expected monthly salary (gross) for a staff. This is used as payroll when no actual payment is recorded for that month.'),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _selectedSalaryStaffId ?? '',
+                    decoration: const InputDecoration(labelText: 'Staff'),
+                    items: [
+                      const DropdownMenuItem(value: '', child: Text('Select staff')),
+                      ..._staffProfiles.map((profile) {
+                        final id = profile['id']?.toString() ?? '';
+                        final name = profile['full_name']?.toString() ?? 'Unknown';
+                        final kobo = (profile['monthly_salary'] is int) ? (profile['monthly_salary'] as int) : (int.tryParse(profile['monthly_salary']?.toString() ?? '') ?? 0);
+                        return DropdownMenuItem(
+                          value: id,
+                          child: Text(kobo > 0 ? '$name (₦${PaymentService.koboToNaira(kobo).toStringAsFixed(0)})' : name),
+                        );
+                      }),
+                    ],
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _selectedSalaryStaffId = (value == null || value.isEmpty) ? null : value;
+                        if (_selectedSalaryStaffId != null) {
+                          final list = _staffProfiles.where((p) => (p['id']?.toString()) == _selectedSalaryStaffId).toList();
+                          final profile = list.isEmpty ? null : list.first;
+                          if (profile != null) {
+                            final kobo = (profile['monthly_salary'] is int) ? (profile['monthly_salary'] as int) : (int.tryParse(profile['monthly_salary']?.toString() ?? '') ?? 0);
+                            _salaryAmountController.text = kobo > 0 ? PaymentService.koboToNaira(kobo).toStringAsFixed(2) : '';
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _salaryAmountController,
+                    decoration: const InputDecoration(labelText: 'Monthly gross (₦)'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  final staffId = _selectedSalaryStaffId;
+                  if (staffId == null || staffId.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a staff')));
+                    return;
+                  }
+                  final naira = double.tryParse(_salaryAmountController.text.trim());
+                  if (naira == null || naira < 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
+                    return;
+                  }
+                  try {
+                    // Store in kobo (INT8) for consistency with payroll_records and calculatePeriodPayroll.
+                    final amountKobo = PaymentService.nairaToKobo(naira);
+                    await _dataService.updateStaffMonthlySalary(staffId, amountKobo);
+
+                    // Basic audit trail: log salary change to staff_activities with Manager/Owner as actor.
+                    if (context.mounted) {
+                      final auth = Provider.of<AuthService>(context, listen: false);
+                      final actor = auth.currentUser;
+                      final staffProfile = _staffProfiles.firstWhere(
+                        (p) => (p['id']?.toString() ?? '') == staffId,
+                        orElse: () => <String, dynamic>{},
+                      );
+                      final staffName = staffProfile['full_name']?.toString() ?? 'Unknown';
+                      final actorName = actor?.name ?? 'Unknown';
+                      final details =
+                          '$actorName updated $staffName\'s monthly gross to ₦${amountKobo > 0 ? PaymentService.koboToNaira(amountKobo).toStringAsFixed(2) : '0'}';
+                      await _dataService.logActivity(
+                        actor?.id,
+                        'Salary Update',
+                        'HR/Payroll',
+                        details,
+                      );
+
+                      Navigator.of(context).pop();
+                      ErrorHandler.showSuccessMessage(context, 'Monthly gross saved.');
+                      _loadFinancialData();
+                      _loadStaffProfiles();
+                    }
+                  } catch (e) {
+                    if (context.mounted) ErrorHandler.handleError(context, e);
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showAddPayrollDialog() {
     showDialog(
       context: context,
@@ -1984,12 +2298,31 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             onChanged: (value) {
               setState(() {
                 _selectedPayrollStaffId = (value == null || value.isEmpty) ? null : value;
+                if (_selectedPayrollStaffId != null) {
+                  final list = _staffProfiles.where((p) => (p['id']?.toString()) == _selectedPayrollStaffId).toList();
+                  final profile = list.isEmpty ? null : list.first;
+                  if (profile != null) {
+                    final kobo = (profile['monthly_salary'] is int)
+                        ? (profile['monthly_salary'] as int)
+                        : (int.tryParse(profile['monthly_salary']?.toString() ?? '') ?? 0);
+                    _payrollAmountController.text =
+                        kobo > 0 ? PaymentService.koboToNaira(kobo).toStringAsFixed(2) : '';
+                  } else {
+                    _payrollAmountController.clear();
+                  }
+                } else {
+                  _payrollAmountController.clear();
+                }
               });
+              _maybeShowDuplicatePayrollWarning();
             },
           ),
           TextField(
             controller: _payrollAmountController,
-            decoration: const InputDecoration(labelText: 'Amount'),
+            decoration: const InputDecoration(
+              labelText: 'Amount',
+              hintText: 'Defaults to monthly gross; edit for overtime/deductions',
+            ),
             keyboardType: TextInputType.number,
           ),
           TextField(
@@ -2013,6 +2346,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   _payrollMonthController.text =
                       '${picked.year}-${picked.month.toString().padLeft(2, '0')}-01';
                 });
+                _maybeShowDuplicatePayrollWarning();
               }
             },
           ),
@@ -2570,6 +2904,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Future<void> _downloadFinanceCsv() async {
+    _isExporting.value = true;
     try {
       final csv = _buildFinanceCsv();
       final r = _effectiveSummaryRange;
@@ -2592,10 +2927,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           stackTrace: stackTrace,
         );
       }
+    } finally {
+      _isExporting.value = false;
     }
   }
 
   Future<void> _exportAuditorPackPdf() async {
+    _isExporting.value = true;
     try {
       final pdf = await _buildAuditorPackPdf();
       final r = _effectiveSummaryRange;
@@ -2617,6 +2955,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           stackTrace: stackTrace,
         );
       }
+    } finally {
+      _isExporting.value = false;
     }
   }
 
@@ -2636,8 +2976,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
             pw.SizedBox(height: 4),
             pw.Text('Financial Auditor Pack', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.Text('Period: $rangeLabel'),
-            pw.Text('Generated: $generatedAt'),
+            pw.SizedBox(height: 8),
+            pw.Text('Selected date range (audit period):', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.Text(rangeLabel, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.Text('Generated: $generatedAt', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
             pw.Divider(thickness: 2, color: PdfColors.green800),
             pw.SizedBox(height: 12),
             pw.Text('Summary', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
@@ -2748,7 +3091,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final r = _effectiveSummaryRange;
     final rangeLabel = '${r.start.toIso8601String().split('T')[0]} to ${r.end.toIso8601String().split('T')[0]}';
 
-    buffer.writeln('Finance Report,$rangeLabel');
+    buffer.writeln('PZed Homes – Finance Export for Auditors');
+    buffer.writeln('Selected Date Range (Audit Period),$rangeLabel');
     buffer.writeln('Generated At,${DateTime.now().toIso8601String()}');
     buffer.writeln('');
     buffer.writeln('Summary');
