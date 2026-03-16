@@ -275,24 +275,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _checkedInGuests = checkedInGuests;
           _bookings = bookings;
+          // Checked-in card: today = current live count; other ranges = count who checked in during period.
+          final checkedInCount = _timeRange == TimeRange.today
+              ? checkedInGuests.length
+              : bookings.where((b) {
+                  final checkIn = _parseTimestamp(b['check_in_date']);
+                  return checkIn != null && _isDateInRange(checkIn, timeRange);
+                }).length;
           _stats = {
-            'checked_in_count': checkedInGuests.length,
+            'checked_in_count': checkedInCount,
           };
           // Update Reception department card based on room revenue whenever bookings change.
-          final currentReception = _calculateRoomRevenueForRange(
-            bookings.where((b) {
-              final checkout = _parseTimestamp(b['check_out_date']);
-              return checkout != null && _isDateInRange(checkout, timeRange);
-            }).toList(),
-            timeRange,
-          );
-          final previousReception = _calculateRoomRevenueForRange(
-            bookings.where((b) {
-              final checkout = _parseTimestamp(b['check_out_date']);
-              return checkout != null && _isDateInRange(checkout, previousRange);
-            }).toList(),
-            previousRange,
-          );
+          final currentReception = _calculateRoomRevenueForRange(bookings, timeRange);
+          final previousReception = _calculateRoomRevenueForRange(bookings, previousRange);
           _deptSalesTotals = {
             ..._deptSalesTotals,
             'Reception': currentReception,
@@ -415,13 +410,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// Computes total room revenue for a given date range from bookings.
+  /// Revenue is recognized at check-in; filters by check_in_date in range.
   /// Uses total_amount if available, otherwise falls back to paid_amount,
   /// and includes extra_charges when present.
   num _calculateRoomRevenueForRange(List<Map<String, dynamic>> bookings, DateTimeRange range) {
     return bookings.where((b) {
-      final checkout = _parseTimestamp(b['check_out_date']);
-      if (checkout == null) return false;
-      return _isDateInRange(checkout, range);
+      final checkIn = _parseTimestamp(b['check_in_date']);
+      if (checkIn == null) return false;
+      return _isDateInRange(checkIn, range);
     }).fold<num>(0, (sum, booking) {
       final totalAmount = (booking['total_amount'] as num?)?.toInt();
       final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
@@ -659,7 +655,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final locations = otherResults[0] as List<Map<String, dynamic>>;
       final pendingSupplies = otherResults[1] as List<Map<String, dynamic>>;
 
-      final checkedInCount = checkedInGuests.length;
+      // Checked-in card: today = current live count; other ranges = count who checked in during period.
+      final checkedInCount = _timeRange == TimeRange.today
+          ? checkedInGuests.length
+          : bookings.where((b) {
+              final checkIn = _parseTimestamp(b['check_in_date']);
+              return checkIn != null && _isDateInRange(checkIn, timeRange);
+            }).length;
       final previousBookings = bookings;
       final previousCheckedInCount = previousBookings.where((b) {
         final checkIn = _parseTimestamp(b['check_in_date']);
@@ -761,7 +763,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               && (checkIn.isBefore(previousRange.end) || checkIn.isAtSameMomentAs(previousRange.end));
         }).fold<num>(0, (s, b) => s + (double.tryParse(b['paid_amount']?.toString() ?? '') ?? 0));
         num previousIncomeFromDeptSales = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
-        final previousIncome = previousIncomeFromRecords + previousIncomeFromBookings + previousIncomeFromDeptSales;
+        // Room revenue is in Reception card only; do not add previousIncomeFromBookings to avoid double-count.
+        final previousIncome = previousIncomeFromRecords + previousIncomeFromDeptSales;
         
         // Calculate previous period expenses
         num previousExpensesFromTable = previousExpensesList.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
@@ -800,7 +803,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return checkIn != null && _isInRange(checkIn);
         }).fold<num>(0, (s, b) => s + (double.tryParse(b['paid_amount']?.toString() ?? '') ?? 0));
         num currentIncomeFromDeptSales = vipBarTotal + outsideBarTotal + miniMartTotal + kitchenTotal + receptionTotal;
-        final currentIncome = currentIncomeFromRecords + currentIncomeFromBookings + currentIncomeFromDeptSales;
+        // Room revenue is in Reception card only; do not add currentIncomeFromBookings to avoid double-count.
+        final currentIncome = currentIncomeFromRecords + currentIncomeFromDeptSales;
 
         num currentExpensesFromTable = expenses.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num currentExpensesFromPurchases = purchaseOrders.where((po) {
