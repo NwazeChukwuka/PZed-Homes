@@ -275,7 +275,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
 
   Future<void> _updateRoomStatus(String roomId, String newStatus) async {
     try {
-      setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
       await _dataService.updateRoomStatus(roomId, newStatus);
       final idx = _allRooms.indexWhere((r) => r['id'] == roomId);
       if (idx != -1) {
@@ -467,7 +467,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     final tabCount = _isManagement ? 3 : 2;
     if (_tabController.length != tabCount) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+      if (!mounted) return;
         _tabController.dispose();
         _tabController = TabController(length: tabCount, vsync: this);
         setState(() {});
@@ -582,7 +582,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                       icon: Icon(_roomStatusBulkEditMode ? Icons.close : Icons.checklist),
                       label: Text(_roomStatusBulkEditMode ? 'Exit bulk edit' : 'Bulk edit'),
                       onPressed: () {
-                        setState(() {
+      setState(() {
                           _roomStatusBulkEditMode = !_roomStatusBulkEditMode;
                           if (!_roomStatusBulkEditMode) _roomStatusSelectedIds.clear();
                         });
@@ -1225,7 +1225,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                   hintText: 'Search by guest name or room number...',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _bookingSearchQuery.isNotEmpty
-                      ? IconButton(
+            ? IconButton(
                           icon: const Icon(Icons.clear),
                           onPressed: () {
                             setState(() {
@@ -1233,8 +1233,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                               _bookingSearchQuery = '';
                             });
                           },
-                        )
-                      : null,
+              )
+            : null,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -1281,9 +1281,9 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                       child: const Text('Clear filter'),
                     ),
                   ),
-                ),
-            ],
           ),
+        ],
+      ),
         ),
         Expanded(
           child: filteredBookings.isEmpty && !_bookingsLoadingMore
@@ -1410,17 +1410,17 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         Row(
           children: [
             Expanded(
-              child: Column(
+                  child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+                    children: [
+                      Text(
                     'Room Management',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: Colors.green[800],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                        const SizedBox(height: 8),
                   Text(
                     'Booking history, room status, and housekeeping',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -1503,10 +1503,10 @@ class _RoomDataSource extends DataTableSource {
           Checkbox(
             value: selectedIds.contains(roomId),
             onChanged: (v) => onSelectionChanged(roomId, v == true),
-          ),
-        ),
-      );
-    }
+                  ),
+                ),
+    );
+  }
     cells.addAll([
       DataCell(
         Text(

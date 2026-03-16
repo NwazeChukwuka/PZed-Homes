@@ -278,6 +278,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _stats = {
             'checked_in_count': checkedInGuests.length,
           };
+          // Update Reception department card based on room revenue whenever bookings change.
+          final currentReception = _calculateRoomRevenueForRange(
+            bookings.where((b) {
+              final checkout = _parseTimestamp(b['check_out_date']);
+              return checkout != null && _isDateInRange(checkout, timeRange);
+            }).toList(),
+            timeRange,
+          );
+          final previousReception = _calculateRoomRevenueForRange(
+            bookings.where((b) {
+              final checkout = _parseTimestamp(b['check_out_date']);
+              return checkout != null && _isDateInRange(checkout, previousRange);
+            }).toList(),
+            previousRange,
+          );
+          _deptSalesTotals = {
+            ..._deptSalesTotals,
+            'Reception': currentReception,
+          };
+          _previousDeptSalesTotals = {
+            ..._previousDeptSalesTotals,
+            'Reception': previousReception,
+          };
           _cachedFilteredActivities = null;
           _cachedBarGroups = null;
           _cachedChartRoomTypes = null;
@@ -389,6 +412,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.didChangeDependencies();
     // Removed automatic refresh to prevent flickering
     // Real-time subscriptions handle updates, and pull-to-refresh is available
+  }
+
+  /// Computes total room revenue for a given date range from bookings.
+  /// Uses total_amount if available, otherwise falls back to paid_amount,
+  /// and includes extra_charges when present.
+  num _calculateRoomRevenueForRange(List<Map<String, dynamic>> bookings, DateTimeRange range) {
+    return bookings.where((b) {
+      final checkout = _parseTimestamp(b['check_out_date']);
+      if (checkout == null) return false;
+      return _isDateInRange(checkout, range);
+    }).fold<num>(0, (sum, booking) {
+      final totalAmount = (booking['total_amount'] as num?)?.toInt();
+      final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
+      final extrasList = (booking['extra_charges'] as List?) ?? const [];
+      final extras = extrasList.fold<int>(0, (s, c) {
+        final price = (c['price'] as num?)?.toInt() ?? 0;
+        return s + price;
+      });
+      final baseTotal = totalAmount ?? paidAmount;
+      final normalizedTotal = baseTotal >= extras ? baseTotal : baseTotal + extras;
+      return sum + normalizedTotal;
+    });
   }
 
   @override
@@ -697,14 +742,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final outsideBarTotal = sumDeptSales(outsideSales);
         final miniMartTotal = sumDeptSales(miniMartSales);
         final kitchenTotal = sumDeptSales(kitchenSales);
-        final receptionTotal = sumDeptSales(receptionSales);
+        // Reception card should reflect all room revenue (bookings), not department_sales.
+        final receptionTotal = _calculateRoomRevenueForRange(bookings, timeRange);
         
         // Calculate previous period totals
         final previousVipBarTotal = sumPreviousDeptSales(previousVipSales);
         final previousOutsideBarTotal = sumPreviousDeptSales(previousOutsideSales);
         final previousMiniMartTotal = sumPreviousDeptSales(previousMiniMartSales);
         final previousKitchenTotal = sumPreviousDeptSales(previousKitchenSales);
-        final previousReceptionTotal = sumPreviousDeptSales(previousReceptionSales);
+        final previousReceptionTotal = _calculateRoomRevenueForRange(previousBookings, previousRange);
         
         // Calculate previous period income
         num previousIncomeFromRecords = previousIncomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
