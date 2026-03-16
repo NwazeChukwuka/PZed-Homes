@@ -23,17 +23,175 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Map<String, dynamic>? _opsStats;
   TimePeriod _selectedPeriod = TimePeriod.thisMonth;
   DateTimeRange? _customDateRange;
-  bool _isLoading = true;
-  String? _loadError;
+
+  bool _financialLoading = false;
+  bool _guestLoading = false;
+  bool _opsLoading = false;
+  String? _financialLoadError;
+  String? _guestLoadError;
+  String? _opsLoadError;
+
+  static const double _kDetailTableHeight = 280.0;
 
   final _startDateController = TextEditingController();
   final _endDateController = TextEditingController();
+
+  bool _isLoadingForTab(int index) {
+    switch (index) {
+      case 0:
+        return _financialLoading;
+      case 1:
+        return _guestLoading;
+      case 2:
+        return _opsLoading;
+      default:
+        return false;
+    }
+  }
+
+  String? _loadErrorForTab(int index) {
+    switch (index) {
+      case 0:
+        return _financialLoadError;
+      case 1:
+        return _guestLoadError;
+      case 2:
+        return _opsLoadError;
+      default:
+        return null;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadAll();
+    _tabController.addListener(_onTabChanged);
+    _loadForTab(0);
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    _loadForTab(_tabController.index, force: false);
+  }
+
+  /// Loads data for the given tab. If [force] is false, only loads when that tab's
+  /// data is not yet loaded (cached). Force reload on explicit Refresh or after period change.
+  void _loadForTab(int index, {bool force = false}) {
+    final alreadyLoaded = switch (index) {
+      0 => _plData != null,
+      1 => _guestStats != null,
+      2 => _opsStats != null,
+      _ => true,
+    };
+    if (!force && alreadyLoaded) return;
+
+    switch (index) {
+      case 0:
+        _loadFinancial();
+        break;
+      case 1:
+        _loadGuest();
+        break;
+      case 2:
+        _loadOperations();
+        break;
+    }
+  }
+
+  void _invalidateAllTabCaches() {
+    setState(() {
+      _plData = null;
+      _guestStats = null;
+      _opsStats = null;
+      _financialLoadError = null;
+      _guestLoadError = null;
+      _opsLoadError = null;
+    });
+  }
+
+  Future<void> _loadFinancial() async {
+    setState(() {
+      _financialLoading = true;
+      _financialLoadError = null;
+    });
+    try {
+      final plData = await _reportingService.getProfitAndLoss(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+      );
+      if (mounted) {
+        setState(() {
+          _plData = plData;
+          _financialLoading = false;
+          _financialLoadError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _financialLoading = false;
+          _financialLoadError = e is Exception ? e.toString() : 'Failed to load financial report.';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadGuest() async {
+    setState(() {
+      _guestLoading = true;
+      _guestLoadError = null;
+    });
+    try {
+      final guestStats = await _reportingService.getGuestStats(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+      );
+      if (mounted) {
+        setState(() {
+          _guestStats = guestStats;
+          _guestLoading = false;
+          _guestLoadError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _guestLoading = false;
+          _guestLoadError = e is Exception ? e.toString() : 'Failed to load guest report.';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadOperations() async {
+    setState(() {
+      _opsLoading = true;
+      _opsLoadError = null;
+    });
+    try {
+      final opsStats = await _reportingService.getOperationsStats(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+      );
+      if (mounted) {
+        setState(() {
+          _opsStats = opsStats;
+          _opsLoading = false;
+          _opsLoadError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _opsLoading = false;
+          _opsLoadError = e is Exception ? e.toString() : 'Failed to load operations report.';
+        });
+      }
+    }
   }
 
   @override
@@ -42,49 +200,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     _startDateController.dispose();
     _endDateController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadAll() async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
-    });
-    try {
-      final results = await Future.wait([
-        _reportingService.getProfitAndLoss(
-          period: _selectedPeriod,
-          customStart: _customDateRange?.start,
-          customEnd: _customDateRange?.end,
-        ),
-        _reportingService.getGuestStats(
-          period: _selectedPeriod,
-          customStart: _customDateRange?.start,
-          customEnd: _customDateRange?.end,
-        ),
-        _reportingService.getOperationsStats(
-          period: _selectedPeriod,
-          customStart: _customDateRange?.start,
-          customEnd: _customDateRange?.end,
-        ),
-      ]);
-      if (mounted) {
-        setState(() {
-          _plData = results[0] as PLData;
-          _guestStats = results[1] as Map<String, dynamic>;
-          _opsStats = results[2] as Map<String, dynamic>;
-          _isLoading = false;
-          _loadError = null;
-        });
-      }
-    } catch (e, stackTrace) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _loadError = e is Exception ? e.toString() : 'Failed to load reports.';
-        });
-        // No dialog: in-tab Retry and header Refresh are the recovery paths.
-      }
-    }
   }
 
   Future<void> _selectCustomDateRange() async {
@@ -103,7 +218,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _startDateController.text = DateFormat('MMM dd, yyyy').format(picked.start);
         _endDateController.text = DateFormat('MMM dd, yyyy').format(picked.end);
       });
-      _loadAll();
+      _invalidateAllTabCaches();
+      _loadForTab(_tabController.index);
     }
   }
 
@@ -139,13 +255,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           _buildHeader(context),
           _buildTabBar(),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildFinancialTab(),
-                _buildGuestTab(),
-                _buildOperationsTab(),
-              ],
+            child: Container(
+              color: Colors.white,
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildFinancialTab(),
+                  _buildGuestTab(),
+                  _buildOperationsTab(),
+                ],
+              ),
             ),
           ),
         ],
@@ -178,9 +297,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
               ),
               IconButton(
                 icon: const Icon(Icons.refresh),
-                onPressed: _isLoading ? null : () {
-                  setState(() => _loadError = null);
-                  _loadAll();
+                onPressed: _isLoadingForTab(_tabController.index) ? null : () {
+                  setState(() {
+                    switch (_tabController.index) {
+                      case 0:
+                        _financialLoadError = null;
+                        break;
+                      case 1:
+                        _guestLoadError = null;
+                        break;
+                      case 2:
+                        _opsLoadError = null;
+                        break;
+                    }
+                  });
+                  _loadForTab(_tabController.index, force: true);
                 },
                 tooltip: 'Refresh',
               ),
@@ -206,16 +337,20 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildErrorRetry() {
+  Widget _buildErrorRetry({
+    required String? message,
+    required VoidCallback onRetry,
+    required bool isLoading,
+  }) {
     return _card(
       child: Column(
         children: [
           Icon(Icons.error_outline, size: 48, color: Colors.red[400]),
           const SizedBox(height: 12),
-          Text(_loadError ?? 'Something went wrong.', style: TextStyle(color: Colors.grey[800]), textAlign: TextAlign.center),
+          Text(message ?? 'Something went wrong.', style: TextStyle(color: Colors.grey[800]), textAlign: TextAlign.center),
           const SizedBox(height: 16),
           ElevatedButton.icon(
-            onPressed: _isLoading ? null : () { setState(() => _loadError = null); _loadAll(); },
+            onPressed: isLoading ? null : onRetry,
             icon: const Icon(Icons.refresh),
             label: const Text('Retry'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], foregroundColor: Colors.white),
@@ -254,11 +389,11 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         final isNarrow = constraints.maxWidth < 500;
         final chips = [
           ChoiceChip(label: const Text('This Month'), selected: _selectedPeriod == TimePeriod.thisMonth,
-            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.thisMonth); _loadAll(); }),
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.thisMonth); _invalidateAllTabCaches(); _loadForTab(_tabController.index); }),
           ChoiceChip(label: const Text('Last Month'), selected: _selectedPeriod == TimePeriod.lastMonth,
-            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.lastMonth); _loadAll(); }),
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.lastMonth); _invalidateAllTabCaches(); _loadForTab(_tabController.index); }),
           ChoiceChip(label: const Text('Last 30 Days'), selected: _selectedPeriod == TimePeriod.last30Days,
-            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.last30Days); _loadAll(); }),
+            onSelected: (_) { setState(() => _selectedPeriod = TimePeriod.last30Days); _invalidateAllTabCaches(); _loadForTab(_tabController.index); }),
           ChoiceChip(label: const Text('Custom'), selected: _selectedPeriod == TimePeriod.custom,
             onSelected: (_) => _selectCustomDateRange()),
         ];
@@ -400,9 +535,13 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           const SizedBox(height: 24),
-          if (_loadError != null)
-            _buildErrorRetry()
-          else if (_isLoading)
+          if (_financialLoadError != null)
+            _buildErrorRetry(
+              message: _financialLoadError,
+              onRetry: _loadFinancial,
+              isLoading: _financialLoading,
+            )
+          else if (_financialLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_plData == null)
             const Center(child: Text('No financial transactions recorded for this period.'))
@@ -534,11 +673,35 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final expenseItems = _plData!.expenseItems;
 
     if (revenueItems.isEmpty && expenseItems.isEmpty) {
-      return Center(
-        child: Text(
-          'No financial transactions recorded for this period.',
-          style: TextStyle(color: Colors.grey[600]),
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Revenue Transactions'),
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No revenue transactions for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _sectionTitle('Expense & Payroll Transactions'),
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No expense or payroll transactions for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -547,14 +710,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       children: [
         _sectionTitle('Revenue Transactions'),
         if (revenueItems.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Text('No revenue transactions for this period.', style: TextStyle(color: Colors.grey[600])),
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No revenue transactions for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
           )
         else
           _card(
             child: SizedBox(
-              height: 260,
+              height: _kDetailTableHeight,
               child: Scrollbar(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -607,11 +777,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         const SizedBox(height: 24),
         _sectionTitle('Expense & Payroll Transactions'),
         if (expenseItems.isEmpty)
-          Text('No expense or payroll transactions for this period.', style: TextStyle(color: Colors.grey[600]))
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No expense or payroll transactions for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          )
         else
           _card(
             child: SizedBox(
-              height: 260,
+              height: _kDetailTableHeight,
               child: Scrollbar(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -671,9 +851,13 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           const SizedBox(height: 24),
-          if (_loadError != null)
-            _buildErrorRetry()
-          else if (_isLoading)
+          if (_guestLoadError != null)
+            _buildErrorRetry(
+              message: _guestLoadError,
+              onRetry: _loadGuest,
+              isLoading: _guestLoading,
+            )
+          else if (_guestLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_guestStats == null)
             const Center(child: Text('No guest bookings recorded for this period.'))
@@ -757,11 +941,22 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildGuestDetailsTable() {
     final rows = (_guestStats?['rows'] as List?) ?? const [];
     if (rows.isEmpty) {
-      return Center(
-        child: Text(
-          'No guest bookings recorded for this period.',
-          style: TextStyle(color: Colors.grey[600]),
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Booking Details'),
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No guest bookings recorded for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
     return Column(
@@ -770,7 +965,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _sectionTitle('Booking Details'),
         _card(
           child: SizedBox(
-            height: 260,
+            height: _kDetailTableHeight,
             child: Scrollbar(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -837,9 +1032,13 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           const SizedBox(height: 24),
-          if (_loadError != null)
-            _buildErrorRetry()
-          else if (_isLoading)
+          if (_opsLoadError != null)
+            _buildErrorRetry(
+              message: _opsLoadError,
+              onRetry: _loadOperations,
+              isLoading: _opsLoading,
+            )
+          else if (_opsLoading)
             const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
           else if (_opsStats == null)
             const Center(child: Text('No operations activity recorded for this period.'))
@@ -916,11 +1115,22 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildOpsActivityTable() {
     final activities = (_opsStats?['activities'] as List?) ?? const [];
     if (activities.isEmpty) {
-      return Center(
-        child: Text(
-          'No staff activities recorded for this period.',
-          style: TextStyle(color: Colors.grey[600]),
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Staff Activity Details'),
+          _card(
+            child: SizedBox(
+              height: _kDetailTableHeight,
+              child: Center(
+                child: Text(
+                  'No staff activities recorded for this period.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
     return Column(
@@ -929,7 +1139,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _sectionTitle('Staff Activity Details'),
         _card(
           child: SizedBox(
-            height: 260,
+            height: _kDetailTableHeight,
             child: Scrollbar(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,

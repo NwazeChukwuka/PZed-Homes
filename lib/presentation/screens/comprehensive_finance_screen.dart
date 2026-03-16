@@ -191,8 +191,20 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       start: DateTime(now.year, now.month, 1),
       end: DateTime(now.year, now.month + 1, 0),
     );
-    _loadFinancialData();
-    _loadStaffProfiles();
+    _tabController.addListener(_onTabChanged);
+    // Load only the visible tab (Overview) initially
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadDataForTab(0);
+    });
+  }
+
+  void _onTabChanged() {
+    if (!mounted || _tabController.indexIsChanging) return;
+    _loadDataForTab(_tabController.index);
+  }
+
+  Future<void> _loadCurrentTabData() {
+    return _loadDataForTab(_tabController.index);
   }
 
   String _formatKobo(num value) {
@@ -240,6 +252,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _isExporting.dispose();
     _tabController.dispose();
     _debtAmountController.dispose();
@@ -267,132 +280,183 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     super.dispose();
   }
 
-  Future<void> _loadFinancialData() async {
-    if (_isLoadingData) return; // Prevent concurrent loads
-
+  /// Loads only the data required for the given tab index (0=Overview, 1=Debt, 2=Income, 3=Expenses, 4=Payroll, 5=Cash Deposits, 6=Audit).
+  Future<void> _loadDataForTab(int index) async {
+    if (!mounted) return;
     setState(() {
       _isLoadingData = true;
       _loadError = null;
     });
-
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.currentUser?.id;
-      if (userId == null) {
-        throw Exception('User must be logged in to record debts');
+      switch (index) {
+        case 0:
+          await _loadOverviewData();
+          break;
+        case 1:
+          await _loadDebtData();
+          break;
+        case 2:
+          await _loadIncomeData();
+          break;
+        case 3:
+          await _loadExpensesData();
+          break;
+        case 4:
+          await _loadPayrollData();
+          break;
+        case 5:
+          await _loadCashDepositsData();
+          break;
+        case 6:
+          await _loadAuditData();
+          break;
+        default:
+          if (mounted) setState(() => _isLoadingData = false);
       }
-      final range = _effectiveSummaryRange;
-      final futures = await Future.wait([
-        _dataService.getFinancialSummary(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getDebts(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getIncomeRecords(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getExpenses(
-          startDate: range.start,
-          endDate: range.end,
-          status: _showPendingExpenses ? 'Pending' : null,
-        ),
-        _dataService.getPayrollRecords(
-          startMonth: range.start,
-          endMonth: range.end,
-          approvalStatus: _showPendingPayroll ? 'pending' : null,
-        ),
-        _dataService.getCashDeposits(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getFinanceAuditLogs(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getDebtPaymentClaims(status: 'pending'),
-        _dataService.getDepartmentPerformance(
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        // Department sales for the selected summary range
-        _dataService.getDepartmentSales(
-          department: 'vip_bar',
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getDepartmentSales(
-          department: 'outside_bar',
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getDepartmentSales(
-          department: 'mini_mart',
-          startDate: range.start,
-          endDate: range.end,
-        ),
-        _dataService.getDepartmentSales(
-          department: 'restaurant',
-          startDate: range.start,
-          endDate: range.end,
-        ),
-      ]);
-
-      final summary = futures[0] as Map<String, dynamic>;
-      final debts = futures[1] as List<Map<String, dynamic>>;
-      final income = futures[2] as List<Map<String, dynamic>>;
-      final expenses = futures[3] as List<Map<String, dynamic>>;
-      final payroll = futures[4] as List<Map<String, dynamic>>;
-      final deposits = futures[5] as List<Map<String, dynamic>>;
-      final auditLogs = futures[6] as List<Map<String, dynamic>>;
-      final debtClaims = futures[7] as List<Map<String, dynamic>>;
-      final performance = futures[8] as List<Map<String, dynamic>>;
-      final vipSales = futures[9] as List<Map<String, dynamic>>;
-      final outsideSales = futures[10] as List<Map<String, dynamic>>;
-      final miniMartSales = futures[11] as List<Map<String, dynamic>>;
-      final kitchenSales = futures[12] as List<Map<String, dynamic>>;
-
-      setState(() {
-        _financialSummary = summary;
-        _departmentPerformance = performance;
-        _debts = debts;
-        _incomeRecords = income;
-        _expenses = expenses;
-        _payrollRecords = payroll;
-        _cashDeposits = deposits;
-        _auditLogs = auditLogs;
-        _debtPaymentClaims = debtClaims;
-        _departmentSales = {
-          'VIP Bar': vipSales,
-          'Outside Bar': outsideSales,
-          'Mini Mart': miniMartSales,
-          'Kitchen': kitchenSales,
-        };
-        _isLoadingData = false;
-        _dataMatchesRange = true;
-      });
     } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _loadFinancialData: $e\n$stackTrace');
-      setState(() {
-        _isLoadingData = false;
-        _loadError = e is Exception ? e.toString() : 'Failed to load financial data.';
-      });
+      if (kDebugMode) debugPrint('DEBUG _loadDataForTab($index): $e\n$stackTrace');
       if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+          _loadError = e is Exception ? e.toString() : 'Failed to load data.';
+        });
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: 'Failed to load financial data. Please check your connection and try again.',
+          customMessage: 'Failed to load data. Please try again.',
           onRetry: () {
             setState(() => _loadError = null);
-            _loadFinancialData();
+            _loadDataForTab(_tabController.index);
           },
           stackTrace: stackTrace,
         );
       }
     }
+  }
+
+  Future<void> _loadOverviewData() async {
+    final range = _effectiveSummaryRange;
+    final results = await Future.wait([
+      _dataService.getFinancialSummary(startDate: range.start, endDate: range.end),
+      _dataService.getDepartmentPerformance(startDate: range.start, endDate: range.end),
+      _dataService.getDepartmentSales(department: 'vip_bar', startDate: range.start, endDate: range.end),
+      _dataService.getDepartmentSales(department: 'outside_bar', startDate: range.start, endDate: range.end),
+      _dataService.getDepartmentSales(department: 'mini_mart', startDate: range.start, endDate: range.end),
+      _dataService.getDepartmentSales(department: 'restaurant', startDate: range.start, endDate: range.end),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _financialSummary = results[0] as Map<String, dynamic>;
+      _departmentPerformance = results[1] as List<Map<String, dynamic>>;
+      _departmentSales = {
+        'VIP Bar': results[2] as List<Map<String, dynamic>>,
+        'Outside Bar': results[3] as List<Map<String, dynamic>>,
+        'Mini Mart': results[4] as List<Map<String, dynamic>>,
+        'Kitchen': results[5] as List<Map<String, dynamic>>,
+      };
+      _isLoadingData = false;
+      _dataMatchesRange = true;
+    });
+  }
+
+  Future<void> _loadDebtData() async {
+    final range = _effectiveSummaryRange;
+    final results = await Future.wait([
+      _dataService.getDebts(startDate: range.start, endDate: range.end),
+      _dataService.getDebtPaymentClaims(status: 'pending'),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _debts = results[0] as List<Map<String, dynamic>>;
+      _debtPaymentClaims = results[1] as List<Map<String, dynamic>>;
+      _isLoadingData = false;
+    });
+  }
+
+  Future<void> _loadIncomeData() async {
+    final range = _effectiveSummaryRange;
+    final income = await _dataService.getIncomeRecords(startDate: range.start, endDate: range.end);
+    if (!mounted) return;
+    setState(() {
+      _incomeRecords = income;
+      _isLoadingData = false;
+    });
+  }
+
+  Future<void> _loadExpensesData() async {
+    final range = _effectiveSummaryRange;
+    final expenses = await _dataService.getExpenses(
+      startDate: range.start,
+      endDate: range.end,
+      status: _showPendingExpenses ? 'Pending' : null,
+    );
+    if (!mounted) return;
+    setState(() {
+      _expenses = expenses;
+      _isLoadingData = false;
+    });
+  }
+
+  Future<void> _loadPayrollData() async {
+    final range = _effectiveSummaryRange;
+    final results = await Future.wait([
+      _dataService.getPayrollRecords(
+        startMonth: range.start,
+        endMonth: range.end,
+        approvalStatus: _showPendingPayroll ? 'pending' : null,
+      ),
+      _dataService.getStaffProfiles(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _payrollRecords = results[0] as List<Map<String, dynamic>>;
+      _staffProfiles
+        ..clear()
+        ..addAll(results[1] as List<Map<String, dynamic>>);
+      _isLoadingData = false;
+    });
+  }
+
+  Future<void> _loadCashDepositsData() async {
+    final range = _effectiveSummaryRange;
+    final deposits = await _dataService.getCashDeposits(startDate: range.start, endDate: range.end);
+    if (!mounted) return;
+    setState(() {
+      _cashDeposits = deposits;
+      _isLoadingData = false;
+    });
+  }
+
+  Future<void> _loadAuditData() async {
+    final range = _effectiveSummaryRange;
+    final auditLogs = await _dataService.getFinanceAuditLogs(startDate: range.start, endDate: range.end);
+    if (!mounted) return;
+    setState(() {
+      _auditLogs = auditLogs;
+      _isLoadingData = false;
+    });
+  }
+
+  /// Loads income, expenses, debts, payroll, deposits, audit for export (PDF/CSV). Does not set _isLoadingData.
+  Future<void> _loadDataForExport() async {
+    final range = _effectiveSummaryRange;
+    final results = await Future.wait([
+      _dataService.getIncomeRecords(startDate: range.start, endDate: range.end),
+      _dataService.getExpenses(startDate: range.start, endDate: range.end),
+      _dataService.getDebts(startDate: range.start, endDate: range.end),
+      _dataService.getPayrollRecords(startMonth: range.start, endMonth: range.end),
+      _dataService.getCashDeposits(startDate: range.start, endDate: range.end),
+      _dataService.getFinanceAuditLogs(startDate: range.start, endDate: range.end),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _incomeRecords = results[0] as List<Map<String, dynamic>>;
+      _expenses = results[1] as List<Map<String, dynamic>>;
+      _debts = results[2] as List<Map<String, dynamic>>;
+      _payrollRecords = results[3] as List<Map<String, dynamic>>;
+      _cashDeposits = results[4] as List<Map<String, dynamic>>;
+      _auditLogs = results[5] as List<Map<String, dynamic>>;
+    });
   }
 
   Future<void> _loadStaffProfiles() async {
@@ -465,7 +529,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   IconButton(
                     icon: const Icon(Icons.refresh, color: Colors.white),
-                    onPressed: _isLoadingData ? null : _loadFinancialData,
+                    onPressed: _isLoadingData ? null : _loadCurrentTabData,
                     tooltip: 'Refresh',
                   ),
                   const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
@@ -507,6 +571,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ],
           ),
         ),
+        // 3. Date range strip (visible on all tabs, below tab row)
+        _buildSummaryRangeStrip(),
         Expanded(
           child: TabBarView(
             controller: _tabController,
@@ -527,15 +593,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Widget _buildOverviewTab() {
     return RefreshIndicator(
-      onRefresh: _loadFinancialData,
+      onRefresh: () => _loadDataForTab(0),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSummaryRangeSelector(),
-            const SizedBox(height: 16),
             if (_isLoadingData)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -547,6 +611,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ],
                 ),
               ),
+            if (_isLoadingData) const SizedBox(height: 16),
             _buildFinancialSummaryCard(),
             const SizedBox(height: 16),
             if (_loadError != null) _buildDataLoadFailedBanner(),
@@ -586,7 +651,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             TextButton.icon(
               onPressed: () {
                 setState(() => _loadError = null);
-                _loadFinancialData();
+                _loadCurrentTabData();
               },
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('Retry'),
@@ -765,7 +830,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     setState(() {
                       _summaryRange = DateTimeRange(start: defaultStart, end: defaultEnd);
                     });
-                    _loadFinancialData();
+                    _loadCurrentTabData();
                   },
                 ),
                 ChoiceChip(
@@ -775,7 +840,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     setState(() {
                       _summaryRange = DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
                     });
-                    _loadFinancialData();
+                    _loadCurrentTabData();
                   },
                 ),
                 ChoiceChip(
@@ -788,7 +853,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                         end: now,
                       );
                     });
-                    _loadFinancialData();
+                    _loadCurrentTabData();
                   },
                 ),
                 ChoiceChip(
@@ -805,7 +870,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       setState(() {
                         _summaryRange = picked;
                       });
-                      _loadFinancialData();
+                      _loadCurrentTabData();
                     }
                   },
                 ),
@@ -814,6 +879,138 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             const SizedBox(height: 8),
             Text('Selected: $label'),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Compact date range strip shown below the tab row on all tabs.
+  /// One row on desktop (width >= 600), two rows on mobile.
+  Widget _buildSummaryRangeStrip() {
+    final now = DateTime.now();
+    final defaultStart = DateTime(now.year, now.month, 1);
+    final defaultEnd = DateTime(now.year, now.month + 1, 0);
+    final lastMonth = now.month == 1 ? 12 : now.month - 1;
+    final lastYear = now.month == 1 ? now.year - 1 : now.year;
+    final lastMonthStart = DateTime(lastYear, lastMonth, 1);
+    final lastMonthEnd = DateTime(lastYear, lastMonth + 1, 0);
+    final last30Start = now.subtract(const Duration(days: 30));
+    final range = _effectiveSummaryRange;
+    final label =
+        '${range.start.toIso8601String().split('T')[0]} → ${range.end.toIso8601String().split('T')[0]}';
+    final isThisMonth = range.start == defaultStart && range.end == defaultEnd;
+    final isLastMonth = range.start == lastMonthStart && range.end == lastMonthEnd;
+    final last30End = now;
+    final isLast30 = range.start.year == last30Start.year &&
+        range.start.month == last30Start.month &&
+        range.start.day == last30Start.day &&
+        range.end.year == last30End.year &&
+        range.end.month == last30End.month &&
+        range.end.day == last30End.day;
+    final isCustom = !isThisMonth && !isLastMonth && !isLast30;
+
+    final chips = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ChoiceChip(
+          label: const Text('This Month'),
+          selected: isThisMonth,
+          onSelected: (_) {
+            setState(() {
+              _summaryRange = DateTimeRange(start: defaultStart, end: defaultEnd);
+            });
+            _loadCurrentTabData();
+          },
+        ),
+        const SizedBox(width: 8),
+        ChoiceChip(
+          label: const Text('Last Month'),
+          selected: isLastMonth,
+          onSelected: (_) {
+            setState(() {
+              _summaryRange = DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
+            });
+            _loadCurrentTabData();
+          },
+        ),
+        const SizedBox(width: 8),
+        ChoiceChip(
+          label: const Text('Last 30 Days'),
+          selected: isLast30,
+          onSelected: (_) {
+            setState(() {
+              _summaryRange = DateTimeRange(start: last30Start, end: now);
+            });
+            _loadCurrentTabData();
+          },
+        ),
+        const SizedBox(width: 8),
+        ChoiceChip(
+          label: const Text('Custom'),
+          selected: isCustom,
+          onSelected: (_) async {
+            final picked = await showDateRangePicker(
+              context: context,
+              firstDate: DateTime(2020),
+              lastDate: now,
+              initialDateRange:
+                  _summaryRange ?? DateTimeRange(start: defaultStart, end: defaultEnd),
+            );
+            if (picked != null) {
+              setState(() {
+                _summaryRange = picked;
+              });
+              _loadCurrentTabData();
+            }
+          },
+        ),
+      ],
+    );
+
+    final labelWidget = Text(
+      label,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey[700],
+          ),
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.grey[50],
+      child: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isDesktop = constraints.maxWidth >= 600;
+            if (isDesktop) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: chips,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  labelWidget,
+                ],
+              );
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: chips,
+                ),
+                const SizedBox(height: 6),
+                labelWidget,
+              ],
+            );
+          },
         ),
       ),
     );
@@ -979,7 +1176,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   );
                 },
               );
-              _loadFinancialData();
+              _loadCurrentTabData();
             },
             child: const Text('Reject'),
           ),
@@ -990,7 +1187,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 expenseId: expense['id'],
                 approvedBy: userId,
               );
-              _loadFinancialData();
+              _loadCurrentTabData();
             },
             child: const Text('Approve'),
           ),
@@ -1028,7 +1225,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   );
                 },
               );
-              _loadFinancialData();
+              _loadCurrentTabData();
             },
             child: const Text('Reject'),
           ),
@@ -1039,7 +1236,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 payrollId: payroll['id'],
                 approvedBy: userId,
               );
-              _loadFinancialData();
+              _loadCurrentTabData();
             },
             child: const Text('Approve'),
           ),
@@ -1173,7 +1370,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     return RefreshIndicator(
-      onRefresh: _loadFinancialData,
+      onRefresh: () => _loadDataForTab(0),
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1352,7 +1549,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       await _dataService.approveDebtPaymentClaim(claimId, userId);
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Claim approved. Debt balance updated.');
-        _loadFinancialData();
+        _loadCurrentTabData();
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _approveDebtClaim: $e\n$stackTrace');
@@ -1382,7 +1579,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       await _dataService.rejectDebtPaymentClaim(claimId, userId);
       if (mounted) {
         ErrorHandler.showInfoMessage(context, 'Claim rejected.');
-        _loadFinancialData();
+        _loadCurrentTabData();
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _rejectDebtClaim: $e\n$stackTrace');
@@ -1452,7 +1649,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   value: _showPendingExpenses,
                   onChanged: (value) {
                     setState(() => _showPendingExpenses = value);
-                    _loadFinancialData();
+                    _loadCurrentTabData();
                   },
                 ),
               ],
@@ -1595,7 +1792,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   value: _showPendingPayroll,
                   onChanged: (value) {
                     setState(() => _showPendingPayroll = value);
-                    _loadFinancialData();
+                    _loadCurrentTabData();
                   },
                 ),
               ],
@@ -2031,7 +2228,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     if (mounted) {
       ErrorHandler.showSuccessMessage(context, 'Debt recorded successfully!');
       try {
-        await _loadFinancialData();
+        await _loadCurrentTabData();
       } catch (_) {
         if (mounted) {
           ErrorHandler.showSuccessMessage(
@@ -2257,8 +2454,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
                       Navigator.of(context).pop();
                       ErrorHandler.showSuccessMessage(context, 'Monthly gross saved.');
-                      _loadFinancialData();
-                      _loadStaffProfiles();
+                      _loadCurrentTabData();
                     }
                   } catch (e) {
                     if (context.mounted) ErrorHandler.handleError(context, e);
@@ -2470,7 +2666,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     await _dataService.addIncomeRecord(income);
     if (mounted) {
       ErrorHandler.showSuccessMessage(context, 'Income record saved successfully!');
-      _loadFinancialData();
+      _loadCurrentTabData();
     }
     return true;
   }
@@ -2532,7 +2728,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     await _dataService.addExpense(expense);
     if (mounted) {
       ErrorHandler.showSuccessMessage(context, 'Expense saved successfully!');
-      _loadFinancialData();
+      _loadCurrentTabData();
     }
     return true;
   }
@@ -2598,7 +2794,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     await _dataService.addPayrollRecord(payroll);
     if (mounted) {
       ErrorHandler.showSuccessMessage(context, 'Payroll record saved successfully!');
-      _loadFinancialData();
+      _loadCurrentTabData();
     }
     return true;
   }
@@ -2691,7 +2887,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     await _dataService.addCashDeposit(deposit);
     if (mounted) {
       ErrorHandler.showSuccessMessage(context, 'Cash deposit saved successfully!');
-      _loadFinancialData();
+      _loadCurrentTabData();
     }
     return true;
   }
@@ -2829,7 +3025,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ErrorHandler.showSuccessMessage(context, 'Payment recorded successfully!');
                 }
                 try {
-                  if (mounted) await _loadFinancialData();
+                  if (mounted) await _loadCurrentTabData();
                 } catch (_) {
                   if (mounted) {
                     ErrorHandler.showSuccessMessage(
@@ -2906,6 +3102,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   Future<void> _downloadFinanceCsv() async {
     _isExporting.value = true;
     try {
+      await _loadDataForExport();
+      if (!mounted) return;
       final csv = _buildFinanceCsv();
       final r = _effectiveSummaryRange;
       final rangeLabel = '${r.start.toIso8601String().split('T')[0]}_to_${r.end.toIso8601String().split('T')[0]}';
@@ -2935,6 +3133,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   Future<void> _exportAuditorPackPdf() async {
     _isExporting.value = true;
     try {
+      await _loadDataForExport();
+      if (!mounted) return;
       final pdf = await _buildAuditorPackPdf();
       final r = _effectiveSummaryRange;
       final rangeStr = '${r.start.toIso8601String().split('T')[0]}_to_${r.end.toIso8601String().split('T')[0]}';
