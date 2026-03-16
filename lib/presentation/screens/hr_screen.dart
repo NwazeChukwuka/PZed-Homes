@@ -217,15 +217,8 @@ class _HrScreenState extends State<HrScreen>
     setState(() => _isLoading = true);
     try {
       final staff = await _dataService.getStaffProfiles();
-      // Exclude owner
-      final filtered = staff.where((s) {
-        final roles = (s['roles'] as List<dynamic>? ?? [])
-            .map((e) => e.toString())
-            .toList();
-        return !roles.contains('owner');
-      }).toList();
       setState(() {
-        _allStaff = filtered;
+        _allStaff = staff;
         _applySearchFilter();
         _isLoading = false;
       });

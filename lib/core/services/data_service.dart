@@ -542,7 +542,8 @@ class DataService {
     });
   }
 
-  // Staff Profiles (using profiles table with role filtering)
+  // Staff Profiles (using profiles table with role filtering).
+  // Excludes guests and owners; owners are administrative only, not employable staff.
   Future<List<Map<String, dynamic>>> getStaffProfiles() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -552,7 +553,14 @@ class DataService {
           .eq('status', 'Active') // Only active staff
           .order('full_name')
           .limit(500); // Limit for performance
-      return List<Map<String, dynamic>>.from(response);
+      final list = List<Map<String, dynamic>>.from(response);
+      // Exclude owner: owners are not staff (no payroll, suspend, sack, etc.)
+      return list.where((p) {
+        final roles = (p['roles'] as List<dynamic>? ?? [])
+            .map((e) => e.toString().toLowerCase())
+            .toList();
+        return !roles.contains('owner');
+      }).toList();
     });
   }
 
