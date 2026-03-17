@@ -251,16 +251,25 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(context),
-            _buildTabBar(),
-            _buildCurrentTabContent(),
-          ],
-        ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(context),
+              _buildTabBar(),
+              _buildCurrentTabContent(),
+            ],
+          );
+          // When embedded in MainScreen's scroll (e.g. desktop /reporting), we get
+          // unbounded height; use Column only so the page is content-sized and no
+          // grey gap appears. Otherwise use SingleChildScrollView for viewport scroll.
+          if (constraints.maxHeight.isInfinite) {
+            return content;
+          }
+          return SingleChildScrollView(child: content);
+        },
       ),
     );
   }

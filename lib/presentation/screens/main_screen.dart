@@ -120,17 +120,18 @@ void _assumeSpecificRole(BuildContext context, AppRole role) {
 }
 
 class MainScreen extends StatelessWidget {
+  final String? routePath;
   final Widget child;
 
-  const MainScreen({super.key, required this.child});
+  const MainScreen({super.key, this.routePath, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return ResponsiveLayout(
       mobile: _MainScreenMobile(child: child),
       tablet: _MainScreenTablet(child: child),
-      desktop: _MainScreenDesktop(child: child),
-      largeDesktop: _MainScreenLargeDesktop(child: child),
+      desktop: _MainScreenDesktop(routePath: routePath, child: child),
+      largeDesktop: _MainScreenLargeDesktop(routePath: routePath, child: child),
     );
   }
 }
@@ -254,9 +255,12 @@ class _MainScreenTablet extends StatelessWidget {
 }
 
 class _MainScreenDesktop extends StatelessWidget {
+  final String? routePath;
   final Widget child;
 
-  const _MainScreenDesktop({required this.child});
+  const _MainScreenDesktop({this.routePath, required this.child});
+
+  bool get _isReporting => routePath != null && routePath!.startsWith('/reporting');
 
   @override
   Widget build(BuildContext context) {
@@ -265,12 +269,25 @@ class _MainScreenDesktop extends StatelessWidget {
         children: [
           _DesktopSidebar(),
           Expanded(
-            child: Column(
-              children: [
-                _DesktopAppBar(),
-                Expanded(child: child),
-              ],
-            ),
+            child: _isReporting
+                ? Container(
+                    color: Colors.white,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _DesktopAppBar(),
+                          child,
+                        ],
+                      ),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      _DesktopAppBar(),
+                      Expanded(child: child),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -279,9 +296,12 @@ class _MainScreenDesktop extends StatelessWidget {
 }
 
 class _MainScreenLargeDesktop extends StatelessWidget {
+  final String? routePath;
   final Widget child;
 
-  const _MainScreenLargeDesktop({required this.child});
+  const _MainScreenLargeDesktop({this.routePath, required this.child});
+
+  bool get _isReporting => routePath != null && routePath!.startsWith('/reporting');
 
   @override
   Widget build(BuildContext context) {
@@ -290,12 +310,25 @@ class _MainScreenLargeDesktop extends StatelessWidget {
         children: [
           _LargeDesktopSidebar(),
           Expanded(
-            child: Column(
-              children: [
-                _LargeDesktopAppBar(),
-                Expanded(child: child),
-              ],
-            ),
+            child: _isReporting
+                ? Container(
+                    color: Colors.white,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _LargeDesktopAppBar(),
+                          child,
+                        ],
+                      ),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      _LargeDesktopAppBar(),
+                      Expanded(child: child),
+                    ],
+                  ),
           ),
         ],
       ),

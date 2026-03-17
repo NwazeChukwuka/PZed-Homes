@@ -212,7 +212,7 @@ class AppRouter {
       // Staff routes with role-based access
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) => MainScreen(child: child),
+        builder: (context, state, child) => MainScreen(routePath: state.matchedLocation, child: child),
         routes: [
           GoRoute(
             path: '/dashboard',
