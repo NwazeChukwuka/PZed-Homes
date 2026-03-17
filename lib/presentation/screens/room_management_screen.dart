@@ -540,62 +540,101 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       );
     }
 
-    return Column(
-      children: [
-        Expanded(
-          child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Scrollbar(
-          thumbVisibility: true,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.vertical,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: MediaQuery.sizeOf(context).height - 200,
-              ),
-              child: PaginatedDataTable(
-              header: Container(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    Text(
-                      'Room Status Overview',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[800],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 600;
+        return Column(
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      icon: Icon(_roomStatusBulkEditMode ? Icons.close : Icons.checklist),
-                      label: Text(_roomStatusBulkEditMode ? 'Exit bulk edit' : 'Bulk edit'),
-                      onPressed: () {
-      setState(() {
-                          _roomStatusBulkEditMode = !_roomStatusBulkEditMode;
-                          if (!_roomStatusBulkEditMode) _roomStatusSelectedIds.clear();
-                        });
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh),
-                      onPressed: _loadRooms,
-                    ),
-                  ],
-                ),
-              ),
-              columns: [
+                    ],
+                  ),
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: MediaQuery.sizeOf(context).height - 200,
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: PaginatedDataTable(
+                          header: Container(
+                            padding: const EdgeInsets.all(20),
+                            child: isNarrow
+                                ? Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Room Status Overview',
+                                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey[800],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          IconButton(
+                                            icon: Icon(_roomStatusBulkEditMode ? Icons.close : Icons.checklist),
+                                            onPressed: () {
+                                              setState(() {
+                                                _roomStatusBulkEditMode = !_roomStatusBulkEditMode;
+                                                if (!_roomStatusBulkEditMode) _roomStatusSelectedIds.clear();
+                                              });
+                                            },
+                                            tooltip: _roomStatusBulkEditMode ? 'Exit bulk edit' : 'Bulk edit',
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.refresh),
+                                            onPressed: _loadRooms,
+                                            tooltip: 'Refresh',
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    children: [
+                                      Text(
+                                        'Room Status Overview',
+                                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey[800],
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      TextButton.icon(
+                                        icon: Icon(_roomStatusBulkEditMode ? Icons.close : Icons.checklist),
+                                        label: Text(_roomStatusBulkEditMode ? 'Exit bulk edit' : 'Bulk edit'),
+                                        onPressed: () {
+                                          setState(() {
+                                            _roomStatusBulkEditMode = !_roomStatusBulkEditMode;
+                                            if (!_roomStatusBulkEditMode) _roomStatusSelectedIds.clear();
+                                          });
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.refresh),
+                                        onPressed: _loadRooms,
+                                        tooltip: 'Refresh',
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                          columns: [
                 if (_roomStatusBulkEditMode)
                   const DataColumn(
                     label: Text('Select'),
@@ -652,20 +691,32 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
               },
               availableRowsPerPage: const [5, 10, 20, 50],
               showFirstLastButtons: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-      ),
-        ),
-        ),
-        if (_roomStatusBulkEditMode) _buildRoomStatusBulkBar(),
-      ],
+            if (_roomStatusBulkEditMode) _buildRoomStatusBulkBar(),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildRoomStatusBulkBar() {
     final count = _roomStatusSelectedIds.length;
+    final setAvailable = TextButton.icon(
+      onPressed: _roomStatusBatchUpdating || count == 0 ? null : () => _applyRoomStatusBatch('Vacant'),
+      icon: const Icon(Icons.check_circle_outline, size: 20),
+      label: const Text('Set to Available'),
+    );
+    final setMaintenance = TextButton.icon(
+      onPressed: _roomStatusBatchUpdating || count == 0 ? null : () => _applyRoomStatusBatch('Maintenance'),
+      icon: const Icon(Icons.build, size: 20),
+      label: const Text('Set to Maintenance'),
+    );
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -673,25 +724,40 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
           color: Colors.green[100],
           boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, -2))],
         ),
-        child: Row(
-          children: [
-            Text(
-              count == 0 ? 'Select rooms' : '$count selected',
-              style: TextStyle(fontWeight: FontWeight.w600, color: Colors.green[900]),
-            ),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: _roomStatusBatchUpdating || count == 0 ? null : () => _applyRoomStatusBatch('Vacant'),
-              icon: const Icon(Icons.check_circle_outline, size: 20),
-              label: const Text('Set to Available'),
-            ),
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed: _roomStatusBatchUpdating || count == 0 ? null : () => _applyRoomStatusBatch('Maintenance'),
-              icon: const Icon(Icons.build, size: 20),
-              label: const Text('Set to Maintenance'),
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 400;
+            if (isNarrow) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    count == 0 ? 'Select rooms' : '$count selected',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.green[900]),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [setAvailable, setMaintenance],
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Text(
+                  count == 0 ? 'Select rooms' : '$count selected',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: Colors.green[900]),
+                ),
+                const Spacer(),
+                setAvailable,
+                const SizedBox(width: 8),
+                setMaintenance,
+              ],
+            );
+          },
         ),
       ),
     );

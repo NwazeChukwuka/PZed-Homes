@@ -202,11 +202,11 @@ class ReportingService {
       final startStr = dateRange.start.toIso8601String().split('T')[0];
       final endStr = dateRange.end.toIso8601String().split('T')[0];
 
-      // 1. Room Bookings (checked-out) - room type from rooms.type or requested_room_type
+      // 1. Room Bookings (checked-out) - room type from rooms.type or requested_room_type, guest_name for display
       final revenueResponse = await _supabase
           .from('bookings')
           .select('''
-            id, total_amount, paid_amount, extra_charges, status, requested_room_type,
+            id, guest_name, total_amount, paid_amount, extra_charges, status, requested_room_type,
             check_out_date,
             rooms!inner(type)
           ''')
@@ -631,7 +631,7 @@ class ReportingService {
     try {
       activities = await _supabase
           .from('staff_activities')
-          .select('id, staff_profile_id, department, action, details, created_at')
+          .select('id, staff_profile_id, department, action, details, created_at, staff_profile:profiles!staff_profile_id(full_name)')
           .gte('created_at', range.start.toIso8601String())
           .lte('created_at', range.end.toIso8601String());
 

@@ -72,6 +72,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
+    setState(() {}); // Switch visible tab content
     _loadForTab(_tabController.index, force: false);
   }
 
@@ -249,27 +250,32 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: Column(
-        children: [
-          _buildHeader(context),
-          _buildTabBar(),
-          Expanded(
-            child: Container(
-              color: Colors.white,
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildFinancialTab(),
-                  _buildGuestTab(),
-                  _buildOperationsTab(),
-                ],
-              ),
-            ),
-          ),
-        ],
+      backgroundColor: Colors.white,
+      body: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(context),
+            _buildTabBar(),
+            _buildCurrentTabContent(),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildCurrentTabContent() {
+    switch (_tabController.index) {
+      case 0:
+        return _buildFinancialTab();
+      case 1:
+        return _buildGuestTab();
+      case 2:
+        return _buildOperationsTab();
+      default:
+        return _buildFinancialTab();
+    }
   }
 
   Widget _buildHeader(BuildContext context) {
@@ -522,68 +528,58 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── FINANCIAL TAB ──────────────────────
 
   Widget _buildFinancialTab() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  if (_financialLoadError != null)
-                    _buildErrorRetry(
-                      message: _financialLoadError,
-                      onRetry: _loadFinancial,
-                      isLoading: _financialLoading,
-                    )
-                  else if (_financialLoading)
-                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-                  else if (_plData == null)
-                    const Center(child: Text('No financial transactions recorded for this period.'))
-                  else ...[
-                    _buildFinancialKPIs(),
-                    const SizedBox(height: 16),
-                    _buildTopDepartmentCard(),
-                    const SizedBox(height: 16),
-                    _buildSummaryCard(),
-                    const SizedBox(height: 16),
-                    _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
-                    const SizedBox(height: 16),
-                    _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
-                    const SizedBox(height: 24),
-                    _buildFinancialDetailTables(),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _generatePDF,
-                        icon: const Icon(Icons.picture_as_pdf),
-                        label: const Text('Save / Print Report as PDF'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 24),
+          if (_financialLoadError != null)
+            _buildErrorRetry(
+              message: _financialLoadError,
+              onRetry: _loadFinancial,
+              isLoading: _financialLoading,
+            )
+          else if (_financialLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_plData == null)
+            const Center(child: Text('No financial transactions recorded for this period.'))
+          else ...[
+            _buildFinancialKPIs(),
+            const SizedBox(height: 16),
+            _buildTopDepartmentCard(),
+            const SizedBox(height: 16),
+            _buildSummaryCard(),
+            const SizedBox(height: 16),
+            _buildBreakdownSection('Revenue Breakdown (checked out in period)', _plData!.revenueBreakdown, Colors.green),
+            const SizedBox(height: 16),
+            _buildBreakdownSection('Expense Breakdown', _plData!.expenseBreakdown, Colors.red),
+            const SizedBox(height: 24),
+            _buildFinancialDetailTables(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generatePDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -736,19 +732,22 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           _card(
             child: SizedBox(
               height: _kDetailTableHeight,
+              width: double.infinity,
               child: Scrollbar(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Check-out Date')),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 700),
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Check-out Date')),
+                      DataColumn(label: Text('Guest')),
                       DataColumn(label: Text('Room Type')),
                       DataColumn(label: Text('Status')),
                       DataColumn(label: Text('Amount (₦)')),
-                      DataColumn(label: Text('Booking ID')),
                     ],
                     rows: revenueItems.map((b) {
-                      final id = b['id']?.toString() ?? '';
+                      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
                       final status = b['status']?.toString() ?? '';
                       final rooms = b['rooms'];
                       String roomType = '';
@@ -773,13 +772,14 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                       return DataRow(
                         cells: [
                           DataCell(Text(dateStr)),
+                          DataCell(Text(guestName)),
                           DataCell(Text(roomType.isEmpty ? 'Room' : roomType)),
                           DataCell(Text(status)),
                           DataCell(Text(_fmtNaira(amount))),
-                          DataCell(Text(id)),
                         ],
                       );
                     }).toList(),
+                    ),
                   ),
                 ),
               ),
@@ -803,18 +803,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           _card(
             child: SizedBox(
               height: _kDetailTableHeight,
+              width: double.infinity,
               child: Scrollbar(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Date')),
-                      DataColumn(label: Text('Category')),
-                      DataColumn(label: Text('Department')),
-                      DataColumn(label: Text('Description')),
-                      DataColumn(label: Text('Amount (₦)')),
-                    ],
-                    rows: expenseItems.map((e) {
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 700),
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Date')),
+                        DataColumn(label: Text('Category')),
+                        DataColumn(label: Text('Department')),
+                        DataColumn(label: Text('Description')),
+                        DataColumn(label: Text('Amount (₦)')),
+                      ],
+                      rows: expenseItems.map((e) {
                       final rawDate = e['transaction_date']?.toString();
                       String dateStr = rawDate ?? '';
                       try {
@@ -837,6 +840,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                         ],
                       );
                     }).toList(),
+                    ),
                   ),
                 ),
               ),
@@ -849,62 +853,52 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── GUEST TAB ──────────────────────
 
   Widget _buildGuestTab() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'Guest metrics for the selected period.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  if (_guestLoadError != null)
-                    _buildErrorRetry(
-                      message: _guestLoadError,
-                      onRetry: _loadGuest,
-                      isLoading: _guestLoading,
-                    )
-                  else if (_guestLoading)
-                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-                  else if (_guestStats == null)
-                    const Center(child: Text('No guest bookings recorded for this period.'))
-                  else ...[
-                    _buildGuestKPIs(),
-                    const SizedBox(height: 16),
-                    _buildGuestBreakdown(),
-                    const SizedBox(height: 24),
-                    _buildGuestDetailsTable(),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _generateGuestPDF,
-                        icon: const Icon(Icons.picture_as_pdf),
-                        label: const Text('Save / Print Report as PDF'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Guest metrics for the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 24),
+          if (_guestLoadError != null)
+            _buildErrorRetry(
+              message: _guestLoadError,
+              onRetry: _loadGuest,
+              isLoading: _guestLoading,
+            )
+          else if (_guestLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_guestStats == null)
+            const Center(child: Text('No guest bookings recorded for this period.'))
+          else ...[
+            _buildGuestKPIs(),
+            const SizedBox(height: 16),
+            _buildGuestBreakdown(),
+            const SizedBox(height: 24),
+            _buildGuestDetailsTable(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generateGuestPDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -988,18 +982,21 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _card(
           child: SizedBox(
             height: _kDetailTableHeight,
+            width: double.infinity,
             child: Scrollbar(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Guest')),
-                    DataColumn(label: Text('Check-in')),
-                    DataColumn(label: Text('Check-out')),
-                    DataColumn(label: Text('Status')),
-                    DataColumn(label: Text('Total (₦)')),
-                  ],
-                  rows: rows.map<DataRow>((b) {
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 600),
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Guest')),
+                      DataColumn(label: Text('Check-in')),
+                      DataColumn(label: Text('Check-out')),
+                      DataColumn(label: Text('Status')),
+                      DataColumn(label: Text('Total (₦)')),
+                    ],
+                    rows: rows.map<DataRow>((b) {
                     final guestName = b['guest_name']?.toString()?.trim() ?? '—';
                     final status = b['status']?.toString() ?? '';
                     String ciStr = '';
@@ -1029,6 +1026,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                       ],
                     );
                   }).toList(),
+                  ),
                 ),
               ),
             ),
@@ -1041,62 +1039,52 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   // ────────────────────── OPERATIONS TAB ──────────────────────
 
   Widget _buildOperationsTab() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'Operations metrics for the selected period.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  if (_opsLoadError != null)
-                    _buildErrorRetry(
-                      message: _opsLoadError,
-                      onRetry: _loadOperations,
-                      isLoading: _opsLoading,
-                    )
-                  else if (_opsLoading)
-                    const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-                  else if (_opsStats == null)
-                    const Center(child: Text('No operations activity recorded for this period.'))
-                  else ...[
-                    _buildOpsKPIs(),
-                    const SizedBox(height: 16),
-                    _buildOpsDetails(),
-                    const SizedBox(height: 24),
-                    _buildOpsActivityTable(),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _generateOperationsPDF,
-                        icon: const Icon(Icons.picture_as_pdf),
-                        label: const Text('Save / Print Report as PDF'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[800], foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Operations metrics for the selected period.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 24),
+          if (_opsLoadError != null)
+            _buildErrorRetry(
+              message: _opsLoadError,
+              onRetry: _loadOperations,
+              isLoading: _opsLoading,
+            )
+          else if (_opsLoading)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else if (_opsStats == null)
+            const Center(child: Text('No operations activity recorded for this period.'))
+          else ...[
+            _buildOpsKPIs(),
+            const SizedBox(height: 16),
+            _buildOpsDetails(),
+            const SizedBox(height: 24),
+            _buildOpsActivityTable(),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _generateOperationsPDF,
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text('Save / Print Report as PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1171,38 +1159,53 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       children: [
         _sectionTitle('Staff Activity Details'),
         _card(
-          child: SizedBox(
-            height: _kDetailTableHeight,
-            child: Scrollbar(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Timestamp')),
-                    DataColumn(label: Text('Department')),
-                    DataColumn(label: Text('Action')),
-                    DataColumn(label: Text('Details')),
-                  ],
-                  rows: activities.map<DataRow>((a) {
-                    final raw = a['created_at']?.toString();
-                    String ts = raw ?? '';
-                    try {
-                      if (raw != null) {
-                        ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
+          child: Scrollbar(
+            child: SingleChildScrollView(
+              child: Scrollbar(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Timestamp')),
+                      DataColumn(label: Text('Department')),
+                      DataColumn(label: Text('Action')),
+                      DataColumn(label: Text('Staff')),
+                      DataColumn(label: Text('Details')),
+                    ],
+                    rows: activities.map<DataRow>((a) {
+                      final raw = a['created_at']?.toString();
+                      String ts = raw ?? '';
+                      try {
+                        if (raw != null) {
+                          ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
+                        }
+                      } catch (_) {}
+                      final dept = a['department']?.toString() ?? '';
+                      final action = a['action']?.toString() ?? '';
+                      final details = a['details']?.toString() ?? '';
+                      final staffProfile = a['staff_profile'];
+                      String staffName = '—';
+                      if (staffProfile is Map) {
+                        staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
+                      } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
+                        staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
                       }
-                    } catch (_) {}
-                    final dept = a['department']?.toString() ?? '';
-                    final action = a['action']?.toString() ?? '';
-                    final details = a['details']?.toString() ?? '';
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(ts)),
-                        DataCell(Text(dept.isEmpty ? 'N/A' : dept)),
-                        DataCell(Text(action)),
-                        DataCell(SizedBox(width: 280, child: Text(details, overflow: TextOverflow.ellipsis))),
-                      ],
-                    );
-                  }).toList(),
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(ts)),
+                          DataCell(Text(dept.isEmpty ? 'N/A' : dept)),
+                          DataCell(Text(action)),
+                          DataCell(Text(staffName)),
+                          DataCell(
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(minWidth: 280, maxWidth: 400),
+                              child: Text(details, softWrap: true, maxLines: null),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
             ),
@@ -1235,48 +1238,90 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final expenses = _plData!.totalExpenses;
     final net = revenue - expenses;
     final period = _periodLabel();
+    final revenueItems = _plData!.revenueItems;
+    final expenseItems = _plData!.expenseItems;
 
-    pdf.addPage(pw.Page(
+    final revenueRows = revenueItems.map((b) {
+      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+      final rooms = b['rooms'];
+      String roomType = '';
+      if (rooms is Map && rooms['type'] != null) {
+        roomType = rooms['type']?.toString() ?? '';
+      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
+        roomType = (rooms.first as Map)['type']?.toString() ?? '';
+      } else {
+        roomType = b['requested_room_type']?.toString() ?? '';
+      }
+      String dateStr = '';
+      try {
+        final raw = b['check_out_date']?.toString();
+        if (raw != null) dateStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(raw));
+      } catch (_) {}
+      final totalAmount = (b['total_amount'] as num?)?.toInt();
+      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+      final amount = totalAmount ?? paidAmount;
+      return [dateStr, guestName, roomType.isEmpty ? 'Room' : roomType, b['status']?.toString() ?? '', _fmtNaira(amount)];
+    }).toList();
+
+    final expenseRows = expenseItems.map((e) {
+      String dateStr = '';
+      try {
+        final raw = e['transaction_date']?.toString();
+        if (raw != null) dateStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(raw));
+      } catch (_) {}
+      final desc = (e['description']?.toString() ?? '').replaceAll('\n', ' ').trim();
+      final descShort = desc.length > 80 ? '${desc.substring(0, 80)}…' : desc;
+      return [
+        dateStr,
+        e['category']?.toString() ?? '',
+        e['department']?.toString() ?? 'General',
+        descShort,
+        _fmtNaira((e['amount'] as num?)?.toInt() ?? 0),
+      ];
+    }).toList();
+
+    pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(40),
-      build: (pw.Context ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
-            pw.SizedBox(height: 4),
-            pw.Text('Monthly Financial Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-            pw.Divider(thickness: 2, color: PdfColors.green800),
-            pw.SizedBox(height: 16),
-
-            pw.Text('Financial Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            _pdfRow('Total Revenue', _fmtNaira(revenue)),
-            _pdfRow('Total Expenses', _fmtNaira(expenses)),
-            pw.Divider(),
-            _pdfRow('Net Profit/Loss', _fmtNaira(net), bold: true),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Revenue Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            ..._plData!.revenueBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Expense Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            ..._plData!.expenseBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
-            pw.SizedBox(height: 30),
-
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Text(
-                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-              ),
-            ),
-          ],
-        );
-      },
+      build: (pw.Context ctx) => [
+        pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+        pw.SizedBox(height: 4),
+        pw.Text('Monthly Financial Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+        pw.Divider(thickness: 2, color: PdfColors.green800),
+        pw.SizedBox(height: 16),
+        pw.Text('Financial Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        _pdfRow('Total Revenue', _fmtNaira(revenue)),
+        _pdfRow('Total Expenses', _fmtNaira(expenses)),
+        pw.Divider(),
+        _pdfRow('Net Profit/Loss', _fmtNaira(net), bold: true),
+        pw.SizedBox(height: 20),
+        pw.Text('Revenue Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        ..._plData!.revenueBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
+        pw.SizedBox(height: 20),
+        pw.Text('Expense Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        ..._plData!.expenseBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
+        _pdfTableSection(
+          title: 'Revenue Transactions (checked out in period)',
+          headers: const ['Check-out Date', 'Guest', 'Room Type', 'Status', 'Amount (₦)'],
+          rows: revenueRows,
+        ),
+        _pdfTableSection(
+          title: 'Expense & Payroll Transactions',
+          headers: const ['Date', 'Category', 'Department', 'Description', 'Amount (₦)'],
+          rows: expenseRows,
+        ),
+        pw.SizedBox(height: 20),
+        pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+          ),
+        ),
+      ],
     ));
 
     await Printing.layoutPdf(onLayout: (format) => pdf.save());
@@ -1287,48 +1332,63 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final g = _guestStats!;
     final pdf = pw.Document();
     final period = _periodLabel();
+    final rows = (g['rows'] as List?) ?? [];
 
-    pdf.addPage(pw.Page(
+    final bookingRows = rows.map<List<String>>((b) {
+      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+      String ciStr = '', coStr = '';
+      try {
+        final ci = b['check_in_date']?.toString();
+        if (ci != null) ciStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(ci));
+      } catch (_) {}
+      try {
+        final co = b['check_out_date']?.toString();
+        if (co != null) coStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(co));
+      } catch (_) {}
+      final totalAmount = (b['total_amount'] as num?)?.toInt();
+      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+      final amount = totalAmount ?? paidAmount;
+      return [guestName, ciStr, coStr, b['status']?.toString() ?? '', _fmtNaira(amount)];
+    }).toList();
+
+    pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(40),
-      build: (pw.Context ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
-            pw.SizedBox(height: 4),
-            pw.Text('Guest Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-            pw.Divider(thickness: 2, color: PdfColors.green800),
-            pw.SizedBox(height: 16),
-
-            pw.Text('Guest KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            _pdfRow('Total Bookings', '${g['total']}'),
-            _pdfRow('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0)),
-            _pdfRow('Avg Stay', '${g['avg_nights']} nights'),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Booking Status Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            _pdfRow('Checked In', '${g['checked_in'] ?? 0}'),
-            _pdfRow('Checked Out', '${g['checked_out'] ?? 0}'),
-            _pdfRow('Confirmed', '${g['confirmed'] ?? 0}'),
-            _pdfRow('Pending', '${g['pending'] ?? 0}'),
-            _pdfRow('Cancelled', '${g['cancelled'] ?? 0}'),
-            pw.Divider(),
-            _pdfRow('Avg Revenue / Booking', _fmtNaira(g['avg_revenue'] ?? 0), bold: true),
-            pw.SizedBox(height: 30),
-
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Text(
-                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-              ),
-            ),
-          ],
-        );
-      },
+      build: (pw.Context ctx) => [
+        pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+        pw.SizedBox(height: 4),
+        pw.Text('Guest Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+        pw.Divider(thickness: 2, color: PdfColors.green800),
+        pw.SizedBox(height: 16),
+        pw.Text('Guest KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        _pdfRow('Total Bookings', '${g['total']}'),
+        _pdfRow('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0)),
+        _pdfRow('Avg Stay', '${g['avg_nights']} nights'),
+        pw.SizedBox(height: 20),
+        pw.Text('Booking Status Breakdown', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        _pdfRow('Checked In', '${g['checked_in'] ?? 0}'),
+        _pdfRow('Checked Out', '${g['checked_out'] ?? 0}'),
+        _pdfRow('Confirmed', '${g['confirmed'] ?? 0}'),
+        _pdfRow('Pending', '${g['pending'] ?? 0}'),
+        _pdfRow('Cancelled', '${g['cancelled'] ?? 0}'),
+        pw.Divider(),
+        _pdfRow('Avg Revenue / Booking', _fmtNaira(g['avg_revenue'] ?? 0), bold: true),
+        _pdfTableSection(
+          title: 'Booking Details',
+          headers: const ['Guest', 'Check-in', 'Check-out', 'Status', 'Total (₦)'],
+          rows: bookingRows,
+        ),
+        pw.SizedBox(height: 20),
+        pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+          ),
+        ),
+      ],
     ));
 
     await Printing.layoutPdf(onLayout: (format) => pdf.save());
@@ -1340,45 +1400,63 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final negAdj = o['negative_adjustments'] ?? 0;
     final pdf = pw.Document();
     final period = _periodLabel();
+    final activities = (o['activities'] as List?) ?? [];
 
-    pdf.addPage(pw.Page(
+    final activityRows = activities.map<List<String>>((a) {
+      String ts = '';
+      try {
+        final raw = a['created_at']?.toString();
+        if (raw != null) ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
+      } catch (_) {}
+      final dept = a['department']?.toString() ?? '';
+      final action = a['action']?.toString() ?? '';
+      final details = (a['details']?.toString() ?? '').replaceAll('\n', ' ').trim();
+      final detailsShort = details.length > 100 ? '${details.substring(0, 100)}…' : details;
+      final staffProfile = a['staff_profile'];
+      String staffName = '—';
+      if (staffProfile is Map) {
+        staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
+      } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
+        staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
+      }
+      return [ts, dept.isEmpty ? 'N/A' : dept, action, staffName, detailsShort];
+    }).toList();
+
+    pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(40),
-      build: (pw.Context ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
-            pw.SizedBox(height: 4),
-            pw.Text('Operations Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-            pw.Divider(thickness: 2, color: PdfColors.green800),
-            pw.SizedBox(height: 16),
-
-            pw.Text('Operations KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            _pdfRow('Staff Activities', '${o['activity_count']}'),
-            _pdfRow('Active Staff', '${o['unique_staff']}'),
-            _pdfRow('Stock Warnings', '${o['negative_adjustments']}'),
-            pw.SizedBox(height: 20),
-
-            pw.Text('Operational Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            _pdfRow('Total Logged Activities', '${o['activity_count']}'),
-            _pdfRow('Unique Active Staff', '${o['unique_staff']}'),
-            _pdfRow('Most Active Department', o['top_department'] ?? 'N/A'),
-            _pdfRow('Stock Wastage / Losses', '$negAdj'),
-            pw.SizedBox(height: 30),
-
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Text(
-                'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-              ),
-            ),
-          ],
-        );
-      },
+      build: (pw.Context ctx) => [
+        pw.Text('PZed Homes', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+        pw.SizedBox(height: 4),
+        pw.Text('Operations Report – $period', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+        pw.Divider(thickness: 2, color: PdfColors.green800),
+        pw.SizedBox(height: 16),
+        pw.Text('Operations KPIs', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        _pdfRow('Staff Activities', '${o['activity_count']}'),
+        _pdfRow('Active Staff', '${o['unique_staff']}'),
+        _pdfRow('Stock Warnings', '${o['negative_adjustments']}'),
+        pw.SizedBox(height: 20),
+        pw.Text('Operational Summary', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        _pdfRow('Total Logged Activities', '${o['activity_count']}'),
+        _pdfRow('Unique Active Staff', '${o['unique_staff']}'),
+        _pdfRow('Most Active Department', o['top_department'] ?? 'N/A'),
+        _pdfRow('Stock Wastage / Losses', '$negAdj'),
+        _pdfTableSection(
+          title: 'Staff Activity Details',
+          headers: const ['Timestamp', 'Department', 'Action', 'Staff', 'Details'],
+          rows: activityRows,
+        ),
+        pw.SizedBox(height: 20),
+        pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Generated on ${DateFormat('MMMM dd, yyyy – hh:mm a').format(DateTime.now())}',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+          ),
+        ),
+      ],
     ));
 
     await Printing.layoutPdf(onLayout: (format) => pdf.save());
@@ -1394,6 +1472,23 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           pw.Text(value, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
         ],
       ),
+    );
+  }
+
+  static pw.Widget _pdfTableSection({
+    required String title,
+    required List<String> headers,
+    required List<List<String>> rows,
+  }) {
+    if (rows.isEmpty) return pw.SizedBox(height: 8);
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(height: 12),
+        pw.Text(title, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 6),
+        pw.Table.fromTextArray(headers: headers, data: rows),
+      ],
     );
   }
 }
