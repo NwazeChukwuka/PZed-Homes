@@ -31,10 +31,26 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   String? _guestLoadError;
   String? _opsLoadError;
 
+  // Paginated detail lists (10 per page); reset when tab/period changes
+  List<Map<String, dynamic>> _revenueItemsDisplayed = [];
+  List<Map<String, dynamic>> _expenseItemsDisplayed = [];
+  List<Map<String, dynamic>> _guestRowsDisplayed = [];
+  List<Map<String, dynamic>> _opsActivitiesDisplayed = [];
+  bool _revenueLoadingMore = false;
+  bool _expenseLoadingMore = false;
+  bool _guestLoadingMore = false;
+  bool _opsLoadingMore = false;
+
   static const double _kDetailTableHeight = 280.0;
+  static const int _detailPageSize = 10;
 
   final _startDateController = TextEditingController();
   final _endDateController = TextEditingController();
+
+  final ScrollController _revenueTableScroll = ScrollController();
+  final ScrollController _expenseTableScroll = ScrollController();
+  final ScrollController _guestTableScroll = ScrollController();
+  final ScrollController _opsTableScroll = ScrollController();
 
   bool _isLoadingForTab(int index) {
     switch (index) {
@@ -67,7 +83,41 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
+    _revenueTableScroll.addListener(_onRevenueTableScroll);
+    _expenseTableScroll.addListener(_onExpenseTableScroll);
+    _guestTableScroll.addListener(_onGuestTableScroll);
+    _opsTableScroll.addListener(_onOpsTableScroll);
     _loadForTab(0);
+  }
+
+  void _onRevenueTableScroll() {
+    if (_plData == null || _revenueLoadingMore) return;
+    if (_revenueItemsDisplayed.length >= _plData!.totalRevenueCount) return;
+    final pos = _revenueTableScroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 40) _loadMoreRevenue();
+  }
+
+  void _onExpenseTableScroll() {
+    if (_plData == null || _expenseLoadingMore) return;
+    if (_expenseItemsDisplayed.length >= _plData!.totalExpenseCount) return;
+    final pos = _expenseTableScroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 40) _loadMoreExpense();
+  }
+
+  void _onGuestTableScroll() {
+    if (_guestStats == null || _guestLoadingMore) return;
+    final total = _guestStats!['total_rows_count'] as int? ?? 0;
+    if (_guestRowsDisplayed.length >= total) return;
+    final pos = _guestTableScroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 40) _loadMoreGuestRows();
+  }
+
+  void _onOpsTableScroll() {
+    if (_opsStats == null || _opsLoadingMore) return;
+    final total = _opsStats!['total_activities_count'] as int? ?? 0;
+    if (_opsActivitiesDisplayed.length >= total) return;
+    final pos = _opsTableScroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 40) _loadMoreOpsActivities();
   }
 
   void _onTabChanged() {
@@ -108,6 +158,10 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       _financialLoadError = null;
       _guestLoadError = null;
       _opsLoadError = null;
+      _revenueItemsDisplayed = [];
+      _expenseItemsDisplayed = [];
+      _guestRowsDisplayed = [];
+      _opsActivitiesDisplayed = [];
     });
   }
 
@@ -125,6 +179,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _plData = plData;
+          _revenueItemsDisplayed = List.from(plData.revenueItems);
+          _expenseItemsDisplayed = List.from(plData.expenseItems);
           _financialLoading = false;
           _financialLoadError = null;
         });
@@ -153,6 +209,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _guestStats = guestStats;
+          _guestRowsDisplayed = List<Map<String, dynamic>>.from((guestStats['rows'] as List?) ?? []);
           _guestLoading = false;
           _guestLoadError = null;
         });
@@ -181,6 +238,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _opsStats = opsStats;
+          _opsActivitiesDisplayed = List<Map<String, dynamic>>.from((opsStats['activities'] as List?) ?? []);
           _opsLoading = false;
           _opsLoadError = null;
         });
@@ -195,8 +253,102 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _loadMoreRevenue() async {
+    if (_plData == null || _revenueLoadingMore) return;
+    if (_revenueItemsDisplayed.length >= _plData!.totalRevenueCount) return;
+    setState(() => _revenueLoadingMore = true);
+    try {
+      final next = await _reportingService.getRevenueItemsPage(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+        offset: _revenueItemsDisplayed.length,
+        limit: _detailPageSize,
+      );
+      if (mounted) setState(() {
+        _revenueItemsDisplayed = [..._revenueItemsDisplayed, ...next];
+        _revenueLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _revenueLoadingMore = false);
+    }
+  }
+
+  Future<void> _loadMoreExpense() async {
+    if (_plData == null || _expenseLoadingMore) return;
+    if (_expenseItemsDisplayed.length >= _plData!.totalExpenseCount) return;
+    setState(() => _expenseLoadingMore = true);
+    try {
+      final next = await _reportingService.getExpenseItemsPage(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+        offset: _expenseItemsDisplayed.length,
+        limit: _detailPageSize,
+      );
+      if (mounted) setState(() {
+        _expenseItemsDisplayed = [..._expenseItemsDisplayed, ...next];
+        _expenseLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _expenseLoadingMore = false);
+    }
+  }
+
+  Future<void> _loadMoreGuestRows() async {
+    if (_guestStats == null || _guestLoadingMore) return;
+    final total = _guestStats!['total_rows_count'] as int? ?? 0;
+    if (_guestRowsDisplayed.length >= total) return;
+    setState(() => _guestLoadingMore = true);
+    try {
+      final next = await _reportingService.getGuestBookingRowsPage(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+        offset: _guestRowsDisplayed.length,
+        limit: _detailPageSize,
+      );
+      if (mounted) setState(() {
+        _guestRowsDisplayed = [..._guestRowsDisplayed, ...next];
+        _guestLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _guestLoadingMore = false);
+    }
+  }
+
+  Future<void> _loadMoreOpsActivities() async {
+    if (_opsStats == null || _opsLoadingMore) return;
+    final total = _opsStats!['total_activities_count'] as int? ?? 0;
+    if (_opsActivitiesDisplayed.length >= total) return;
+    setState(() => _opsLoadingMore = true);
+    try {
+      final next = await _reportingService.getOperationsActivitiesPage(
+        period: _selectedPeriod,
+        customStart: _customDateRange?.start,
+        customEnd: _customDateRange?.end,
+        offset: _opsActivitiesDisplayed.length,
+        limit: _detailPageSize,
+      );
+      if (mounted) setState(() {
+        _opsActivitiesDisplayed = [..._opsActivitiesDisplayed, ...next];
+        _opsLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _opsLoadingMore = false);
+    }
+  }
+
   @override
   void dispose() {
+    _revenueTableScroll.removeListener(_onRevenueTableScroll);
+    _expenseTableScroll.removeListener(_onExpenseTableScroll);
+    _guestTableScroll.removeListener(_onGuestTableScroll);
+    _opsTableScroll.removeListener(_onOpsTableScroll);
+    _revenueTableScroll.dispose();
+    _expenseTableScroll.dispose();
+    _guestTableScroll.dispose();
+    _opsTableScroll.dispose();
     _tabController.dispose();
     _startDateController.dispose();
     _endDateController.dispose();
@@ -251,25 +403,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final content = Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(context),
-              _buildTabBar(),
-              _buildCurrentTabContent(),
-            ],
-          );
-          // When embedded in MainScreen's scroll (e.g. desktop /reporting), we get
-          // unbounded height; use Column only so the page is content-sized and no
-          // grey gap appears. Otherwise use SingleChildScrollView for viewport scroll.
-          if (constraints.maxHeight.isInfinite) {
-            return content;
-          }
-          return SingleChildScrollView(child: content);
-        },
+      body: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(context),
+            _buildTabBar(),
+            _buildCurrentTabContent(),
+          ],
+        ),
       ),
     );
   }
@@ -658,8 +801,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
-          Text(_fmtNaira(amount), style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: FontWeight.bold, color: color)),
+          Flexible(child: Text(title, style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: bold ? FontWeight.bold : FontWeight.normal), overflow: TextOverflow.ellipsis)),
+          Flexible(child: Text(_fmtNaira(amount), style: TextStyle(fontSize: bold ? 17 : 15, fontWeight: FontWeight.bold, color: color), overflow: TextOverflow.ellipsis, textAlign: TextAlign.end)),
         ],
       ),
     );
@@ -668,6 +811,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildBreakdownSection(String title, List<CategoryAmount> items, Color color) {
     return _card(child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         _sectionTitle(title),
         ...items.map((item) => Padding(
@@ -676,7 +820,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Flexible(child: Text(item.category, overflow: TextOverflow.ellipsis)),
-              Text(_fmtNaira(item.amount), style: TextStyle(fontWeight: FontWeight.w600, color: color)),
+              Flexible(child: Text(_fmtNaira(item.amount), style: TextStyle(fontWeight: FontWeight.w600, color: color), overflow: TextOverflow.ellipsis, textAlign: TextAlign.end)),
             ],
           ),
         )),
@@ -685,8 +829,10 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   }
 
   Widget _buildFinancialDetailTables() {
-    final revenueItems = _plData!.revenueItems;
-    final expenseItems = _plData!.expenseItems;
+    final revenueItems = _revenueItemsDisplayed;
+    final expenseItems = _expenseItemsDisplayed;
+    final totalRevenue = _plData!.totalRevenueCount;
+    final totalExpense = _plData!.totalExpenseCount;
 
     if (revenueItems.isEmpty && expenseItems.isEmpty) {
       return Column(
@@ -739,59 +885,86 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           )
         else
           _card(
-            child: SizedBox(
-              height: _kDetailTableHeight,
-              width: double.infinity,
-              child: Scrollbar(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 700),
-                    child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Check-out Date')),
-                      DataColumn(label: Text('Guest')),
-                      DataColumn(label: Text('Room Type')),
-                      DataColumn(label: Text('Status')),
-                      DataColumn(label: Text('Amount (₦)')),
-                    ],
-                    rows: revenueItems.map((b) {
-                      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
-                      final status = b['status']?.toString() ?? '';
-                      final rooms = b['rooms'];
-                      String roomType = '';
-                      if (rooms is Map && rooms['type'] != null) {
-                        roomType = rooms['type']?.toString() ?? '';
-                      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
-                        roomType = (rooms.first as Map)['type']?.toString() ?? '';
-                      } else {
-                        roomType = b['requested_room_type']?.toString() ?? '';
-                      }
-                      final rawDate = b['check_out_date']?.toString();
-                      String dateStr = rawDate ?? '';
-                      try {
-                        if (rawDate != null) {
-                          final dt = DateTime.parse(rawDate);
-                          dateStr = DateFormat('MMM dd, yyyy').format(dt);
-                        }
-                      } catch (_) {}
-                      final totalAmount = (b['total_amount'] as num?)?.toInt();
-                      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-                      final amount = totalAmount ?? paidAmount;
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(dateStr)),
-                          DataCell(Text(guestName)),
-                          DataCell(Text(roomType.isEmpty ? 'Room' : roomType)),
-                          DataCell(Text(status)),
-                          DataCell(Text(_fmtNaira(amount))),
-                        ],
-                      );
-                    }).toList(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: _kDetailTableHeight,
+                  width: double.infinity,
+                  child: Scrollbar(
+                    controller: _revenueTableScroll,
+                    child: SingleChildScrollView(
+                      controller: _revenueTableScroll,
+                      child: Scrollbar(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 700),
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Check-out Date')),
+                                DataColumn(label: Text('Guest')),
+                                DataColumn(label: Text('Room Type')),
+                                DataColumn(label: Text('Status')),
+                                DataColumn(label: Text('Amount (₦)')),
+                              ],
+                              rows: revenueItems.map((b) {
+                                final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+                                final status = b['status']?.toString() ?? '';
+                                final rooms = b['rooms'];
+                                String roomType = '';
+                                if (rooms is Map && rooms['type'] != null) {
+                                  roomType = rooms['type']?.toString() ?? '';
+                                } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
+                                  roomType = (rooms.first as Map)['type']?.toString() ?? '';
+                                } else {
+                                  roomType = b['requested_room_type']?.toString() ?? '';
+                                }
+                                final rawDate = b['check_out_date']?.toString();
+                                String dateStr = rawDate ?? '';
+                                try {
+                                  if (rawDate != null) {
+                                    final dt = DateTime.parse(rawDate);
+                                    dateStr = DateFormat('MMM dd, yyyy').format(dt);
+                                  }
+                                } catch (_) {}
+                                final totalAmount = (b['total_amount'] as num?)?.toInt();
+                                final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+                                final amount = totalAmount ?? paidAmount;
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(dateStr)),
+                                    DataCell(Text(guestName)),
+                                    DataCell(Text(roomType.isEmpty ? 'Room' : roomType)),
+                                    DataCell(Text(status)),
+                                    DataCell(Text(_fmtNaira(amount))),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                if (totalRevenue > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Showing ${revenueItems.length} of $totalRevenue', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                        TextButton.icon(
+                          onPressed: (_revenueLoadingMore || revenueItems.length >= totalRevenue) ? null : _loadMoreRevenue,
+                          icon: _revenueLoadingMore ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.add_circle_outline, size: 18),
+                          label: Text(_revenueLoadingMore ? 'Loading...' : 'Load more'),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
         const SizedBox(height: 24),
@@ -810,49 +983,76 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           )
         else
           _card(
-            child: SizedBox(
-              height: _kDetailTableHeight,
-              width: double.infinity,
-              child: Scrollbar(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 700),
-                    child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Date')),
-                        DataColumn(label: Text('Category')),
-                        DataColumn(label: Text('Department')),
-                        DataColumn(label: Text('Description')),
-                        DataColumn(label: Text('Amount (₦)')),
-                      ],
-                      rows: expenseItems.map((e) {
-                      final rawDate = e['transaction_date']?.toString();
-                      String dateStr = rawDate ?? '';
-                      try {
-                        if (rawDate != null) {
-                          final dt = DateTime.parse(rawDate);
-                          dateStr = DateFormat('MMM dd, yyyy').format(dt);
-                        }
-                      } catch (_) {}
-                      final category = e['category']?.toString() ?? '';
-                      final dept = e['department']?.toString() ?? '';
-                      final desc = e['description']?.toString() ?? '';
-                      final amount = (e['amount'] as num?)?.toInt() ?? 0;
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(dateStr)),
-                          DataCell(Text(category)),
-                          DataCell(Text(dept.isEmpty ? 'General' : dept)),
-                          DataCell(SizedBox(width: 260, child: Text(desc, overflow: TextOverflow.ellipsis))),
-                          DataCell(Text(_fmtNaira(amount))),
-                        ],
-                      );
-                    }).toList(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: _kDetailTableHeight,
+                  width: double.infinity,
+                  child: Scrollbar(
+                    controller: _expenseTableScroll,
+                    child: SingleChildScrollView(
+                      controller: _expenseTableScroll,
+                      child: Scrollbar(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 700),
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Date')),
+                                DataColumn(label: Text('Category')),
+                                DataColumn(label: Text('Department')),
+                                DataColumn(label: Text('Description')),
+                                DataColumn(label: Text('Amount (₦)')),
+                              ],
+                              rows: expenseItems.map((e) {
+                                final rawDate = e['transaction_date']?.toString();
+                                String dateStr = rawDate ?? '';
+                                try {
+                                  if (rawDate != null) {
+                                    final dt = DateTime.parse(rawDate);
+                                    dateStr = DateFormat('MMM dd, yyyy').format(dt);
+                                  }
+                                } catch (_) {}
+                                final category = e['category']?.toString() ?? '';
+                                final dept = e['department']?.toString() ?? '';
+                                final desc = e['description']?.toString() ?? '';
+                                final amount = (e['amount'] as num?)?.toInt() ?? 0;
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(dateStr)),
+                                    DataCell(Text(category)),
+                                    DataCell(Text(dept.isEmpty ? 'General' : dept)),
+                                    DataCell(ConstrainedBox(constraints: const BoxConstraints(maxWidth: 260), child: Text(desc, overflow: TextOverflow.ellipsis))),
+                                    DataCell(Text(_fmtNaira(amount))),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                if (totalExpense > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Showing ${expenseItems.length} of $totalExpense', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                        TextButton.icon(
+                          onPressed: (_expenseLoadingMore || expenseItems.length >= totalExpense) ? null : _loadMoreExpense,
+                          icon: _expenseLoadingMore ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.add_circle_outline, size: 18),
+                          label: Text(_expenseLoadingMore ? 'Loading...' : 'Load more'),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
       ],
@@ -964,8 +1164,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   }
 
   Widget _buildGuestDetailsTable() {
-    final rows = (_guestStats?['rows'] as List?) ?? const [];
-    if (rows.isEmpty) {
+    final rows = _guestRowsDisplayed;
+    final total = _guestStats?['total_rows_count'] as int? ?? 0;
+    if (rows.isEmpty && total == 0) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -989,56 +1190,83 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       children: [
         _sectionTitle('Booking Details'),
         _card(
-          child: SizedBox(
-            height: _kDetailTableHeight,
-            width: double.infinity,
-            child: Scrollbar(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 600),
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Guest')),
-                      DataColumn(label: Text('Check-in')),
-                      DataColumn(label: Text('Check-out')),
-                      DataColumn(label: Text('Status')),
-                      DataColumn(label: Text('Total (₦)')),
-                    ],
-                    rows: rows.map<DataRow>((b) {
-                    final guestName = b['guest_name']?.toString()?.trim() ?? '—';
-                    final status = b['status']?.toString() ?? '';
-                    String ciStr = '';
-                    String coStr = '';
-                    try {
-                      final ci = b['check_in_date']?.toString();
-                      if (ci != null) {
-                        ciStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(ci));
-                      }
-                    } catch (_) {}
-                    try {
-                      final co = b['check_out_date']?.toString();
-                      if (co != null) {
-                        coStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(co));
-                      }
-                    } catch (_) {}
-                    final totalAmount = (b['total_amount'] as num?)?.toInt();
-                    final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-                    final amount = totalAmount ?? paidAmount;
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(guestName)),
-                        DataCell(Text(ciStr)),
-                        DataCell(Text(coStr)),
-                        DataCell(Text(status)),
-                        DataCell(Text(_fmtNaira(amount))),
-                      ],
-                    );
-                  }).toList(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: _kDetailTableHeight,
+                width: double.infinity,
+                child: Scrollbar(
+                  controller: _guestTableScroll,
+                  child: SingleChildScrollView(
+                    controller: _guestTableScroll,
+                    child: Scrollbar(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 600),
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(label: Text('Guest')),
+                              DataColumn(label: Text('Check-in')),
+                              DataColumn(label: Text('Check-out')),
+                              DataColumn(label: Text('Status')),
+                              DataColumn(label: Text('Total (₦)')),
+                            ],
+                            rows: rows.map<DataRow>((b) {
+                              final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+                              final status = b['status']?.toString() ?? '';
+                              String ciStr = '';
+                              String coStr = '';
+                              try {
+                                final ci = b['check_in_date']?.toString();
+                                if (ci != null) {
+                                  ciStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(ci));
+                                }
+                              } catch (_) {}
+                              try {
+                                final co = b['check_out_date']?.toString();
+                                if (co != null) {
+                                  coStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(co));
+                                }
+                              } catch (_) {}
+                              final totalAmount = (b['total_amount'] as num?)?.toInt();
+                              final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+                              final amount = totalAmount ?? paidAmount;
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(guestName)),
+                                  DataCell(Text(ciStr)),
+                                  DataCell(Text(coStr)),
+                                  DataCell(Text(status)),
+                                  DataCell(Text(_fmtNaira(amount))),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              if (total > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Showing ${rows.length} of $total', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                      TextButton.icon(
+                        onPressed: (_guestLoadingMore || rows.length >= total) ? null : _loadMoreGuestRows,
+                        icon: _guestLoadingMore ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.add_circle_outline, size: 18),
+                        label: Text(_guestLoadingMore ? 'Loading...' : 'Load more'),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ],
@@ -1143,8 +1371,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   }
 
   Widget _buildOpsActivityTable() {
-    final activities = (_opsStats?['activities'] as List?) ?? const [];
-    if (activities.isEmpty) {
+    final activities = _opsActivitiesDisplayed;
+    final total = _opsStats?['total_activities_count'] as int? ?? 0;
+    if (activities.isEmpty && total == 0) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1168,56 +1397,86 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       children: [
         _sectionTitle('Staff Activity Details'),
         _card(
-          child: Scrollbar(
-            child: SingleChildScrollView(
-              child: Scrollbar(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Timestamp')),
-                      DataColumn(label: Text('Department')),
-                      DataColumn(label: Text('Action')),
-                      DataColumn(label: Text('Staff')),
-                      DataColumn(label: Text('Details')),
-                    ],
-                    rows: activities.map<DataRow>((a) {
-                      final raw = a['created_at']?.toString();
-                      String ts = raw ?? '';
-                      try {
-                        if (raw != null) {
-                          ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
-                        }
-                      } catch (_) {}
-                      final dept = a['department']?.toString() ?? '';
-                      final action = a['action']?.toString() ?? '';
-                      final details = a['details']?.toString() ?? '';
-                      final staffProfile = a['staff_profile'];
-                      String staffName = '—';
-                      if (staffProfile is Map) {
-                        staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
-                      } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
-                        staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
-                      }
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(ts)),
-                          DataCell(Text(dept.isEmpty ? 'N/A' : dept)),
-                          DataCell(Text(action)),
-                          DataCell(Text(staffName)),
-                          DataCell(
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(minWidth: 280, maxWidth: 400),
-                              child: Text(details, softWrap: true, maxLines: null),
-                            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: _kDetailTableHeight,
+                width: double.infinity,
+                child: Scrollbar(
+                  controller: _opsTableScroll,
+                  child: SingleChildScrollView(
+                    controller: _opsTableScroll,
+                    child: Scrollbar(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 750),
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(label: Text('Timestamp')),
+                              DataColumn(label: Text('Department')),
+                              DataColumn(label: Text('Action')),
+                              DataColumn(label: Text('Staff')),
+                              DataColumn(label: Text('Details')),
+                            ],
+                            rows: activities.map<DataRow>((a) {
+                              final raw = a['created_at']?.toString();
+                              String ts = raw ?? '';
+                              try {
+                                if (raw != null) {
+                                  ts = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.parse(raw));
+                                }
+                              } catch (_) {}
+                              final dept = a['department']?.toString() ?? '';
+                              final action = a['action']?.toString() ?? '';
+                              final details = a['details']?.toString() ?? '';
+                              final staffProfile = a['staff_profile'];
+                              String staffName = '—';
+                              if (staffProfile is Map) {
+                                staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
+                              } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
+                                staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
+                              }
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(ts)),
+                                  DataCell(Text(dept.isEmpty ? 'N/A' : dept)),
+                                  DataCell(Text(action)),
+                                  DataCell(Text(staffName)),
+                                  DataCell(
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(maxWidth: 320),
+                                      child: Text(details, softWrap: true, maxLines: 3, overflow: TextOverflow.ellipsis),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
                           ),
-                        ],
-                      );
-                    }).toList(),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              if (total > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Showing ${activities.length} of $total', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                      TextButton.icon(
+                        onPressed: (_opsLoadingMore || activities.length >= total) ? null : _loadMoreOpsActivities,
+                        icon: _opsLoadingMore ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.add_circle_outline, size: 18),
+                        label: Text(_opsLoadingMore ? 'Loading...' : 'Load more'),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ],
@@ -1247,8 +1506,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final expenses = _plData!.totalExpenses;
     final net = revenue - expenses;
     final period = _periodLabel();
-    final revenueItems = _plData!.revenueItems;
-    final expenseItems = _plData!.expenseItems;
+    final revenueItems = _revenueItemsDisplayed;
+    final expenseItems = _expenseItemsDisplayed;
 
     final revenueRows = revenueItems.map((b) {
       final guestName = b['guest_name']?.toString()?.trim() ?? '—';
@@ -1341,7 +1600,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final g = _guestStats!;
     final pdf = pw.Document();
     final period = _periodLabel();
-    final rows = (g['rows'] as List?) ?? [];
+    final rows = _guestRowsDisplayed;
 
     final bookingRows = rows.map<List<String>>((b) {
       final guestName = b['guest_name']?.toString()?.trim() ?? '—';
@@ -1409,7 +1668,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final negAdj = o['negative_adjustments'] ?? 0;
     final pdf = pw.Document();
     final period = _periodLabel();
-    final activities = (o['activities'] as List?) ?? [];
+    final activities = _opsActivitiesDisplayed;
 
     final activityRows = activities.map<List<String>>((a) {
       String ts = '';

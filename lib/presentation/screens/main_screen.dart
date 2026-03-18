@@ -120,18 +120,17 @@ void _assumeSpecificRole(BuildContext context, AppRole role) {
 }
 
 class MainScreen extends StatelessWidget {
-  final String? routePath;
   final Widget child;
 
-  const MainScreen({super.key, this.routePath, required this.child});
+  const MainScreen({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return ResponsiveLayout(
       mobile: _MainScreenMobile(child: child),
       tablet: _MainScreenTablet(child: child),
-      desktop: _MainScreenDesktop(routePath: routePath, child: child),
-      largeDesktop: _MainScreenLargeDesktop(routePath: routePath, child: child),
+      desktop: _MainScreenDesktop(child: child),
+      largeDesktop: _MainScreenLargeDesktop(child: child),
     );
   }
 }
@@ -269,25 +268,16 @@ class _MainScreenDesktop extends StatelessWidget {
         children: [
           _DesktopSidebar(),
           Expanded(
-            child: _isReporting
-                ? Container(
-                    color: Colors.white,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _DesktopAppBar(),
-                          child,
-                        ],
-                      ),
-                    ),
-                  )
-                : Column(
-                    children: [
-                      _DesktopAppBar(),
-                      Expanded(child: child),
-                    ],
-                  ),
+            child: Column(
+              children: [
+                _DesktopAppBar(),
+                Expanded(
+                  child: _isReporting
+                      ? Container(color: Colors.white, child: child)
+                      : child,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -310,25 +300,16 @@ class _MainScreenLargeDesktop extends StatelessWidget {
         children: [
           _LargeDesktopSidebar(),
           Expanded(
-            child: _isReporting
-                ? Container(
-                    color: Colors.white,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _LargeDesktopAppBar(),
-                          child,
-                        ],
-                      ),
-                    ),
-                  )
-                : Column(
-                    children: [
-                      _LargeDesktopAppBar(),
-                      Expanded(child: child),
-                    ],
-                  ),
+            child: Column(
+              children: [
+                _LargeDesktopAppBar(),
+                Expanded(
+                  child: _isReporting
+                      ? Container(color: Colors.white, child: child)
+                      : child,
+                ),
+              ],
+            ),
           ),
         ],
       ),

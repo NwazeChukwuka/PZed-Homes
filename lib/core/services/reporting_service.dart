@@ -20,13 +20,15 @@ class ReportData {
   });
 }
 
-// New enhanced class for P&L data with detailed items
+// New enhanced class for P&L data with detailed items (first page only; use paginated methods for more)
 class PLData {
   final int totalRevenue;
   final int totalExpenses;
   final int netProfit;
-  final List<Map<String, dynamic>> revenueItems; // Detailed booking data
-  final List<Map<String, dynamic>> expenseItems; // Detailed expense data
+  final List<Map<String, dynamic>> revenueItems; // First page of detail (e.g. 10)
+  final List<Map<String, dynamic>> expenseItems; // First page of detail
+  final int totalRevenueCount;
+  final int totalExpenseCount;
   final List<CategoryAmount> revenueBreakdown;
   final List<CategoryAmount> expenseBreakdown;
 
@@ -36,6 +38,8 @@ class PLData {
     required this.netProfit,
     required this.revenueItems,
     required this.expenseItems,
+    required this.totalRevenueCount,
+    required this.totalExpenseCount,
     required this.revenueBreakdown,
     required this.expenseBreakdown,
   });
@@ -212,7 +216,8 @@ class ReportingService {
           ''')
           .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
           .gte('check_out_date', dateRange.start.toIso8601String())
-          .lte('check_out_date', dateRange.end.toIso8601String());
+          .lte('check_out_date', dateRange.end.toIso8601String())
+          .order('check_out_date', ascending: false);
       final revenueItemsRaw = revenueResponse;
       final revenueItems = revenueItemsRaw
           .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
@@ -289,7 +294,8 @@ class ReportingService {
           .from('expenses')
           .select('*')
           .gte('transaction_date', startStr)
-          .lte('transaction_date', endStr);
+          .lte('transaction_date', endStr)
+          .order('transaction_date', ascending: false);
       final expenseItems = expenseResponse;
 
       // 6. Payroll
@@ -368,18 +374,74 @@ class ReportingService {
         maintenanceTotal,
       );
 
+      const pageSize = 10;
       return PLData(
         totalRevenue: totalRevenue,
         totalExpenses: totalExpensesWithExtras,
         netProfit: totalRevenue - totalExpensesWithExtras,
-        revenueItems: revenueItems,
-        expenseItems: expenseItems,
+        revenueItems: revenueItems.take(pageSize).toList(),
+        expenseItems: expenseItems.take(pageSize).toList(),
+        totalRevenueCount: revenueItems.length,
+        totalExpenseCount: expenseItems.length,
         revenueBreakdown: revenueBreakdown,
         expenseBreakdown: expenseBreakdown,
       );
     } catch (e) {
       rethrow;
     }
+  }
+
+  static const int detailPageSize = 10;
+
+  /// Fetches a page of revenue (booking) detail items. Use after getProfitAndLoss for "Load more".
+  Future<List<Map<String, dynamic>>> getRevenueItemsPage({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+    int offset = 0,
+    int limit = detailPageSize,
+  }) async {
+    final now = DateTime.now();
+    final dateRange = _getDateRange(period, now, customStart, customEnd);
+    final response = await _supabase
+        .from('bookings')
+        .select('''
+          id, guest_name, total_amount, paid_amount, extra_charges, status, requested_room_type,
+          check_out_date,
+          rooms!inner(type)
+        ''')
+        .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
+        .gte('check_out_date', dateRange.start.toIso8601String())
+        .lte('check_out_date', dateRange.end.toIso8601String())
+        .order('check_out_date', ascending: false)
+        .range(offset, offset + limit - 1);
+    final list = response as List;
+    return list
+        .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
+        .map((b) => b as Map<String, dynamic>)
+        .toList();
+  }
+
+  /// Fetches a page of expense detail items. Use after getProfitAndLoss for "Load more".
+  Future<List<Map<String, dynamic>>> getExpenseItemsPage({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+    int offset = 0,
+    int limit = detailPageSize,
+  }) async {
+    final now = DateTime.now();
+    final dateRange = _getDateRange(period, now, customStart, customEnd);
+    final startStr = dateRange.start.toIso8601String().split('T')[0];
+    final endStr = dateRange.end.toIso8601String().split('T')[0];
+    final response = await _supabase
+        .from('expenses')
+        .select('*')
+        .gte('transaction_date', startStr)
+        .lte('transaction_date', endStr)
+        .order('transaction_date', ascending: false)
+        .range(offset, offset + limit - 1);
+    return List<Map<String, dynamic>>.from(response as List);
   }
 
   /// Canonical room types - always displayed in Revenue Breakdown (show ₦0.00 if no revenue)
@@ -571,17 +633,19 @@ class ReportingService {
   }) async {
     final now = DateTime.now();
     final range = _getDateRange(period, now, customStart, customEnd);
-    final rows = await _supabase
+    final rowsRaw = await _supabase
         .from('bookings')
         .select('id, guest_name, status, total_amount, paid_amount, check_in_date, check_out_date')
         .gte('created_at', range.start.toIso8601String())
-        .lte('created_at', range.end.toIso8601String());
+        .lte('created_at', range.end.toIso8601String())
+        .order('created_at', ascending: false);
+    final rows = rowsRaw as List;
 
     int total = 0, checkedIn = 0, checkedOut = 0, pending = 0, cancelled = 0, confirmed = 0;
     int revenueSum = 0;
     int totalNights = 0;
 
-    for (final b in rows as List) {
+    for (final b in rows) {
       total++;
       final status = _normalizeBookingStatus(b['status']?.toString());
       if (status == 'checked-in') checkedIn++;
@@ -608,9 +672,29 @@ class ReportingService {
       'revenue': revenueSum,
       'avg_revenue': total > 0 ? (revenueSum / total).round() : 0,
       'avg_nights': total > 0 ? (totalNights / total).toStringAsFixed(1) : '0',
-      // Attach raw rows so ReportingScreen can render a booking detail table.
-      'rows': rows,
+      'rows': rows.take(detailPageSize).map((e) => e as Map<String, dynamic>).toList(),
+      'total_rows_count': rows.length,
     };
+  }
+
+  /// Fetches a page of guest booking rows for the detail table. Use after getGuestStats for "Load more".
+  Future<List<Map<String, dynamic>>> getGuestBookingRowsPage({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+    int offset = 0,
+    int limit = detailPageSize,
+  }) async {
+    final now = DateTime.now();
+    final range = _getDateRange(period, now, customStart, customEnd);
+    final response = await _supabase
+        .from('bookings')
+        .select('id, guest_name, status, total_amount, paid_amount, check_in_date, check_out_date')
+        .gte('created_at', range.start.toIso8601String())
+        .lte('created_at', range.end.toIso8601String())
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+    return List<Map<String, dynamic>>.from(response as List);
   }
 
   /// Operations stats for the Operations tab (staff activity, stock adjustments).
@@ -629,11 +713,13 @@ class ReportingService {
     List activities = [];
 
     try {
-      activities = await _supabase
+      final activitiesAll = await _supabase
           .from('staff_activities')
           .select('id, staff_profile_id, department, action, details, created_at, staff_profile:profiles!staff_profile_id(full_name)')
           .gte('created_at', range.start.toIso8601String())
-          .lte('created_at', range.end.toIso8601String());
+          .lte('created_at', range.end.toIso8601String())
+          .order('created_at', ascending: false);
+      activities = activitiesAll;
 
       activityCount = (activities as List).length;
       final staffIds = <String>{};
@@ -664,14 +750,35 @@ class ReportingService {
       }
     } catch (_) {}
 
+    final activitiesList = activities as List;
     return {
       'activity_count': activityCount,
       'unique_staff': uniqueStaff,
       'top_department': topDepartment,
       'negative_adjustments': negativeAdjustments,
-      // Attach raw activities so ReportingScreen can render an activity detail table.
-      'activities': activities,
+      'activities': activitiesList.take(detailPageSize).toList(),
+      'total_activities_count': activitiesList.length,
     };
+  }
+
+  /// Fetches a page of staff activity items for the detail table. Use after getOperationsStats for "Load more".
+  Future<List<Map<String, dynamic>>> getOperationsActivitiesPage({
+    required TimePeriod period,
+    DateTime? customStart,
+    DateTime? customEnd,
+    int offset = 0,
+    int limit = detailPageSize,
+  }) async {
+    final now = DateTime.now();
+    final range = _getDateRange(period, now, customStart, customEnd);
+    final response = await _supabase
+        .from('staff_activities')
+        .select('id, staff_profile_id, department, action, details, created_at, staff_profile:profiles!staff_profile_id(full_name)')
+        .gte('created_at', range.start.toIso8601String())
+        .lte('created_at', range.end.toIso8601String())
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+    return List<Map<String, dynamic>>.from(response as List);
   }
 
   // Enhanced date range helper with custom date support
