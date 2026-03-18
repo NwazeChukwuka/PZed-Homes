@@ -39,7 +39,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
   

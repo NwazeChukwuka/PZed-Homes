@@ -335,8 +335,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               String errorMessage = 'Failed to change password';
                               if (e.toString().contains('Invalid login credentials')) {
                                 errorMessage = 'Current password is incorrect';
-                              } else if (e.toString().contains('Password')) {
-                                errorMessage = e.toString();
+                              } else {
+                                errorMessage = ErrorHandler.getFriendlyErrorMessage(e);
                               }
                               ErrorHandler.handleError(
                                 context,

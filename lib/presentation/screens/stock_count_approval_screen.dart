@@ -20,7 +20,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
 

@@ -17,7 +17,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
   final Map<String, TextEditingController> _controllers = {};

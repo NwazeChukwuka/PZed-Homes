@@ -79,7 +79,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   Future<List<Map<String, dynamic>>> _fetchAvailableRooms() async {
     // Check if Supabase is initialized
     if (_supabase == null) {
-      // Return empty list - will show "Supabase not configured" message
+      // Return empty list - UI will show a generic unavailable message
       return [];
     }
 
@@ -413,7 +413,7 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Supabase Not Configured',
+                        'Service Unavailable',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -422,8 +422,8 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'This feature requires Supabase to be configured.\n'
-                        'Please set your Supabase credentials to view available rooms.',
+                        'This feature is currently unavailable.\n'
+                        'Please try again later.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey),
                       ),

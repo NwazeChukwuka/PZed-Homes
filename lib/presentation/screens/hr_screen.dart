@@ -2343,7 +2343,7 @@ class _HrScreenState extends State<HrScreen>
                       errorMsg = 'Network connection error. Please check your internet connection and try again.';
                     } else if (errorString.contains('database') || 
                                errorString.contains('supabase')) {
-                      errorMsg = 'Database error. Please contact support if the problem persists.';
+                      errorMsg = 'Something went wrong. Please try again.';
                     } else if (errorString.contains('profile') || 
                                errorString.contains('createstaffprofile')) {
                       errorMsg = 'Failed to create staff profile. Please verify all information is correct and try again.';

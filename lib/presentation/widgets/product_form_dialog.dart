@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/core/config/product_catalog_config.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
 /// Generic edit dialog for product catalog (Name, Price(s), Category).
@@ -118,7 +119,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _errorMessage = 'Update failed: ${e is Exception ? e.toString().replaceFirst('Exception: ', '') : e}';
+          _errorMessage = ErrorHandler.getFriendlyErrorMessage(e);
         });
       }
     }
@@ -245,7 +246,7 @@ class _DeleteProductConfirmationDialogState
       if (mounted) {
         setState(() {
           _isDeleting = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _errorMessage = ErrorHandler.getFriendlyErrorMessage(e);
         });
       }
     }

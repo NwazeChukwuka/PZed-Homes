@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/reporting_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
@@ -189,7 +190,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _financialLoading = false;
-          _financialLoadError = e is Exception ? e.toString() : 'Failed to load financial report.';
+          _financialLoadError = ErrorHandler.getFriendlyErrorMessage(e);
         });
       }
     }
@@ -218,7 +219,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _guestLoading = false;
-          _guestLoadError = e is Exception ? e.toString() : 'Failed to load guest report.';
+          _guestLoadError = ErrorHandler.getFriendlyErrorMessage(e);
         });
       }
     }
@@ -247,7 +248,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       if (mounted) {
         setState(() {
           _opsLoading = false;
-          _opsLoadError = e is Exception ? e.toString() : 'Failed to load operations report.';
+          _opsLoadError = ErrorHandler.getFriendlyErrorMessage(e);
         });
       }
     }

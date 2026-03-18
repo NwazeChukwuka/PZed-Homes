@@ -679,7 +679,7 @@ class _RootDeciderState extends State<RootDecider> {
       if (kDebugMode) debugPrint('DEBUG RootDecider init: $e\n$stack');
       supabase = null;
       isSupabaseInitialized = false;
-      initError = e.toString();
+      initError = ErrorHandler.getFriendlyErrorMessage(e);
     }
     
     // For guest users, allow the app to work without Supabase (images from assets)
@@ -758,7 +758,7 @@ class _RootDeciderState extends State<RootDecider> {
                   Icon(Icons.warning, color: Colors.white, size: 16),
                   SizedBox(width: 8),
                   Text(
-                    'Supabase not configured - using local assets only',
+                    'Limited mode: some features are unavailable',
                     style: TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ],
@@ -798,96 +798,22 @@ class _RootDeciderState extends State<RootDecider> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Supabase environment variables are not configured.',
+                'A required service is unavailable.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16),
               ),
-              if (error != null) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red[200]!),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Error Details:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SelectableText(
-                        error,
-                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
               const SizedBox(height: 16),
               const Text(
-                'Troubleshooting Steps:',
+                'Please try again later.',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('1. Check Vercel Environment Variables:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
-                    Text('   - Go to Vercel Dashboard → Settings → Environment Variables'),
-                    Text('   - Ensure variables are named exactly: SUPABASE_URL and SUPABASE_ANON_KEY'),
-                    Text('   - Ensure they are enabled for Production environment'),
-                    SizedBox(height: 12),
-                    Text('2. Check Browser Console (F12):', style: TextStyle(fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
-                    Text('   - Look for "🔍 Supabase Config Check" messages'),
-                    Text('   - URL length should be > 0'),
-                    Text('   - Key length should be > 0'),
-                    SizedBox(height: 12),
-                    Text('3. Redeploy after setting variables:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
-                    Text('   - Variables only apply to NEW deployments'),
-                    Text('   - Trigger a new deployment after adding variables'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[200]!),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'For local development:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 8),
-                    SelectableText(
-                      'flutter run -d edge --dart-define=SUPABASE_URL=your_url --dart-define=SUPABASE_ANON_KEY=your_key',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
+              const Text(
+                'If the problem persists, contact support.',
+                textAlign: TextAlign.center,
               ),
             ],
           ),

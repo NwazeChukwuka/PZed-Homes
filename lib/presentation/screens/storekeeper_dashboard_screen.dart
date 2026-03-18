@@ -233,7 +233,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         if (mounted) {
           ErrorHandler.showWarningMessage(
             context,
-            'No locations found in database. Please add locations first.',
+            'No locations found. Please add locations first.',
           );
         }
         return [];
@@ -245,7 +245,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         ErrorHandler.handleError(
           context,
           e,
-          customMessage: 'Failed to load locations from database.',
+          customMessage: 'Failed to load locations. Please try again.',
           stackTrace: stackTrace,
         );
       }

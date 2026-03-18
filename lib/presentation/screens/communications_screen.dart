@@ -23,7 +23,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
   final List<Map<String, dynamic>> _posts = [];

@@ -34,7 +34,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
 

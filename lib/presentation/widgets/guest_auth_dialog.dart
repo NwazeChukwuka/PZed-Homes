@@ -135,7 +135,7 @@ class _AuthFormState extends State<AuthForm> {
         ErrorHandler.handleError(
           context,
           Exception(error),
-          customMessage: error,
+          customMessage: 'Authentication failed. Please try again.',
         );
       }
     } catch (e) {

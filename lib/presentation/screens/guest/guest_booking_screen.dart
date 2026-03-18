@@ -107,7 +107,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     if (_supabase == null) {
       ErrorHandler.handleError(
         context,
-        Exception('Supabase is not configured. Please set your Supabase credentials in the .env file.'),
+        Exception('Service is currently unavailable. Please try again later.'),
       );
       return;
     }
@@ -156,7 +156,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
   Future<bool> _checkRoomTypeAvailability() async {
     if (_supabase == null) {
-      throw Exception('Supabase is not configured');
+      throw Exception('Service is currently unavailable. Please try again later.');
     }
 
     try {
@@ -190,7 +190,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   // This function atomically checks room availability and creates the booking
   Future<String> _createPendingBookingAtomically(String? guestProfileId) async {
     if (_supabase == null) {
-      throw Exception('Supabase is not configured');
+      throw Exception('Service is currently unavailable. Please try again later.');
     }
 
     try {
@@ -296,7 +296,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
   Future<void> _confirmBooking(String bookingId) async {
     if (_supabase == null) {
-      throw Exception('Supabase is not configured');
+      throw Exception('Service is currently unavailable. Please try again later.');
     }
 
     try {
@@ -582,7 +582,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                     
                     // Security notice
                     Text(
-                      'Your payment is secured and encrypted with Paystack',
+                      'Your payment is secured and encrypted',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.grey,
                         fontSize: ResponsiveHelper.getResponsiveFontSize(

@@ -318,7 +318,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       if (mounted) {
         setState(() {
           _isLoadingData = false;
-          _loadError = e is Exception ? e.toString() : 'Failed to load data.';
+          _loadError = ErrorHandler.getFriendlyErrorMessage(e);
         });
         ErrorHandler.handleError(
           context,

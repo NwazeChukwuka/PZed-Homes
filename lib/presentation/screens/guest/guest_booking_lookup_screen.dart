@@ -44,7 +44,7 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
     if (_supabase == null) {
       ErrorHandler.handleError(
         context,
-        Exception('Supabase is not configured. Please try again later.'),
+        Exception('Service is currently unavailable. Please try again later.'),
       );
       return;
     }

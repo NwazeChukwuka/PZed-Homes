@@ -255,7 +255,7 @@ class AuthService with ChangeNotifier {
       _currentUser = null;
       _isLoadingUserData = false;
       notifyListeners();
-      throw Exception('Supabase is not configured');
+      throw Exception('Service is currently unavailable. Please try again later.');
     }
 
     try {
@@ -449,7 +449,7 @@ class AuthService with ChangeNotifier {
     // Ensure Supabase is initialized before attempting signup
     final isInitialized = await _ensureSupabaseInitialized();
     if (!isInitialized) {
-      return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
+      return 'Service is not configured. Please contact support.';
     }
     
     try {
@@ -468,25 +468,10 @@ class AuthService with ChangeNotifier {
       );
       
       return null;
-    } on TimeoutException catch (e) {
-      return e.message;
+    } on TimeoutException catch (_) {
+      return 'The request took too long. Please check your connection and try again.';
     } on AuthException catch (e) {
-      // For signup, return the original message as it might be about email already exists, etc.
-      // But sanitize invalid credential messages if they appear
-      final errorMessage = e.message.toLowerCase();
-      final isInvalidCredentials = errorMessage.contains('invalid login credentials') ||
-          errorMessage.contains('invalid password') ||
-          errorMessage.contains('user not found') ||
-          errorMessage.contains('invalid email') ||
-          errorMessage.contains('wrong password') ||
-          errorMessage.contains('incorrect password') ||
-          errorMessage.contains('authentication failed');
-      
-      if (isInvalidCredentials) {
-        return 'Incorrect username and/or password';
-      }
-      
-      return e.message;
+      return ErrorHandler.getFriendlyErrorMessage(e);
     } catch (e, stackTrace) {
       if (kDebugMode) {
         debugPrint('DEBUG signUp error: $e\n$stackTrace');
@@ -503,7 +488,7 @@ class AuthService with ChangeNotifier {
     // Ensure Supabase is initialized before attempting login
     final isInitialized = await _ensureSupabaseInitialized();
     if (!isInitialized) {
-      return 'Supabase is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
+      return 'Service is not configured. Please contact support.';
     }
     
     // Prevent concurrent login attempts
@@ -614,7 +599,7 @@ class AuthService with ChangeNotifier {
   /// Returns null on success, or a user-friendly error message on failure.
   Future<String?> updateUserPassword(String newPassword) async {
     if (_supabase == null) {
-      return 'Supabase is not configured.';
+      return 'Service is currently unavailable. Please try again later.';
     }
     if (newPassword.trim().length < 6) {
       return 'Password must be at least 6 characters.';
@@ -623,17 +608,7 @@ class AuthService with ChangeNotifier {
       await _supabase!.auth.updateUser(UserAttributes(password: newPassword));
       return null;
     } on AuthException catch (e) {
-      final msg = e.message.toLowerCase();
-      if (msg.contains('should be different') || msg.contains('same as')) {
-        return 'New password must be different from your current password.';
-      }
-      if (msg.contains('weak') || msg.contains('at least')) {
-        return 'Password is too weak. Use at least 6 characters.';
-      }
-      if (msg.contains('expired') || msg.contains('invalid') || msg.contains('recovery')) {
-        return 'Reset link expired or invalid. Please request a new one.';
-      }
-      return e.message;
+      return ErrorHandler.getFriendlyErrorMessage(e);
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG updateUserPassword: $e\n$stack');
       return ErrorHandler.getFriendlyErrorMessage(e);

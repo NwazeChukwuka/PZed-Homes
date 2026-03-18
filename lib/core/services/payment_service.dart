@@ -46,9 +46,7 @@ class PaymentService {
         }
       } else {
         if (kDebugMode) {
-          debugPrint(
-            'Paystack: not configured. Set paystack_public_key in app_config table and PAYSTACK_SECRET_KEY in Supabase Edge Function secrets.',
-          );
+          debugPrint('Paystack: not configured. Check app_config and Edge Function secrets.');
         }
       }
     } catch (e, stack) {
@@ -81,9 +79,7 @@ class PaymentService {
     Map<String, dynamic>? metadata,
   }) async {
     if (!isInitialized) {
-      throw Exception(
-        'Payment system is not configured. Set paystack_public_key in Supabase app_config and PAYSTACK_SECRET_KEY in Edge Function secrets.',
-      );
+      throw Exception('Payment system is not configured. Please contact support.');
     }
 
     try {
@@ -99,10 +95,13 @@ class PaymentService {
       );
 
       if (response.status != 200) {
-        final err = response.data is Map
-            ? (response.data as Map)['error']?.toString()
-            : response.data?.toString();
-        throw Exception(err ?? 'Failed to create payment link. Check Supabase PAYSTACK_SECRET_KEY.');
+        if (kDebugMode) {
+          final err = response.data is Map
+              ? (response.data as Map)['error']?.toString()
+              : response.data?.toString();
+          debugPrint('Paystack create link error: $err');
+        }
+        throw Exception('Failed to create payment link. Please try again.');
       }
 
       final link = response.data is Map
@@ -126,7 +125,7 @@ class PaymentService {
         builder: (context) => AlertDialog(
           title: const Text('Complete Payment'),
           content: const Text(
-            'You will be redirected to Paystack to complete your payment.\n\n'
+            'You will be redirected to a payment page to complete your payment.\n\n'
             'After completing the payment, please return to this app and click "Payment Completed".',
           ),
           actions: [

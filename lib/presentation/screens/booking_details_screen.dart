@@ -69,7 +69,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     try {
       return Supabase.instance.client;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
   int _roomBasePriceKobo = 0;
@@ -526,7 +526,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     if (authService == null) {
       ErrorHandler.showWarningMessage(
         context,
-        'Supabase not initialized. Please try again.',
+        'Service is currently unavailable. Please try again.',
       );
       return;
     }

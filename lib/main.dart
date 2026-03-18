@@ -33,11 +33,11 @@ Future<void> main() async {
   
   // Only log in debug mode to reduce production overhead
   if (kDebugMode) {
-    print('🔍 Supabase Config Check:');
+    print('🔍 Config Check:');
     print('URL length: ${supabaseUrl.length}');
     print('Key length: ${supabaseAnonKey.length}');
     if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
-      print('⚠️ Supabase not configured! Please set SUPABASE_URL and SUPABASE_ANON_KEY as environment variables');
+      print('⚠️ Backend not configured. Please set required environment variables.');
     }
   }
   

@@ -37,15 +37,15 @@ class ErrorHandler {
       message = customMessage;
     } else if (error is AuthException) {
       message = _handleAuthError(error);
-      title = 'Authentication Error';
+      title = 'Error';
       icon = Icons.lock_outline;
     } else if (error is PostgrestException) {
       message = _handleDatabaseError(error);
-      title = 'Database Error';
-      icon = Icons.storage_outlined;
+      title = 'Error';
+      icon = Icons.error_outline;
     } else if (error is NetworkException) {
       message = _handleNetworkError(error);
-      title = 'Network Error';
+      title = 'Error';
       icon = Icons.wifi_off;
       color = Colors.orange;
     } else if (error is Exception) {
@@ -65,7 +65,8 @@ class ErrorHandler {
   }
 
   static String _handleAuthError(AuthException error) {
-    switch (error.message) {
+    final msg = error.message;
+    switch (msg) {
       case 'Invalid login credentials':
         return 'Invalid email or password. Please check your credentials and try again.';
       case 'Email not confirmed':
@@ -77,8 +78,19 @@ class ErrorHandler {
       case 'Signup is disabled':
         return 'New account registration is currently disabled. Please contact support.';
       default:
-        return 'Authentication failed: ${error.message}';
+        break;
     }
+    final lower = msg.toLowerCase();
+    if (lower.contains('should be different') || lower.contains('same as')) {
+      return 'New password must be different from your current password.';
+    }
+    if (lower.contains('weak') || lower.contains('at least')) {
+      return 'Password is too weak. Use at least 6 characters.';
+    }
+    if (lower.contains('expired') || lower.contains('recovery') || (lower.contains('invalid') && lower.contains('link'))) {
+      return 'Reset link expired or invalid. Please request a new one.';
+    }
+    return 'Authentication failed. Please try again.';
   }
 
   /// Admin/CRUD-specific messages for PostgrestException. Use as [customMessage] in [handleError].
@@ -115,7 +127,7 @@ class ErrorHandler {
       case '42501': // Insufficient privilege
         return 'You do not have permission to perform this action.';
       default:
-        return 'Database error: ${error.message}';
+        return 'Something went wrong. Please try again.';
     }
   }
 
@@ -123,26 +135,30 @@ class ErrorHandler {
     return 'Network connection failed. Please check your internet connection and try again.';
   }
 
+  static bool _looksLikeNetworkError(String s) {
+    final lower = s.toLowerCase();
+    return lower.contains('socketexception') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection timed out') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('timeoutexception') ||
+        lower.contains('timed out') ||
+        lower.contains('connection reset') ||
+        lower.contains('connection closed') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('network error');
+  }
+
   static String _handleGenericError(Exception error) {
     final s = error.toString();
-    // Strip generic wrappers like "Exception: An error occurred: ..."
-    if (s.startsWith('Exception: ')) {
-      final inner = s.substring(11);
-      if (inner.startsWith('An error occurred: ') || inner.startsWith('Operation failed')) {
-        return inner;
-      }
-      return inner;
-    }
     if (s.startsWith('FormatException: ')) return 'Invalid input format. Please check your input.';
-    // Network/connection hints (no dart:io import for web compat)
-    if (s.contains('SocketException') || s.contains('Connection refused') ||
-        s.contains('Connection timed out') || s.contains('Network is unreachable')) {
-      return 'Network unavailable. Check your connection and try again.';
+    if (_looksLikeNetworkError(s)) {
+      return 'No internet connection. Please check your connection and try again.';
     }
     if (s.contains('TimeoutException') || s.contains('timed out')) {
       return 'The operation took too long. Please try again.';
     }
-    return s;
+    return 'Something went wrong. Please try again.';
   }
 
   static void _showErrorDialog(
@@ -456,16 +472,15 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
                   },
                   child: const Text('Try Again'),
                 ),
-                if (kDebugMode) ...[
-                  const SizedBox(height: 16),
-                  const Text('Debug Info:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text(
-                    _error.toString(),
-                    style: const TextStyle(fontSize: 12),
-                    textAlign: TextAlign.center,
+                if (kDebugMode)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(
+                      'See console / debug logs for details.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                ],
               ],
             ),
           ),

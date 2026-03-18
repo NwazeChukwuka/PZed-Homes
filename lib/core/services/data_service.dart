@@ -92,7 +92,7 @@ class DataService {
       _supabaseClient = Supabase.instance.client;
       return _supabaseClient!;
     } catch (_) {
-      throw Exception('Supabase not initialized');
+      throw Exception('Service is currently unavailable. Please try again.');
     }
   }
   static const int _maxRetries = 3;
