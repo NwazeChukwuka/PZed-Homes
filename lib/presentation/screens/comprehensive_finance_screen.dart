@@ -424,10 +424,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   Future<void> _loadCashDepositsData() async {
     final range = _effectiveSummaryRange;
-    final deposits = await _dataService.getCashDeposits(startDate: range.start, endDate: range.end);
+    final results = await Future.wait([
+      _dataService.getCashDeposits(startDate: range.start, endDate: range.end),
+      _dataService.getFinancialSummary(startDate: range.start, endDate: range.end),
+    ]);
     if (!mounted) return;
     setState(() {
-      _cashDeposits = deposits;
+      _cashDeposits = results[0] as List<Map<String, dynamic>>;
+      _financialSummary = results[1] as Map<String, dynamic>;
       _isLoadingData = false;
       _dataMatchesRange = true;
     });
@@ -637,6 +641,30 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             _buildDepartmentSalesCard(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryMetricRow(String label, String value, Color valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: valueColor,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1760,7 +1788,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'These active staff have no monthly gross set and no payroll recorded for this month:',
+                            'These active staff have no basic salary set and no payroll recorded for this month:',
                             style: TextStyle(fontSize: 12),
                           ),
                           const SizedBox(height: 4),
@@ -1785,7 +1813,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       ElevatedButton.icon(
                         onPressed: () => _showSetMonthlyGrossDialog(),
                         icon: const Icon(Icons.attach_money),
-                        label: const Text('Set monthly gross'),
+                        label: const Text('Set basic salary'),
                       ),
                     if (canSetMonthlyGross) const SizedBox(width: 12),
                     ElevatedButton.icon(
@@ -1850,8 +1878,46 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildCashDepositsTab(bool canRecord) {
+    final cashSalesInflow = (_financialSummary['cash_sales_inflow'] as num?)?.toInt() ?? 0;
+    final cashOtherIncome = (_financialSummary['cash_other_income'] as num?)?.toInt() ?? 0;
+    final cashTotalInflow = (_financialSummary['cash_total_inflow'] as num?)?.toInt() ?? 0;
+    final cashExpenses = (_financialSummary['cash_expenses'] as num?)?.toInt() ?? 0;
+    final cashDeposits = (_financialSummary['cash_deposits'] as num?)?.toInt() ?? 0;
+    final availableCash = (_financialSummary['available_cash'] as num?)?.toInt() ?? 0;
+
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cash Reconciliation (Selected Range)',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildSummaryMetricRow('Cash Sales Inflow', '₦${_formatKobo(cashSalesInflow)}', Colors.green),
+                  _buildSummaryMetricRow('Other Cash Income', '₦${_formatKobo(cashOtherIncome)}', Colors.green),
+                  _buildSummaryMetricRow('Total Cash Inflow', '₦${_formatKobo(cashTotalInflow)}', Colors.green),
+                  _buildSummaryMetricRow('Cash Expenses', '₦${_formatKobo(cashExpenses)}', Colors.red),
+                  _buildSummaryMetricRow('Cash Deposits', '₦${_formatKobo(cashDeposits)}', Colors.purple),
+                  const Divider(),
+                  _buildSummaryMetricRow(
+                    'Expected Available Cash',
+                    '₦${_formatKobo(availableCash)}',
+                    availableCash >= 0 ? Colors.blue : Colors.red,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
         if (canRecord)
           Padding(
             padding: const EdgeInsets.all(16),
@@ -2389,12 +2455,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('Set monthly gross'),
+            title: const Text('Set basic salary'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Set the expected monthly salary (gross) for a staff. This is used as payroll when no actual payment is recorded for that month.'),
+                  const Text('Set the expected monthly basic salary for a staff. This is used as payroll when no actual payment is recorded for that month.'),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: _selectedSalaryStaffId ?? '',
@@ -2428,7 +2494,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   const SizedBox(height: 12),
                   TextField(
                     controller: _salaryAmountController,
-                    decoration: const InputDecoration(labelText: 'Monthly gross (₦)'),
+                    decoration: const InputDecoration(labelText: 'Basic salary (₦)'),
                     keyboardType: TextInputType.number,
                     onChanged: (_) => setDialogState(() {}),
                   ),
@@ -2465,7 +2531,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       final staffName = staffProfile['full_name']?.toString() ?? 'Unknown';
                       final actorName = actor?.name ?? 'Unknown';
                       final details =
-                          '$actorName updated $staffName\'s monthly gross to ₦${amountKobo > 0 ? PaymentService.koboToNaira(amountKobo).toStringAsFixed(2) : '0'}';
+                          '$actorName updated $staffName\'s basic salary to ₦${amountKobo > 0 ? PaymentService.koboToNaira(amountKobo).toStringAsFixed(2) : '0'}';
                       await _dataService.logActivity(
                         actor?.id,
                         'Salary Update',
@@ -2474,7 +2540,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       );
 
                       Navigator.of(context).pop();
-                      ErrorHandler.showSuccessMessage(context, 'Monthly gross saved.');
+                      ErrorHandler.showSuccessMessage(context, 'Basic salary saved.');
                       _loadCurrentTabData();
                     }
                   } catch (e) {
@@ -2538,7 +2604,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             controller: _payrollAmountController,
             decoration: const InputDecoration(
               labelText: 'Amount',
-              hintText: 'Defaults to monthly gross; edit for overtime/deductions',
+              hintText: 'Defaults to basic salary; edit for overtime/deductions',
             ),
             keyboardType: TextInputType.number,
           ),

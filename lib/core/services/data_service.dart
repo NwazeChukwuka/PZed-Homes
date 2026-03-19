@@ -1348,7 +1348,9 @@ class DataService {
 
   // Financial Summary
   /// Total Income = Manual Income + Kitchen + Mini Mart + Bar Sales (VIP/Outside) + Room Revenue.
-  /// Available Cash = (Opening Balance + Period Inflows) - Period Outflows.
+  /// Available Cash (cash-on-hand for selected period) =
+  ///   cash sales inflows + other cash income - approved cash expenses - cash deposits.
+  /// Payroll is intentionally excluded from available cash (hotel policy: salaries are not paid in cash).
   Future<Map<String, dynamic>> getFinancialSummary({
     DateTime? startDate,
     DateTime? endDate,
@@ -1368,8 +1370,8 @@ class DataService {
 
       final Future<dynamic> deptSalesFuture = _supabase
           .from('department_sales')
-          .select('department, total_sales')
-          .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
+          .select('department, total_sales, payment_method_breakdown')
+          .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant', 'reception'])
           .gte('date', startStr)
           .lte('date', endStr);
 
@@ -1384,6 +1386,36 @@ class DataService {
           .select('total_amount')
           .gte('sale_date', startStr)
           .lte('sale_date', endStr);
+
+      // Cash-only flows for available_cash.
+      final Future<dynamic> cashIncomeFuture = _supabase
+          .from('income_records')
+          .select('amount')
+          .eq('payment_method', 'cash')
+          .gte('date', startStr)
+          .lte('date', endStr);
+
+      final Future<dynamic> cashKitchenSalesFuture = _supabase
+          .from('kitchen_sales')
+          .select('total_amount')
+          .eq('payment_method', 'cash')
+          .gte('created_at', rangeStart.toIso8601String())
+          .lte('created_at', rangeEnd.toIso8601String());
+
+      final Future<dynamic> cashMiniMartSalesFuture = _supabase
+          .from('mini_mart_sales')
+          .select('total_amount')
+          .eq('payment_method', 'cash')
+          .gte('sale_date', startStr)
+          .lte('sale_date', endStr);
+
+      final Future<dynamic> cashRoomSalesFuture = _supabase
+          .from('bookings')
+          .select('total_amount, paid_amount')
+          .eq('payment_method', 'cash')
+          .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
+          .gte('check_out_date', startStr)
+          .lte('check_out_date', endStr);
 
       final Future<dynamic> bookingsFuture = _supabase
           .from('bookings')
@@ -1405,14 +1437,19 @@ class DataService {
           .lte('transaction_date', endStr)
           .eq('status', 'Approved');
 
-      final Future<dynamic> payrollFuture = _supabase
-          .from('payroll_records')
+      final Future<dynamic> cashApprovedExpensesFuture = _supabase
+          .from('expenses')
           .select('amount')
-          .gte('month', startStr)
-          .lte('month', endStr)
-          .eq('approval_status', 'approved');
+          .eq('payment_method', 'cash')
+          .gte('transaction_date', startStr)
+          .lte('transaction_date', endStr)
+          .eq('status', 'Approved');
 
-      final Future<num> openingBalanceFuture = _computeOpeningCashBalance(startStr);
+      final Future<dynamic> cashDepositsFuture = _supabase
+          .from('cash_deposits')
+          .select('amount')
+          .gte('date', startStr)
+          .lte('date', endStr);
 
       final results = await Future.wait([
         incomeFuture,
@@ -1422,8 +1459,12 @@ class DataService {
         bookingsFuture,
         expensesFuture,
         approvedExpensesFuture,
-        payrollFuture,
-        openingBalanceFuture,
+        cashIncomeFuture,
+        cashKitchenSalesFuture,
+        cashMiniMartSalesFuture,
+        cashRoomSalesFuture,
+        cashApprovedExpensesFuture,
+        cashDepositsFuture,
       ]);
 
       // Unpack results with safe typing.
@@ -1434,8 +1475,12 @@ class DataService {
       final bookResp = results[4] as List;
       final expensesResp = results[5] as List;
       final expApproved = results[6] as List;
-      final payrollResp = results[7] as List;
-      final opening = results[8] as num;
+      final cashIncomeResp = results[7] as List;
+      final cashKitchenResp = results[8] as List;
+      final cashMiniMartResp = results[9] as List;
+      final cashRoomResp = results[10] as List;
+      final cashExpApproved = results[11] as List;
+      final cashDepositsResp = results[12] as List;
 
       var totalIncome = incomeResp.fold<double>(
         0,
@@ -1473,20 +1518,61 @@ class DataService {
         0,
         (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
       );
-      final approvedPayroll = payrollResp.fold<double>(
+      // Cash-only inflows/outflows for available cash.
+      double cashSalesByDepartment = 0;
+      for (final row in deptResp) {
+        final breakdownRaw = row['payment_method_breakdown'];
+        if (breakdownRaw is Map) {
+          final breakdown = Map<String, dynamic>.from(breakdownRaw);
+          final cashPart = (breakdown['cash'] as num?)?.toDouble() ??
+              (breakdown['Cash'] as num?)?.toDouble() ??
+              0;
+          cashSalesByDepartment += cashPart;
+        }
+      }
+
+      // Fallback to source sales tables if department breakdown has no cash values.
+      if (cashSalesByDepartment == 0) {
+        for (final r in cashKitchenResp) {
+          cashSalesByDepartment += (r['total_amount'] as num?)?.toDouble() ?? 0;
+        }
+        for (final r in cashMiniMartResp) {
+          cashSalesByDepartment += (r['total_amount'] as num?)?.toDouble() ?? 0;
+        }
+        for (final b in cashRoomResp) {
+          final paid = (b['paid_amount'] as num?)?.toDouble();
+          final total = (b['total_amount'] as num?)?.toDouble() ?? 0;
+          cashSalesByDepartment += paid ?? total;
+        }
+      }
+
+      final cashOtherIncome = cashIncomeResp.fold<double>(
         0,
         (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
       );
-      final totalOutflows = approvedExpenses + approvedPayroll;
+      final cashApprovedExpenseTotal = cashExpApproved.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
+      final cashDepositedTotal = cashDepositsResp.fold<double>(
+        0,
+        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+      );
 
-      final periodInflows = totalIncome;
-      final availableCash = opening.toDouble() + periodInflows - totalOutflows;
+      final cashInflows = cashSalesByDepartment + cashOtherIncome;
+      final availableCash = cashInflows - cashApprovedExpenseTotal - cashDepositedTotal;
 
       return {
         'total_income': totalIncome,
         'total_expenses': totalExpenses,
         'net_profit': totalIncome - totalExpenses,
         'available_cash': availableCash,
+        // Cash deposits tab breakdown fields (same period as selected range).
+        'cash_sales_inflow': cashSalesByDepartment,
+        'cash_other_income': cashOtherIncome,
+        'cash_total_inflow': cashInflows,
+        'cash_expenses': cashApprovedExpenseTotal,
+        'cash_deposits': cashDepositedTotal,
       };
     });
   }
