@@ -1021,6 +1021,98 @@ class DataService {
     });
   }
 
+  DateTime _endOfDay(DateTime value) {
+    return DateTime(value.year, value.month, value.day, 23, 59, 59, 999);
+  }
+
+  /// Returns a unified auditor activity feed:
+  /// - finance audit logs
+  /// - mini mart sales
+  /// - kitchen sales
+  /// - debt payment claims (accountant-assisted approvals/rejections)
+  Future<List<Map<String, dynamic>>> getAuditorTransactions({
+    DateTime? startDate,
+    DateTime? endDate,
+    int limitPerSource = 600,
+  }) async {
+    return await _retryOperation(() async {
+      final effectiveEnd = endDate != null ? _endOfDay(endDate) : null;
+      final results = await Future.wait([
+        getFinanceAuditLogs(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
+        getMiniMartSales(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
+        getKitchenSalesHistory(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
+        getDebtPaymentClaims(startDate: startDate, endDate: effectiveEnd),
+      ]);
+
+      final unified = <Map<String, dynamic>>[];
+
+      final financeLogs = results[0] as List<Map<String, dynamic>>;
+      unified.addAll(financeLogs.map((row) => {
+            ...row,
+            'source': 'finance_audit',
+          }));
+
+      final miniMartSales = results[1] as List<Map<String, dynamic>>;
+      unified.addAll(miniMartSales.map((row) {
+        final actor = row['sold_by_profile'] as Map<String, dynamic>?;
+        return {
+          'id': row['id'],
+          'created_at': row['sale_date'] ?? row['created_at'],
+          'action': 'SALE',
+          'table_name': 'mini_mart_sales',
+          'record_id': row['id'],
+          'amount': row['total_amount'],
+          'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
+          'description': row['notes']?.toString() ?? row['customer_name']?.toString() ?? '',
+          'source': 'sales',
+        };
+      }));
+
+      final kitchenSales = results[2] as List<Map<String, dynamic>>;
+      unified.addAll(kitchenSales.map((row) {
+        final actor = row['sold_by_profile'] as Map<String, dynamic>?;
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': 'SALE',
+          'table_name': 'kitchen_sales',
+          'record_id': row['id'],
+          'amount': row['total_amount'],
+          'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
+          'description': row['notes']?.toString() ?? row['item_name']?.toString() ?? '',
+          'source': 'sales',
+        };
+      }));
+
+      final debtClaims = results[3] as List<Map<String, dynamic>>;
+      unified.addAll(debtClaims.map((row) {
+        final actor = row['recorded_by_profile'] as Map<String, dynamic>?;
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': (row['status']?.toString() ?? 'pending').toUpperCase(),
+          'table_name': 'debt_payment_claims',
+          'record_id': row['id'],
+          'amount': row['amount'],
+          'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
+          'description': row['notes']?.toString() ?? '',
+          'source': 'accountant_assisted',
+        };
+      }));
+
+      unified.sort((a, b) {
+        final aTime = DateTime.tryParse(a['created_at']?.toString() ?? '');
+        final bTime = DateTime.tryParse(b['created_at']?.toString() ?? '');
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+
+      return unified;
+    });
+  }
+
   Future<void> addCashDeposit(Map<String, dynamic> deposit) async {
     await _retryOperation(() async {
       await _supabase.from('cash_deposits').insert({
@@ -1152,13 +1244,23 @@ class DataService {
   }
 
   /// Get debt payment claims (optionally filtered by status)
-  Future<List<Map<String, dynamic>>> getDebtPaymentClaims({String? status}) async {
+  Future<List<Map<String, dynamic>>> getDebtPaymentClaims({
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     return await _retryOperation(() async {
       var query = _supabase
           .from('debt_payment_claims')
           .select('*, debts(id, debtor_name, debtor_phone, amount, paid_amount, department, source_department, reason), recorded_by_profile:profiles!recorded_by(full_name)');
       if (status != null && status.isNotEmpty) {
         query = query.eq('status', status);
+      }
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', _endOfDay(endDate).toIso8601String());
       }
       final response = await query.order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);

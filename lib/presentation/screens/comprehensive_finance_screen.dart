@@ -286,6 +286,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() {
       _isLoadingData = true;
       _loadError = null;
+      _dataMatchesRange = false;
     });
     try {
       switch (index) {
@@ -370,6 +371,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _debts = results[0] as List<Map<String, dynamic>>;
       _debtPaymentClaims = results[1] as List<Map<String, dynamic>>;
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
@@ -380,6 +382,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() {
       _incomeRecords = income;
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
@@ -394,6 +397,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() {
       _expenses = expenses;
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
@@ -414,6 +418,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         ..clear()
         ..addAll(results[1] as List<Map<String, dynamic>>);
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
@@ -424,16 +429,18 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() {
       _cashDeposits = deposits;
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
   Future<void> _loadAuditData() async {
     final range = _effectiveSummaryRange;
-    final auditLogs = await _dataService.getFinanceAuditLogs(startDate: range.start, endDate: range.end);
+    final auditLogs = await _dataService.getAuditorTransactions(startDate: range.start, endDate: range.end);
     if (!mounted) return;
     setState(() {
       _auditLogs = auditLogs;
       _isLoadingData = false;
+      _dataMatchesRange = true;
     });
   }
 
@@ -446,7 +453,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _dataService.getDebts(startDate: range.start, endDate: range.end),
       _dataService.getPayrollRecords(startMonth: range.start, endMonth: range.end),
       _dataService.getCashDeposits(startDate: range.start, endDate: range.end),
-      _dataService.getFinanceAuditLogs(startDate: range.start, endDate: range.end),
+      _dataService.getAuditorTransactions(startDate: range.start, endDate: range.end),
     ]);
     if (!mounted) return;
     setState(() {
@@ -456,6 +463,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _payrollRecords = results[3] as List<Map<String, dynamic>>;
       _cashDeposits = results[4] as List<Map<String, dynamic>>;
       _auditLogs = results[5] as List<Map<String, dynamic>>;
+      _dataMatchesRange = true;
     });
   }
 
@@ -785,10 +793,17 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   DateTimeRange get _effectiveSummaryRange {
     final now = DateTime.now();
-    if (_summaryRange != null) return _summaryRange!;
+    if (_summaryRange != null) {
+      final start = _summaryRange!.start;
+      final end = _summaryRange!.end;
+      return DateTimeRange(
+        start: DateTime(start.year, start.month, start.day),
+        end: DateTime(end.year, end.month, end.day, 23, 59, 59, 999),
+      );
+    }
     return DateTimeRange(
       start: DateTime(now.year, now.month, 1),
-      end: DateTime(now.year, now.month + 1, 0),
+      end: DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999),
     );
   }
 
@@ -1890,7 +1905,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       buffer.writeln('');
       buffer.writeln('created_at,action,table_name,actor');
       for (final log in filtered) {
-        final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
+      final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
         buffer.writeln('${log['created_at']?.toString() ?? ''},${_escapeCsv(log['action']?.toString() ?? '')},${_escapeCsv(log['table_name']?.toString() ?? '')},${_escapeCsv(actor)}');
       }
       final filename = 'PZed_Homes_Audit_Log_$rangeLabel.csv';
@@ -1997,8 +2012,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             child: Center(
               child: Text(
                 _auditLogs.isEmpty
-                    ? 'No audit logs in the selected period.'
-                    : 'No audit logs match the selected filters.',
+                    ? 'No audit/sales activity in the selected period.'
+                    : 'No audit/sales activity matches the selected filters.',
               ),
             ),
           )
@@ -2008,7 +2023,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               itemCount: filtered.length,
               itemBuilder: (context, index) {
                 final log = filtered[index];
-                final actor = (log['actor'] as Map?)?['full_name'] ?? 'Unknown';
+                final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
                 final createdAt = log['created_at']?.toString() ?? '';
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -3265,6 +3280,21 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 ];
               }).toList(),
             ),
+            _buildPdfTable(
+              title: 'Audit & Sales Activity',
+              headers: ['Timestamp', 'Action', 'Source', 'Amount (₦)', 'Actor'],
+              rows: _auditLogs.map((log) {
+                final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
+                final amount = (log['amount'] as num?)?.toInt();
+                return [
+                  log['created_at']?.toString() ?? '',
+                  log['action']?.toString() ?? '',
+                  log['table_name']?.toString() ?? '',
+                  amount == null ? '' : _formatKobo(amount),
+                  actor.toString(),
+                ];
+              }).toList(),
+            ),
             pw.SizedBox(height: 12),
             pw.Text('Audit: ${_auditLogs.length} log entries in period.', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
             pw.SizedBox(height: 8),
@@ -3382,6 +3412,22 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           r['bank_name']?.toString() ?? '',
           r['amount']?.toString() ?? '0',
           r['net_amount']?.toString() ?? '0',
+        ];
+      }).toList(),
+    );
+
+    writeSection(
+      'Audit and Sales Activity',
+      ['created_at', 'action', 'table_name', 'amount', 'actor', 'description'],
+      _auditLogs.map((log) {
+        final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
+        return [
+          log['created_at']?.toString() ?? '',
+          log['action']?.toString() ?? '',
+          log['table_name']?.toString() ?? '',
+          log['amount']?.toString() ?? '',
+          actor.toString(),
+          log['description']?.toString() ?? '',
         ];
       }).toList(),
     );
