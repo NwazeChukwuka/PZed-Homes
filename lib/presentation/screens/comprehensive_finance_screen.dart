@@ -55,7 +55,7 @@ class _LazyTab extends StatefulWidget {
 }
 
 class _LazyTabState extends State<_LazyTab> {
-  Widget? _built;
+  bool _hasBuiltOnce = false;
 
   @override
   void initState() {
@@ -79,18 +79,20 @@ class _LazyTabState extends State<_LazyTab> {
   }
 
   void _check() {
-    if (mounted && _built == null && widget.controller.index == widget.index) {
-      setState(() {});
+    if (mounted && !_hasBuiltOnce && widget.controller.index == widget.index) {
+      setState(() => _hasBuiltOnce = true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_built == null && widget.controller.index != widget.index) {
+    if (!_hasBuiltOnce && widget.controller.index != widget.index) {
       return const SizedBox.shrink();
     }
-    _built ??= _KeepAliveTab(child: widget.builder());
-    return _built!;
+    // Important: do NOT cache the built widget instance.
+    // The finance screen relies on parent state updates (e.g. date range changes),
+    // so the tab content must be rebuilt to reflect the latest data.
+    return _KeepAliveTab(child: widget.builder());
   }
 }
 
