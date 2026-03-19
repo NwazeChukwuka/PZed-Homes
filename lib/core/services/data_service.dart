@@ -1573,8 +1573,8 @@ class DataService {
           .from('rooms')
           .select('id');
 
-      final checkedIn = (bookings as List).where((b) => b['status'] == 'Checked-in').length;
-      final pending = (bookings as List).where((b) => b['status'] == 'Pending Check-in').length;
+      final checkedIn = (bookings as List).where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-in').length;
+      final pending = (bookings as List).where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'pending').length;
       final totalRooms = (rooms as List).length;
       final occupancyRate = totalRooms > 0 ? ((checkedIn / totalRooms) * 100).round() : 0;
 
@@ -1595,6 +1595,35 @@ class DataService {
         'total_rooms': totalRooms,
       };
     });
+  }
+
+  String _normalizeBookingStatus(String? raw) {
+    if (raw == null) return '';
+    final normalized = raw.trim().toLowerCase().replaceAll('_', '-');
+    switch (normalized) {
+      case 'pending':
+      case 'pending check-in':
+      case 'pending checkin':
+        return 'pending';
+      case 'checked-in':
+      case 'checked in':
+        return 'checked-in';
+      case 'checked-out':
+      case 'checked out':
+        return 'checked-out';
+      case 'cancelled':
+        return 'cancelled';
+      case 'rejected':
+        return 'rejected';
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return 'expired';
+      case 'confirmed':
+        return 'confirmed';
+      default:
+        return normalized;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getRecentActivities() async {

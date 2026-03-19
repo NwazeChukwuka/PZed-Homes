@@ -71,6 +71,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   DateTimeRange? _bookingFilterRange;
   final TextEditingController _bookingSearchController = TextEditingController();
   String _bookingSearchQuery = '';
+  String _bookingStatusFilter = 'all';
   late TabController _tabController;
 
   bool get _isReceptionist {
@@ -335,9 +336,12 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   String _calculateBookingStatus(Map<String, dynamic> booking) {
     final dbStatus = booking['status']?.toString().toLowerCase() ?? 'unknown';
     
-    // If already checked out or cancelled, return as is
-    if (dbStatus == 'checked-out' || dbStatus == 'checked_out' || dbStatus == 'cancelled') {
-      return dbStatus == 'checked-out' || dbStatus == 'checked_out' ? 'Checked Out' : 'Cancelled';
+    // If already terminal, return as is.
+    if (dbStatus == 'checked-out' || dbStatus == 'checked_out') return 'Checked Out';
+    if (dbStatus == 'cancelled') return 'Cancelled';
+    if (dbStatus == 'rejected') return 'Rejected';
+    if (dbStatus == 'expired' || dbStatus == 'no-show' || dbStatus == 'no show') {
+      return 'Expired';
     }
     
     // Check if check-out date has passed 12:00 PM
@@ -354,9 +358,14 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       
       final now = DateTime.now();
       
-      // If current time is past 12:00 PM on check-out date, booking is expired (Checked Out)
+      // If elapsed:
+      // - checked-in stays are checked out
+      // - pending bookings are expired/no-show
       if (now.isAfter(checkOutExpiry)) {
-        return 'Checked Out';
+        if (dbStatus == 'checked-in' || dbStatus == 'checked_in') return 'Checked Out';
+        if (dbStatus == 'pending check-in' || dbStatus == 'pending_check_in' || dbStatus == 'pending') {
+          return 'Expired';
+        }
       }
     }
     
@@ -372,6 +381,17 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       default:
         return dbStatus.split('_').map((s) => s[0].toUpperCase() + s.substring(1)).join(' ');
     }
+  }
+
+  String _normalizeBookingStatusLabel(String status) {
+    final s = status.trim().toLowerCase().replaceAll('_', '-');
+    if (s == 'pending' || s == 'pending check-in' || s == 'pending checkin') return 'pending';
+    if (s == 'checked-in' || s == 'checked in') return 'checked-in';
+    if (s == 'checked-out' || s == 'checked out') return 'checked-out';
+    if (s == 'cancelled') return 'cancelled';
+    if (s == 'rejected') return 'rejected';
+    if (s == 'expired' || s == 'no-show' || s == 'no show') return 'expired';
+    return s;
   }
 
   /// Single status-update dialog for receptionist, housekeeper, or management (assuming receptionist).
@@ -1252,6 +1272,14 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         return guestName.contains(searchQuery) || roomNumber.contains(searchQuery);
       }).toList();
     }
+
+    // Filter by booking status label
+    if (_bookingStatusFilter != 'all') {
+      filteredBookings = filteredBookings.where((booking) {
+        final calculatedStatus = _calculateBookingStatus(booking);
+        return _normalizeBookingStatusLabel(calculatedStatus) == _bookingStatusFilter;
+      }).toList();
+    }
     
     // Sort by check-in date (most recent first)
     filteredBookings.sort((a, b) {
@@ -1313,6 +1341,29 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 },
               ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _bookingStatusFilter,
+                decoration: InputDecoration(
+                  labelText: 'Status filter',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'all', child: Text('All statuses')),
+                  DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                  DropdownMenuItem(value: 'checked-in', child: Text('Checked In')),
+                  DropdownMenuItem(value: 'checked-out', child: Text('Checked Out')),
+                  DropdownMenuItem(value: 'expired', child: Text('Expired')),
+                  DropdownMenuItem(value: 'cancelled', child: Text('Cancelled')),
+                  DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _bookingStatusFilter = value);
+                },
+              ),
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () async {
                   final now = DateTime.now();
@@ -1341,10 +1392,13 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: () {
-                        setState(() => _bookingFilterRange = null);
+                        setState(() {
+                          _bookingFilterRange = null;
+                          _bookingStatusFilter = 'all';
+                        });
                         _loadBookings(); // Reload without date filter
                       },
-                      child: const Text('Clear filter'),
+                      child: const Text('Clear filters'),
                     ),
                   ),
           ),
@@ -1446,6 +1500,12 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         return Icons.pending;
       case 'cancelled':
         return Icons.cancel;
+      case 'rejected':
+        return Icons.block;
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return Icons.history_toggle_off;
       default:
         return Icons.hotel;
     }
@@ -1464,6 +1524,12 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         return Colors.orange[700]!;
       case 'cancelled':
         return Colors.red[700]!;
+      case 'rejected':
+        return Colors.red[900]!;
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return Colors.blueGrey[700]!;
       default:
         return Colors.grey[700]!;
     }

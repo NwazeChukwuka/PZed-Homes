@@ -945,6 +945,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return 'checked-out';
       case 'cancelled':
         return 'cancelled';
+      case 'rejected':
+        return 'rejected';
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return 'expired';
       case 'confirmed':
         return 'confirmed';
       default:
@@ -1389,6 +1395,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return const Color(0xFFF59E0B);
         case 'cancelled':
           return const Color(0xFFEF4444);
+        case 'rejected':
+          return const Color(0xFFB91C1C);
+        case 'expired':
+          return const Color(0xFF6B7280);
         case 'pending':
           return const Color(0xFFA855F7);
       default:
@@ -2584,6 +2594,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Colors.blue;
       case 'cancelled':
         return Colors.red;
+      case 'rejected':
+        return Colors.red.shade900;
+      case 'expired':
+        return Colors.blueGrey;
       case 'confirmed':
         return Colors.purple;
       default:

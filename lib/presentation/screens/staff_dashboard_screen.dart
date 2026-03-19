@@ -539,6 +539,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           totalRevenue += amount;
           break;
         case 'cancelled':
+        case 'rejected':
+        case 'expired':
           break;
         default:
           break;
@@ -2188,15 +2190,23 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
+    final normalized = status.toLowerCase().replaceAll('_', '-');
+    switch (normalized) {
       case 'pending':
+      case 'pending check-in':
         return Colors.orange[100]!;
       case 'confirmed':
         return Colors.blue[100]!;
-      case 'checked_in':
+      case 'checked-in':
         return Colors.green[100]!;
-      case 'checked_out':
+      case 'checked-out':
         return Colors.grey[300]!;
+      case 'cancelled':
+        return Colors.red[100]!;
+      case 'rejected':
+        return Colors.red[200]!;
+      case 'expired':
+        return Colors.blueGrey[100]!;
       default:
         return Colors.grey[200]!;
     }

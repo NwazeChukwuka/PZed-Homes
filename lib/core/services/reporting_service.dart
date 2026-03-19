@@ -142,6 +142,12 @@ class ReportingService {
         return 'checked-out';
       case 'cancelled':
         return 'cancelled';
+      case 'rejected':
+        return 'rejected';
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return 'expired';
       case 'confirmed':
         return 'confirmed';
       default:
@@ -641,7 +647,7 @@ class ReportingService {
         .order('created_at', ascending: false);
     final rows = rowsRaw as List;
 
-    int total = 0, checkedIn = 0, checkedOut = 0, pending = 0, cancelled = 0, confirmed = 0;
+    int total = 0, checkedIn = 0, checkedOut = 0, pending = 0, cancelled = 0, rejected = 0, expired = 0, confirmed = 0;
     int revenueSum = 0;
     int totalNights = 0;
 
@@ -652,6 +658,8 @@ class ReportingService {
       else if (status == 'checked-out') checkedOut++;
       else if (status == 'pending') pending++;
       else if (status == 'cancelled') cancelled++;
+      else if (status == 'rejected') rejected++;
+      else if (status == 'expired') expired++;
       else if (status == 'confirmed') confirmed++;
 
       revenueSum += (b['total_amount'] as num?)?.toInt() ?? (b['paid_amount'] as num?)?.toInt() ?? 0;
@@ -668,6 +676,8 @@ class ReportingService {
       'checked_out': checkedOut,
       'pending': pending,
       'cancelled': cancelled,
+      'rejected': rejected,
+      'expired': expired,
       'confirmed': confirmed,
       'revenue': revenueSum,
       'avg_revenue': total > 0 ? (revenueSum / total).round() : 0,

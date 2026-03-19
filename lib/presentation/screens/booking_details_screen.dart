@@ -386,6 +386,199 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
     }
   }
 
+  Future<void> _reopenExpiredBooking() async {
+    final reasonController = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reopen Expired Booking'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Reopen this expired booking for room assignment and check-in?',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Reason (required)',
+                  border: OutlineInputBorder(),
+                  hintText: 'Why are you reopening this booking?',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Reopen'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+
+      final reason = reasonController.text.trim();
+      if (reason.isEmpty) {
+        if (mounted) {
+          ErrorHandler.showWarningMessage(context, 'Please enter a reason to reopen this booking.');
+        }
+        return;
+      }
+
+      setState(() => _isLoading = true);
+      bool reopened = false;
+      try {
+        final rpcResult = await _supabase.rpc(
+          'reopen_expired_booking',
+          params: {
+            'p_booking_id': _currentBooking.id,
+            'p_reason': reason,
+          },
+        );
+        reopened = rpcResult == true;
+      } catch (_) {
+        // Backward-safe fallback while database migration is rolling out.
+        await _supabase
+            .from('bookings')
+            .update({'status': 'Pending Check-in', 'updated_at': DateTime.now().toIso8601String()})
+            .eq('id', _currentBooking.id)
+            .eq('status', 'Expired');
+        reopened = true;
+      }
+
+      if (!reopened) {
+        throw Exception('Booking was not reopened.');
+      }
+
+      if (mounted) {
+        setState(() {
+          _currentBooking = _currentBooking.copyWith(status: 'Pending Check-in');
+          _isLoading = false;
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Booking reopened. You can now assign a room.',
+        );
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG reopen expired booking: $e\n$stackTrace');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to reopen booking. Please try again.',
+          stackTrace: stackTrace,
+        );
+      }
+    } finally {
+      reasonController.dispose();
+    }
+  }
+
+  Future<void> _updateBookingLifecycleStatus(String newStatus) async {
+    final actionLabel = newStatus == 'Rejected' ? 'reject' : 'cancel';
+    final reasonController = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('${newStatus == 'Rejected' ? 'Reject' : 'Cancel'} Booking'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Are you sure you want to $actionLabel this booking?',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'Reason (optional)',
+                  border: const OutlineInputBorder(),
+                  hintText: 'Why is this booking being ${newStatus.toLowerCase()}?',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Keep Booking'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(newStatus),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+
+      setState(() => _isLoading = true);
+      final reason = reasonController.text.trim();
+
+      bool updated = false;
+      try {
+        final rpcResult = await _supabase.rpc(
+          'update_booking_lifecycle_status',
+          params: {
+            'p_booking_id': _currentBooking.id,
+            'p_new_status': newStatus,
+            'p_reason': reason.isEmpty ? null : reason,
+          },
+        );
+        updated = rpcResult == true;
+      } catch (_) {
+        // Backward-safe fallback for deployments where the RPC is not yet applied.
+        await _supabase
+            .from('bookings')
+            .update({'status': newStatus, 'updated_at': DateTime.now().toIso8601String()})
+            .eq('id', _currentBooking.id);
+        updated = true;
+      }
+
+      if (!updated) {
+        throw Exception('Booking status was not updated.');
+      }
+
+      if (mounted) {
+        setState(() {
+          _currentBooking = _currentBooking.copyWith(status: newStatus);
+          _isLoading = false;
+        });
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Booking marked as $newStatus.',
+        );
+        Navigator.of(context).pop(_currentBooking);
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG update booking lifecycle status: $e\n$stackTrace');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ErrorHandler.handleError(
+          context,
+          e,
+          customMessage: 'Failed to update booking status. Please try again.',
+          stackTrace: stackTrace,
+        );
+      }
+    } finally {
+      reasonController.dispose();
+    }
+  }
+
   void _showAddChargeDialog() {
     final formKey = GlobalKey<FormState>();
     final itemController = TextEditingController();
@@ -799,38 +992,88 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
   Widget? _buildActionButton() {
     if (_currentBooking.status == 'Pending Check-in') {
       if (_currentBooking.roomId == null) {
-        // Show assign room button if room not assigned
-        return ElevatedButton.icon(
-          icon: const Icon(Icons.room),
-          label: const Text('Assign Room'),
-          onPressed: () async {
-            final assigned = await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AssignRoomScreen(booking: _currentBooking),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Show assign room button if room not assigned
+            ElevatedButton.icon(
+              icon: const Icon(Icons.room),
+              label: const Text('Assign Room'),
+              onPressed: () async {
+                final assigned = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AssignRoomScreen(booking: _currentBooking),
+                  ),
+                );
+                if (assigned == true) {
+                  await _reloadBooking();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                minimumSize: const Size(double.infinity, 50),
               ),
-            );
-            if (assigned == true) {
-              await _reloadBooking();
-            }
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            minimumSize: const Size(double.infinity, 50),
-          ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _updateBookingLifecycleStatus('Rejected'),
+                    icon: const Icon(Icons.block),
+                    label: const Text('Reject'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _updateBookingLifecycleStatus('Cancelled'),
+                    icon: const Icon(Icons.cancel),
+                    label: const Text('Cancel'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         );
       }
       // Show check-in button if room is assigned
-      return ElevatedButton.icon(
-        icon: const Icon(Icons.login),
-        label: const Text('Confirm Guest Check-in'),
-        onPressed: _performCheckIn,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          minimumSize: const Size(double.infinity, 50),
-        ),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton.icon(
+            icon: const Icon(Icons.login),
+            label: const Text('Confirm Guest Check-in'),
+            onPressed: _performCheckIn,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              minimumSize: const Size(double.infinity, 50),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _updateBookingLifecycleStatus('Rejected'),
+                  icon: const Icon(Icons.block),
+                  label: const Text('Reject'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _updateBookingLifecycleStatus('Cancelled'),
+                  icon: const Icon(Icons.cancel),
+                  label: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ],
       );
     }
     if (_currentBooking.status == 'Checked-in') {
@@ -840,6 +1083,18 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         onPressed: _showCheckOutConfirmation,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.red,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          minimumSize: const Size(double.infinity, 50),
+        ),
+      );
+    }
+    if (_currentBooking.status == 'Expired') {
+      return ElevatedButton.icon(
+        icon: const Icon(Icons.restore),
+        label: const Text('Reopen Booking'),
+        onPressed: _reopenExpiredBooking,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blueGrey,
           padding: const EdgeInsets.symmetric(vertical: 16),
           minimumSize: const Size(double.infinity, 50),
         ),

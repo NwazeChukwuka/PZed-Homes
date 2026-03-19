@@ -24,6 +24,12 @@ class BookingListItem extends StatelessWidget {
         return Colors.orange;
       case 'Checked-out':
         return Colors.blueGrey;
+      case 'Cancelled':
+        return Colors.red;
+      case 'Rejected':
+        return Colors.red.shade900;
+      case 'Expired':
+        return Colors.blueGrey.shade700;
       default:
         return Colors.grey;
     }

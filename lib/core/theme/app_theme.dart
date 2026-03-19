@@ -338,6 +338,8 @@ class StatusColors {
   static const Color pending = AppColors.warning;
   static const Color checkedOut = AppColors.info;
   static const Color cancelled = AppColors.error;
+  static const Color rejected = Color(0xFFB91C1C);
+  static const Color expired = Colors.blueGrey;
   
   static Color getStatusColor(String status) {
     switch (status.toLowerCase()) {
@@ -350,6 +352,12 @@ class StatusColors {
         return checkedOut;
       case 'cancelled':
         return cancelled;
+      case 'rejected':
+        return rejected;
+      case 'expired':
+      case 'no-show':
+      case 'no show':
+        return expired;
       default:
         return Colors.grey;
     }
