@@ -255,9 +255,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   /// Loads first page of transactions (performance: small chunk, cached in DataService).
   Future<void> _loadTransactions() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       final transactions = await _dataService.getStockTransactions(
         limit: _transactionsPageSize,
         offset: 0,
+        staffId: isManagement ? null : staffId,
       );
       if (!mounted) return;
       setState(() {
@@ -277,9 +283,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _transactionsLoadingMore = true;
     setState(() {});
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       final transactions = await _dataService.getStockTransactions(
         limit: _transactionsPageSize,
         offset: _transactionsOffset,
+        staffId: isManagement ? null : staffId,
       );
       if (!mounted) return;
       setState(() {
@@ -846,6 +858,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Widget _buildStockMovementsTab() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles
+            .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+        false;
     // Lazy rendering via ListView.builder, infinite scroll, no preload of full dataset
     final itemCount = _allTransactions.length + (_transactionsHasMore && _transactionsLoadingMore ? 1 : 0);
     return ScrollableListViewWithArrows(
@@ -863,13 +879,23 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             )),
           );
         }
-        return _InventoryTransactionItem(transaction: _allTransactions[index]);
+        return _InventoryTransactionItem(
+          transaction: _allTransactions[index],
+          showStaffName: isManagement,
+        );
       },
     );
   }
 
   Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    return _InventoryTransactionItem(transaction: transaction);
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles
+            .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+        false;
+    return _InventoryTransactionItem(
+      transaction: transaction,
+      showStaffName: isManagement,
+    );
   }
 
   Widget _buildMakeSaleTab() {
@@ -2254,8 +2280,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 /// Precomputes formatting; uses const where possible.
 class _InventoryTransactionItem extends StatelessWidget {
   final Map<String, dynamic> transaction;
+  final bool showStaffName;
 
-  const _InventoryTransactionItem({required this.transaction});
+  const _InventoryTransactionItem({
+    required this.transaction,
+    this.showStaffName = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2308,9 +2338,6 @@ class _InventoryTransactionItem extends StatelessWidget {
         typeLabel = transactionType.toUpperCase();
     }
 
-    final notes = transaction['notes']?.toString();
-    final hasNotes = notes != null && notes.isNotEmpty;
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
@@ -2325,8 +2352,7 @@ class _InventoryTransactionItem extends StatelessWidget {
             const SizedBox(height: 4),
             Text('Quantity: ${quantity.abs()} $unit'),
             Text('Location: $locationName'),
-            Text('Staff: $staffName'),
-            if (hasNotes) Text('Notes: $notes', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+            if (showStaffName) Text('Staff: $staffName'),
             const SizedBox(height: 2),
             Text(timestamp, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
           ],

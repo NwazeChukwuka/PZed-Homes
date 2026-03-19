@@ -862,13 +862,26 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   Future<void> _loadStockAndLocations() async {
     setState(() => _isLoading = true);
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       // Run all independent fetches in parallel (Phase 1: no sequential await)
       final results = await Future.wait([
         _dataService.getMenuItems(),
         _dataService.getLocations(),
         _dataService.getDepartments(),
-        _dataService.getDepartmentTransfers(limit: _historyPageSize, offset: 0),
-        _dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: 0),
+        _dataService.getDepartmentTransfers(
+          limit: _historyPageSize,
+          offset: 0,
+          staffId: isManagement ? null : staffId,
+        ),
+        _dataService.getKitchenSalesHistory(
+          limit: _historyPageSize,
+          offset: 0,
+          staffId: isManagement ? null : staffId,
+        ),
         _dataService.getBookings(),
       ]);
       final menuItems = results[0];
@@ -959,9 +972,30 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     _historyLoadingMore = true;
     if (mounted) setState(() {});
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       final futures = <Future<List<Map<String, dynamic>>>>[];
-      if (_dispatchHasMore) futures.add(_dataService.getDepartmentTransfers(limit: _historyPageSize, offset: _dispatchOffset));
-      if (_salesHasMore) futures.add(_dataService.getKitchenSalesHistory(limit: _historyPageSize, offset: _salesOffset));
+      if (_dispatchHasMore) {
+        futures.add(
+          _dataService.getDepartmentTransfers(
+            limit: _historyPageSize,
+            offset: _dispatchOffset,
+            staffId: isManagement ? null : staffId,
+          ),
+        );
+      }
+      if (_salesHasMore) {
+        futures.add(
+          _dataService.getKitchenSalesHistory(
+            limit: _historyPageSize,
+            offset: _salesOffset,
+            staffId: isManagement ? null : staffId,
+          ),
+        );
+      }
       final results = await Future.wait(futures);
       int idx = 0;
       final moreDispatch = _dispatchHasMore ? results[idx++] : <Map<String, dynamic>>[];
@@ -2926,6 +2960,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   }
   
   Widget _buildHistoryTab() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles
+            .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+        false;
     // Combine sales history and dispatch history
     final allTransactions = <Map<String, dynamic>>[];
     
@@ -3133,6 +3171,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           productName: itemName,
                           quantity: qty,
                           staffName: staffName,
+                          showStaffName: isManagement,
                           paymentMethod: paymentMethod,
                           timestamp: time,
                           totalAmountKobo: total,
@@ -3150,6 +3189,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           productName: itemName,
                           quantity: qty,
                           staffName: staffName,
+                          showStaffName: isManagement,
                           paymentMethod: paymentMethod,
                           timestamp: time,
                           totalAmountKobo: totalAmount > 0 ? totalAmount : null,

@@ -8,6 +8,7 @@ class SaleListItem extends StatelessWidget {
   final String productName;
   final int quantity;
   final String staffName;
+  final bool showStaffName;
   final String paymentMethod;
   final String timestamp;
   final int? totalAmountKobo;
@@ -19,6 +20,7 @@ class SaleListItem extends StatelessWidget {
     required this.productName,
     required this.quantity,
     required this.staffName,
+    this.showStaffName = true,
     required this.paymentMethod,
     required this.timestamp,
     this.totalAmountKobo,
@@ -36,7 +38,7 @@ class SaleListItem extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Staff: $staffName'),
+            if (showStaffName) Text('Staff: $staffName'),
             Text('Payment: ${paymentMethod.toUpperCase()}'),
             Text(timestamp, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
           ],

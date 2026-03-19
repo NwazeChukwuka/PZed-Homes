@@ -1552,7 +1552,130 @@ BEGIN
 END;
 $$;
 
--- Function to automatically update expired bookings to Checked-out
+-- Ensure bookings can use improved lifecycle statuses safely.
+DO $$
+DECLARE
+  v_constraint RECORD;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'bookings'
+      AND column_name = 'status'
+  ) THEN
+    FOR v_constraint IN
+      SELECT c.conname
+      FROM pg_constraint c
+      INNER JOIN pg_class t ON t.oid = c.conrelid
+      INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'bookings'
+        AND c.contype = 'c'
+        AND pg_get_constraintdef(c.oid) ILIKE '%status%'
+    LOOP
+      EXECUTE format('ALTER TABLE public.bookings DROP CONSTRAINT IF EXISTS %I', v_constraint.conname);
+    END LOOP;
+    ALTER TABLE public.bookings
+      ADD CONSTRAINT bookings_status_check
+      CHECK (status IN (
+        'Pending Check-in',
+        'Checked-in',
+        'Checked-out',
+        'Cancelled',
+        'Rejected',
+        'Expired',
+        'Confirmed'
+      ));
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Function to update booking status by staff action (cancel/reject).
+CREATE OR REPLACE FUNCTION public.update_booking_lifecycle_status(
+    p_booking_id UUID,
+    p_new_status TEXT,
+    p_reason TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_status TEXT;
+BEGIN
+    IF p_new_status NOT IN ('Cancelled', 'Rejected') THEN
+        RAISE EXCEPTION 'Invalid booking status update';
+    END IF;
+
+    SELECT status INTO v_status
+    FROM public.bookings
+    WHERE id = p_booking_id
+    FOR UPDATE;
+
+    IF v_status IS NULL THEN
+        RAISE EXCEPTION 'Booking not found';
+    END IF;
+
+    IF v_status IN ('Checked-in', 'Checked-out') THEN
+        RAISE EXCEPTION 'Cannot change status for an active or completed stay';
+    END IF;
+
+    IF v_status IN ('Cancelled', 'Rejected', 'Expired') THEN
+        RETURN FALSE;
+    END IF;
+
+    UPDATE public.bookings
+    SET status = p_new_status,
+        updated_at = now()
+    WHERE id = p_booking_id;
+
+    RETURN TRUE;
+END;
+$$;
+
+-- Reopen an expired booking for late arrival handling.
+-- This keeps assignment/check-in flow truthful: receptionist explicitly reopens first.
+CREATE OR REPLACE FUNCTION public.reopen_expired_booking(
+    p_booking_id UUID,
+    p_reason TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_status TEXT;
+BEGIN
+    IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+        RAISE EXCEPTION 'Reason is required to reopen an expired booking';
+    END IF;
+
+    SELECT status INTO v_status
+    FROM public.bookings
+    WHERE id = p_booking_id
+    FOR UPDATE;
+
+    IF v_status IS NULL THEN
+        RAISE EXCEPTION 'Booking not found';
+    END IF;
+
+    IF v_status <> 'Expired' THEN
+        RAISE EXCEPTION 'Only expired bookings can be reopened';
+    END IF;
+
+    UPDATE public.bookings
+    SET status = 'Pending Check-in',
+        updated_at = now()
+    WHERE id = p_booking_id;
+
+    RETURN TRUE;
+END;
+$$;
+
+-- Function to automatically update expired bookings.
 -- A booking expires at 12:00 PM on the check-out date
 CREATE OR REPLACE FUNCTION public.auto_update_expired_bookings()
 RETURNS void
@@ -1561,16 +1684,14 @@ SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE
     v_now TIMESTAMPTZ;
-    v_expired_count INT;
 BEGIN
     v_now := now();
     
-    -- Update bookings where check-out date has passed 12:00 PM
-    -- and status is still 'Checked-in' or 'Pending Check-in'
+    -- Checked-in bookings become checked-out when the stay elapses.
     UPDATE public.bookings
     SET status = 'Checked-out',
         updated_at = v_now
-    WHERE status IN ('Checked-in', 'Pending Check-in')
+    WHERE status = 'Checked-in'
       AND check_out_date IS NOT NULL
       AND (
           -- Check if current time is past 12:00 PM on check-out date
@@ -1579,7 +1700,13 @@ BEGIN
           )
       );
     
-    GET DIAGNOSTICS v_expired_count = ROW_COUNT;
+    -- Pending check-ins that elapsed without check-in become expired (no-show/past booking).
+    UPDATE public.bookings
+    SET status = 'Expired',
+        updated_at = v_now
+    WHERE status = 'Pending Check-in'
+      AND check_out_date IS NOT NULL
+      AND v_now > (DATE(check_out_date) + INTERVAL '12 hours');
     
     -- Update room status to Dirty for rooms that were occupied by expired bookings
     UPDATE public.rooms
@@ -1612,13 +1739,17 @@ BEGIN
         -- Calculate expiry time (12:00 PM on check-out date)
         v_check_out_expiry := DATE(NEW.check_out_date) + INTERVAL '12 hours';
         
-        -- If current time is past expiry and booking is still active, mark as Checked-out
+        -- If current time is past expiry, preserve truthfulness:
+        -- checked-in -> checked-out, pending -> expired (never checked in).
         IF now() > v_check_out_expiry AND NEW.status IN ('Checked-in', 'Pending Check-in') THEN
-            NEW.status := 'Checked-out';
+            NEW.status := CASE
+                WHEN NEW.status = 'Checked-in' THEN 'Checked-out'
+                ELSE 'Expired'
+            END;
             NEW.updated_at := now();
             
-            -- Also update room status if room is assigned
-            IF NEW.room_id IS NOT NULL THEN
+            -- Only checked-in stays should dirty the room on expiry.
+            IF NEW.status = 'Checked-out' AND NEW.room_id IS NOT NULL THEN
                 UPDATE public.rooms
                 SET status = 'Dirty',
                     updated_at = now()

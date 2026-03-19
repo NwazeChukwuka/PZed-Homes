@@ -264,10 +264,19 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
   Future<void> _loadMiniMartData() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       // Run independent fetches in parallel (Phase 1); Phase 4: initial page of sales history
       final results = await Future.wait([
         _dataService.getMiniMartItems(),
-        _dataService.getMiniMartSales(limit: _salesHistoryPageSize, offset: 0),
+        _dataService.getMiniMartSales(
+          limit: _salesHistoryPageSize,
+          offset: 0,
+          staffId: isManagement ? null : staffId,
+        ),
       ]);
       final itemsResponse = results[0];
       final salesResponse = results[1];
@@ -311,9 +320,15 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _salesHistoryLoadingMore = true;
     if (mounted) setState(() {});
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.currentUser;
+      final isManagement =
+          user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
+      final staffId = user?.id;
       final more = await _dataService.getMiniMartSales(
         limit: _salesHistoryPageSize,
         offset: _salesHistoryOffset,
+        staffId: isManagement ? null : staffId,
       );
       if (!mounted) return;
       setState(() {
@@ -1815,6 +1830,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isManagement = authService.currentUser?.roles
+            .any((r) => r == AppRole.owner || r == AppRole.manager) ??
+        false;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1889,6 +1908,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                         productName: itemName,
                         quantity: qty,
                         staffName: staffName,
+                        showStaffName: isManagement,
                         paymentMethod: paymentMethod,
                         timestamp: timestamp,
                         totalAmountKobo: totalKobo,

@@ -124,6 +124,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   /// Passes date filter when set; filter changes trigger reload.
   Future<void> _loadBookings() async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final currentUserId = authService.currentUser?.id;
       final start = _bookingFilterRange?.start;
       final end = _bookingFilterRange?.end;
       final bookings = await _dataService.getBookings(
@@ -131,6 +133,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         offset: 0,
         startDate: start,
         endDate: end,
+        createdBy: _isManagement ? null : currentUserId,
       );
       if (!mounted) return;
       setState(() {
@@ -157,6 +160,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     _bookingsLoadingMore = true;
     setState(() {});
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final currentUserId = authService.currentUser?.id;
       final start = _bookingFilterRange?.start;
       final end = _bookingFilterRange?.end;
       final bookings = await _dataService.getBookings(
@@ -164,6 +169,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         offset: _bookingsOffset,
         startDate: start,
         endDate: end,
+        createdBy: _isManagement ? null : currentUserId,
       );
       if (!mounted) return;
       setState(() {
@@ -610,7 +616,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                                           IconButton(
                                             icon: Icon(_roomStatusBulkEditMode ? Icons.close : Icons.checklist),
                                             onPressed: () {
-                                              setState(() {
+      setState(() {
                                                 _roomStatusBulkEditMode = !_roomStatusBulkEditMode;
                                                 if (!_roomStatusBulkEditMode) _roomStatusSelectedIds.clear();
                                               });
@@ -678,7 +684,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 ),
               ],
               source: _RoomDataSource(
-                rooms: _currentPageRooms,
+                // Feed the full list so PaginatedDataTable controls pagination correctly.
+                rooms: _allRooms,
                 checkedInRoomIds: _checkedInRoomIds,
                 onStatusUpdate: _showUpdateStatusDialog,
                 canUpdateStatus: _canUpdateRoomStatus,
@@ -696,18 +703,11 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 },
               ),
               rowsPerPage: _rowsPerPage,
-              onPageChanged: (pageIndex) {
-                setState(() {
-                  _currentPage = pageIndex;
-                });
-                _updatePagination();
-              },
+              onPageChanged: (_) {},
               onRowsPerPageChanged: (newRowsPerPage) {
                 setState(() {
                   _rowsPerPage = newRowsPerPage ?? 10;
-                  _currentPage = 0;
                 });
-                _updatePagination();
               },
               availableRowsPerPage: const [5, 10, 20, 50],
               showFirstLastButtons: true,

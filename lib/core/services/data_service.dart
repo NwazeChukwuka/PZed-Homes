@@ -153,11 +153,12 @@ class DataService {
   Future<List<Map<String, dynamic>>> getBookings({
     DateTime? startDate,
     DateTime? endDate,
+    String? createdBy,
     int limit = 1000,
     int offset = 0,
     bool filterByStayOverlap = false,
   }) async {
-    final key = 'getBookings:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit:$offset:$filterByStayOverlap';
+    final key = 'getBookings:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$createdBy:$limit:$offset:$filterByStayOverlap';
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: key,
       tables: const ['bookings'],
@@ -220,6 +221,9 @@ class DataService {
             } else {
               query = query.lte('created_at', endDate.toIso8601String());
             }
+          }
+          if (createdBy != null && createdBy.isNotEmpty) {
+            query = query.eq('created_by', createdBy);
           }
           final response = await query
               .order('created_at', ascending: false)

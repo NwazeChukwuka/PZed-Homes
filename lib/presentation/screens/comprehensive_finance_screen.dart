@@ -807,6 +807,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
+  /// Compares only calendar date parts (ignores time-of-day).
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Widget _buildSummaryRangeSelector() {
     final now = DateTime.now();
     final defaultStart = DateTime(now.year, now.month, 1);
@@ -820,11 +825,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final label =
         '${range.start.toIso8601String().split('T')[0]}'
         ' → ${range.end.toIso8601String().split('T')[0]}';
-    final isThisMonth = range.start == defaultStart && range.end == defaultEnd;
-    final isLastMonth = range.start == lastMonthStart && range.end == lastMonthEnd;
+    final isThisMonth = _isSameDate(range.start, defaultStart) && _isSameDate(range.end, defaultEnd);
+    final isLastMonth = _isSameDate(range.start, lastMonthStart) && _isSameDate(range.end, lastMonthEnd);
     final last30End = now;
-    final isLast30 = range.start.year == last30Start.year && range.start.month == last30Start.month && range.start.day == last30Start.day &&
-        range.end.year == last30End.year && range.end.month == last30End.month && range.end.day == last30End.day;
+    final isLast30 = _isSameDate(range.start, last30Start) && _isSameDate(range.end, last30End);
     final isCustom = !isThisMonth && !isLastMonth && !isLast30;
 
     return Card(
@@ -919,15 +923,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final range = _effectiveSummaryRange;
     final label =
         '${range.start.toIso8601String().split('T')[0]} → ${range.end.toIso8601String().split('T')[0]}';
-    final isThisMonth = range.start == defaultStart && range.end == defaultEnd;
-    final isLastMonth = range.start == lastMonthStart && range.end == lastMonthEnd;
+    final isThisMonth = _isSameDate(range.start, defaultStart) && _isSameDate(range.end, defaultEnd);
+    final isLastMonth = _isSameDate(range.start, lastMonthStart) && _isSameDate(range.end, lastMonthEnd);
     final last30End = now;
-    final isLast30 = range.start.year == last30Start.year &&
-        range.start.month == last30Start.month &&
-        range.start.day == last30Start.day &&
-        range.end.year == last30End.year &&
-        range.end.month == last30End.month &&
-        range.end.day == last30End.day;
+    final isLast30 = _isSameDate(range.start, last30Start) &&
+        _isSameDate(range.end, last30End);
     final isCustom = !isThisMonth && !isLastMonth && !isLast30;
 
     final chips = Row(
