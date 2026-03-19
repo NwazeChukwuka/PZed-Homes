@@ -123,6 +123,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   String? _loadError;
   /// Separate from _isLoadingData so export buttons show spinner while generating file.
   final ValueNotifier<bool> _isExporting = ValueNotifier<bool>(false);
+  int _activeTabLoadToken = 0;
   DateTimeRange? _summaryRange;
   bool _showPendingExpenses = false;
   bool _showPendingPayroll = false;
@@ -283,6 +284,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   /// Loads only the data required for the given tab index (0=Overview, 1=Debt, 2=Income, 3=Expenses, 4=Payroll, 5=Cash Deposits, 6=Audit).
   Future<void> _loadDataForTab(int index) async {
     if (!mounted) return;
+    final loadToken = ++_activeTabLoadToken;
     setState(() {
       _isLoadingData = true;
       _loadError = null;
@@ -291,32 +293,34 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     try {
       switch (index) {
         case 0:
-          await _loadOverviewData();
+          await _loadOverviewData(loadToken);
           break;
         case 1:
-          await _loadDebtData();
+          await _loadDebtData(loadToken);
           break;
         case 2:
-          await _loadIncomeData();
+          await _loadIncomeData(loadToken);
           break;
         case 3:
-          await _loadExpensesData();
+          await _loadExpensesData(loadToken);
           break;
         case 4:
-          await _loadPayrollData();
+          await _loadPayrollData(loadToken);
           break;
         case 5:
-          await _loadCashDepositsData();
+          await _loadCashDepositsData(loadToken);
           break;
         case 6:
-          await _loadAuditData();
+          await _loadAuditData(loadToken);
           break;
         default:
-          if (mounted) setState(() => _isLoadingData = false);
+          if (mounted && loadToken == _activeTabLoadToken) {
+            setState(() => _isLoadingData = false);
+          }
       }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _loadDataForTab($index): $e\n$stackTrace');
-      if (mounted) {
+      if (mounted && loadToken == _activeTabLoadToken) {
         setState(() {
           _isLoadingData = false;
           _loadError = ErrorHandler.getFriendlyErrorMessage(e);
@@ -335,7 +339,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  Future<void> _loadOverviewData() async {
+  bool _isStaleLoad(int loadToken) => !mounted || loadToken != _activeTabLoadToken;
+
+  Future<void> _loadOverviewData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final results = await Future.wait([
       _dataService.getFinancialSummary(startDate: range.start, endDate: range.end),
@@ -345,7 +351,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _dataService.getDepartmentSales(department: 'mini_mart', startDate: range.start, endDate: range.end),
       _dataService.getDepartmentSales(department: 'restaurant', startDate: range.start, endDate: range.end),
     ]);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _financialSummary = results[0] as Map<String, dynamic>;
       _departmentPerformance = results[1] as List<Map<String, dynamic>>;
@@ -360,13 +366,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadDebtData() async {
+  Future<void> _loadDebtData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final results = await Future.wait([
       _dataService.getDebts(startDate: range.start, endDate: range.end),
       _dataService.getDebtPaymentClaims(status: 'pending'),
     ]);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _debts = results[0] as List<Map<String, dynamic>>;
       _debtPaymentClaims = results[1] as List<Map<String, dynamic>>;
@@ -375,10 +381,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadIncomeData() async {
+  Future<void> _loadIncomeData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final income = await _dataService.getIncomeRecords(startDate: range.start, endDate: range.end);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _incomeRecords = income;
       _isLoadingData = false;
@@ -386,14 +392,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadExpensesData() async {
+  Future<void> _loadExpensesData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final expenses = await _dataService.getExpenses(
       startDate: range.start,
       endDate: range.end,
       status: _showPendingExpenses ? 'Pending' : null,
     );
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _expenses = expenses;
       _isLoadingData = false;
@@ -401,7 +407,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadPayrollData() async {
+  Future<void> _loadPayrollData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final results = await Future.wait([
       _dataService.getPayrollRecords(
@@ -411,7 +417,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       ),
       _dataService.getStaffProfiles(),
     ]);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _payrollRecords = results[0] as List<Map<String, dynamic>>;
       _staffProfiles
@@ -422,13 +428,13 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadCashDepositsData() async {
+  Future<void> _loadCashDepositsData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final results = await Future.wait([
       _dataService.getCashDeposits(startDate: range.start, endDate: range.end),
       _dataService.getFinancialSummary(startDate: range.start, endDate: range.end),
     ]);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _cashDeposits = results[0] as List<Map<String, dynamic>>;
       _financialSummary = results[1] as Map<String, dynamic>;
@@ -437,10 +443,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  Future<void> _loadAuditData() async {
+  Future<void> _loadAuditData(int loadToken) async {
     final range = _effectiveSummaryRange;
     final auditLogs = await _dataService.getAuditorTransactions(startDate: range.start, endDate: range.end);
-    if (!mounted) return;
+    if (_isStaleLoad(loadToken)) return;
     setState(() {
       _auditLogs = auditLogs;
       _isLoadingData = false;
@@ -1419,7 +1425,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     return RefreshIndicator(
-      onRefresh: () => _loadDataForTab(0),
+      onRefresh: _loadCurrentTabData,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
