@@ -1029,11 +1029,46 @@ class DataService {
     return DateTime(value.year, value.month, value.day, 23, 59, 59, 999);
   }
 
+  int _toIntKobo(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  String _auditChangeSummary(Map<String, dynamic> before, Map<String, dynamic> after) {
+    final watchedFields = <String>[
+      'name',
+      'item_name',
+      'price',
+      'vip_bar_price',
+      'outside_bar_price',
+      'unit_price',
+      'total_amount',
+      'quantity',
+      'unit_price_kobo',
+      'line_total_kobo',
+      'payment_status',
+      'payment_method',
+      'is_available',
+      'department',
+      'status',
+    ];
+    final changes = <String>[];
+    for (final field in watchedFields) {
+      final oldVal = before[field];
+      final newVal = after[field];
+      if ('$oldVal' != '$newVal') {
+        changes.add('$field: ${oldVal ?? 'null'} -> ${newVal ?? 'null'}');
+      }
+    }
+    if (changes.isEmpty) return 'Record updated';
+    return changes.take(3).join('; ');
+  }
+
   /// Returns a unified auditor activity feed:
-  /// - finance audit logs
-  /// - mini mart sales
-  /// - kitchen sales
-  /// - debt payment claims (accountant-assisted approvals/rejections)
+  /// - sales/collections lines (kitchen, mini mart, bars, dispatches, booking charges, debt claims)
+  /// - catalog changes and sales mutations from finance_audit_logs
   Future<List<Map<String, dynamic>>> getAuditorTransactions({
     DateTime? startDate,
     DateTime? endDate,
@@ -1046,61 +1081,234 @@ class DataService {
         getMiniMartSales(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
         getKitchenSalesHistory(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
         getDebtPaymentClaims(startDate: startDate, endDate: effectiveEnd),
+        _supabase
+            .from('stock_transactions')
+            .select('*, stock_items(name), profiles!staff_profile_id(full_name), locations(name)')
+            .eq('transaction_type', 'Sale')
+            .gte('created_at', startDate?.toIso8601String() ?? '1970-01-01T00:00:00.000Z')
+            .lte('created_at', effectiveEnd?.toIso8601String() ?? DateTime.now().toIso8601String())
+            .order('created_at', ascending: false)
+            .limit(limitPerSource),
+        _supabase
+            .from('department_transfers')
+            .select('*, menu_items(name), dispatched_by_profile:profiles!dispatched_by_id(full_name)')
+            .gte('created_at', startDate?.toIso8601String() ?? '1970-01-01T00:00:00.000Z')
+            .lte('created_at', effectiveEnd?.toIso8601String() ?? DateTime.now().toIso8601String())
+            .order('created_at', ascending: false)
+            .limit(limitPerSource),
+        _supabase
+            .from('booking_charges')
+            .select('*, added_by_profile:profiles!added_by(full_name), bookings(id, guest_name)')
+            .gte('created_at', startDate?.toIso8601String() ?? '1970-01-01T00:00:00.000Z')
+            .lte('created_at', effectiveEnd?.toIso8601String() ?? DateTime.now().toIso8601String())
+            .order('created_at', ascending: false)
+            .limit(limitPerSource),
       ]);
 
       final unified = <Map<String, dynamic>>[];
 
       final financeLogs = results[0] as List<Map<String, dynamic>>;
-      unified.addAll(financeLogs.map((row) => {
+      unified.addAll(financeLogs.map((row) {
+        final action = row['action']?.toString().toUpperCase() ?? '';
+        final tableName = row['table_name']?.toString() ?? '';
+        final afterData = (row['after_data'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+        final beforeData = (row['before_data'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+        final actor = row['actor'] as Map<String, dynamic>?;
+
+        final isCatalogTable =
+            tableName == 'inventory_items' ||
+            tableName == 'mini_mart_items' ||
+            tableName == 'menu_items' ||
+            tableName == 'room_types';
+
+        final isSalesMutationTable =
+            tableName == 'kitchen_sales' ||
+            tableName == 'mini_mart_sales' ||
+            tableName == 'department_transfers' ||
+            tableName == 'booking_charges' ||
+            tableName == 'stock_transactions';
+
+        if (!isCatalogTable && !isSalesMutationTable) {
+          return {
             ...row,
             'source': 'finance_audit',
-          }));
+          };
+        }
+
+        final isDelete = action == 'DELETE';
+        final effective = isDelete ? beforeData : afterData;
+        final quantity = _toIntKobo(effective['quantity']);
+        final unitPrice = _toIntKobo(
+          effective['unit_price'] ??
+              effective['price'] ??
+              effective['unit_price_kobo'] ??
+              effective['vip_bar_price'],
+        );
+        final lineTotal = _toIntKobo(
+          effective['total_amount'] ??
+              effective['line_total_kobo'] ??
+              ((quantity > 0 && unitPrice > 0) ? quantity * unitPrice : null),
+        );
+
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': action,
+          'table_name': tableName,
+          'record_id': row['record_id'],
+          'amount': lineTotal > 0 ? lineTotal : null,
+          'unit_price': unitPrice > 0 ? unitPrice : null,
+          'quantity': quantity > 0 ? quantity : null,
+          'line_total': lineTotal > 0 ? lineTotal : null,
+          'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
+          'description': action == 'UPDATE'
+              ? _auditChangeSummary(beforeData, afterData)
+              : (effective['name']?.toString() ??
+                  effective['item_name']?.toString() ??
+                  '${action.toLowerCase()} on $tableName'),
+          'source': isCatalogTable ? 'catalog_changes' : 'sales_mutation',
+          'audit_stream': isCatalogTable ? 'Catalog Changes' : 'Sales/Collections Activity',
+        };
+      }));
 
       final miniMartSales = results[1] as List<Map<String, dynamic>>;
       unified.addAll(miniMartSales.map((row) {
         final actor = row['sold_by_profile'] as Map<String, dynamic>?;
+        final item = row['mini_mart_items'] as Map<String, dynamic>?;
+        final qty = _toIntKobo(row['quantity']);
+        final unitPrice = _toIntKobo(row['unit_price']);
+        final total = _toIntKobo(row['total_amount']);
         return {
           'id': row['id'],
           'created_at': row['sale_date'] ?? row['created_at'],
-          'action': 'SALE',
+          'action': 'SALE_CREATED',
           'table_name': 'mini_mart_sales',
           'record_id': row['id'],
-          'amount': row['total_amount'],
+          'amount': total,
+          'unit_price': unitPrice,
+          'quantity': qty,
+          'line_total': total,
           'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
-          'description': row['notes']?.toString() ?? row['customer_name']?.toString() ?? '',
-          'source': 'sales',
+          'description': item?['name']?.toString() ?? row['notes']?.toString() ?? row['customer_name']?.toString() ?? 'Mini mart sale',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
         };
       }));
 
       final kitchenSales = results[2] as List<Map<String, dynamic>>;
       unified.addAll(kitchenSales.map((row) {
         final actor = row['sold_by_profile'] as Map<String, dynamic>?;
+        final menuItem = row['menu_items'] as Map<String, dynamic>?;
+        final qty = _toIntKobo(row['quantity']);
+        final unitPrice = _toIntKobo(row['unit_price']);
+        final total = _toIntKobo(row['total_amount']);
         return {
           'id': row['id'],
           'created_at': row['created_at'],
-          'action': 'SALE',
+          'action': 'SALE_CREATED',
           'table_name': 'kitchen_sales',
           'record_id': row['id'],
-          'amount': row['total_amount'],
+          'amount': total,
+          'unit_price': unitPrice,
+          'quantity': qty,
+          'line_total': total,
           'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
-          'description': row['notes']?.toString() ?? row['item_name']?.toString() ?? '',
-          'source': 'sales',
+          'description': row['item_name']?.toString() ?? menuItem?['name']?.toString() ?? row['notes']?.toString() ?? 'Kitchen sale',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
         };
       }));
 
       final debtClaims = results[3] as List<Map<String, dynamic>>;
       unified.addAll(debtClaims.map((row) {
         final actor = row['recorded_by_profile'] as Map<String, dynamic>?;
+        final amount = _toIntKobo(row['amount']);
         return {
           'id': row['id'],
           'created_at': row['created_at'],
           'action': (row['status']?.toString() ?? 'pending').toUpperCase(),
           'table_name': 'debt_payment_claims',
           'record_id': row['id'],
-          'amount': row['amount'],
+          'amount': amount,
+          'line_total': amount,
           'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
           'description': row['notes']?.toString() ?? '',
-          'source': 'accountant_assisted',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
+        };
+      }));
+
+      final stockSales = List<Map<String, dynamic>>.from(results[4] as List);
+      unified.addAll(stockSales.map((row) {
+        final actor = row['profiles'] as Map<String, dynamic>?;
+        final stockItem = row['stock_items'] as Map<String, dynamic>?;
+        final location = row['locations'] as Map<String, dynamic>?;
+        final qty = (_toIntKobo(row['quantity'])).abs();
+        final unitPrice = _toIntKobo(row['unit_price_kobo']);
+        final fallbackTotal = qty > 0 && unitPrice > 0 ? qty * unitPrice : 0;
+        final lineTotal = _toIntKobo(row['line_total_kobo']) > 0 ? _toIntKobo(row['line_total_kobo']) : fallbackTotal;
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': 'SALE_CREATED',
+          'table_name': 'stock_transactions',
+          'record_id': row['id'],
+          'amount': lineTotal > 0 ? lineTotal : null,
+          'unit_price': unitPrice > 0 ? unitPrice : null,
+          'quantity': qty > 0 ? qty : null,
+          'line_total': lineTotal > 0 ? lineTotal : null,
+          'actor_name': actor?['full_name']?.toString() ?? row['staff_name']?.toString() ?? 'Unknown',
+          'description': 'Bar sale: ${stockItem?['name']?.toString() ?? 'Item'} (${location?['name']?.toString() ?? 'Unknown location'})',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
+        };
+      }));
+
+      final transfers = List<Map<String, dynamic>>.from(results[5] as List);
+      unified.addAll(transfers.map((row) {
+        final actor = row['dispatched_by_profile'] as Map<String, dynamic>?;
+        final menuItem = row['menu_items'] as Map<String, dynamic>?;
+        final qty = _toIntKobo(row['quantity']);
+        final unitPrice = _toIntKobo(row['unit_price']);
+        final total = _toIntKobo(row['total_amount']);
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': 'DISPATCH_CREATED',
+          'table_name': 'department_transfers',
+          'record_id': row['id'],
+          'amount': total,
+          'unit_price': unitPrice,
+          'quantity': qty,
+          'line_total': total,
+          'actor_name': actor?['full_name']?.toString() ?? 'Unknown',
+          'description': 'Dispatch ${menuItem?['name']?.toString() ?? 'item'} to ${row['destination_department']?.toString() ?? 'department'} (${row['payment_status']?.toString() ?? 'paid'})',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
+        };
+      }));
+
+      final bookingCharges = List<Map<String, dynamic>>.from(results[6] as List);
+      unified.addAll(bookingCharges.map((row) {
+        final actor = row['added_by_profile'] as Map<String, dynamic>?;
+        final booking = row['bookings'] as Map<String, dynamic>?;
+        final qty = _toIntKobo(row['quantity']);
+        final unitPrice = _toIntKobo(row['price']);
+        final total = unitPrice * (qty <= 0 ? 1 : qty);
+        return {
+          'id': row['id'],
+          'created_at': row['created_at'],
+          'action': 'CHARGE_CREATED',
+          'table_name': 'booking_charges',
+          'record_id': row['id'],
+          'amount': total,
+          'unit_price': unitPrice,
+          'quantity': qty,
+          'line_total': total,
+          'actor_name': actor?['full_name']?.toString() ?? row['added_by_name']?.toString() ?? 'Unknown',
+          'description': 'Room charge: ${row['item_name']?.toString() ?? 'Item'} (${booking?['guest_name']?.toString() ?? 'Guest'})',
+          'source': 'sales_collections',
+          'audit_stream': 'Sales/Collections Activity',
         };
       }));
 
@@ -1700,6 +1908,31 @@ class DataService {
         } catch (_) {}
       }
 
+      // 1b. Reception room bookings revenue (bookings)
+      // We treat room bookings like a "department" called `reception` for performance calculations.
+      // Use checked-in bookings (money realized at check-in), not checked-out.
+      try {
+        final bookingResp = await _supabase
+            .from('bookings')
+            .select('total_amount, paid_amount')
+            .inFilter('status', ['Checked-in', 'checked_in', 'checked-in', 'Checked in', 'checked in'])
+            // Money is realized at check-in for reception revenue.
+            .gte('check_in_date', startStr)
+            .lte('check_in_date', endStr);
+
+        double receptionTotal = 0.0;
+        for (final b in bookingResp as List) {
+          final total = b['total_amount'] as num?;
+          final paid = (b['paid_amount'] as num?) ?? 0;
+          final val = total ?? paid;
+          receptionTotal += val?.toDouble() ?? 0.0;
+        }
+
+        if (receptionTotal > 0) {
+          revenueByDept['reception'] = receptionTotal;
+        }
+      } catch (_) {}
+
       // 2. Expenses by department
       final Map<String, double> expensesByDept = {};
       try {
@@ -1723,6 +1956,7 @@ class DataService {
         'outside_bar': 'Outside Bar',
         'mini_mart': 'Mini Mart',
         'restaurant': 'Kitchen',
+        'reception': 'Reception',
         'other': 'Other (Miscellaneous)',
       };
 

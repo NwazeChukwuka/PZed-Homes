@@ -116,7 +116,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   List<Map<String, dynamic>> _cashDeposits = [];
   List<Map<String, dynamic>> _auditLogs = [];
   Map<String, dynamic> _financialSummary = {};
-  Map<String, List<Map<String, dynamic>>> _departmentSales = {};
   List<Map<String, dynamic>> _departmentPerformance = [];
   bool _isLoadingData = false;
   /// True only after a successful load for the currently selected _summaryRange; keeps exports disabled until data matches range.
@@ -357,12 +356,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     setState(() {
       _financialSummary = results[0] as Map<String, dynamic>;
       _departmentPerformance = results[1] as List<Map<String, dynamic>>;
-      _departmentSales = {
-        'VIP Bar': results[2] as List<Map<String, dynamic>>,
-        'Outside Bar': results[3] as List<Map<String, dynamic>>,
-        'Mini Mart': results[4] as List<Map<String, dynamic>>,
-        'Kitchen': results[5] as List<Map<String, dynamic>>,
-      };
       _isLoadingData = false;
       _dataMatchesRange = true;
     });
@@ -646,7 +639,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             const SizedBox(height: 20),
             _buildDepartmentPerformanceCard(),
             const SizedBox(height: 20),
-            _buildDepartmentSalesCard(),
           ],
         ),
       ),
@@ -773,54 +765,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 );
               },
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDepartmentSalesCard() {
-    final range = _effectiveSummaryRange;
-    final rangeLabel = '${range.start.toIso8601String().split('T')[0]} – ${range.end.toIso8601String().split('T')[0]}';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Department Sales',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              rangeLabel,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 12),
-            ..._departmentSales.entries.map((entry) {
-              final total = entry.value.fold<num>(0, (s, e) {
-                final v = e['total_sales'] ?? e['total_amount'] ?? 0;
-                return s + (v is num ? v : 0);
-              });
-              final items = entry.value.fold<int>(0, (s, e) {
-                final v = e['transaction_count'] ?? e['quantity'] ?? 0;
-                return s + (v is num ? v.toInt() : 0);
-              });
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(entry.key)),
-                    Text('Items: $items'),
-                    const SizedBox(width: 16),
-                    Text('₦${_formatKobo(total)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              );
-            }),
           ],
         ),
       ),
@@ -1977,10 +1921,20 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       buffer.writeln('Period,$rangeLabel');
       buffer.writeln('Generated,${DateTime.now().toIso8601String()}');
       buffer.writeln('');
-      buffer.writeln('created_at,action,table_name,actor');
+      buffer.writeln('created_at,audit_stream,action,table_name,description,quantity,unit_price_kobo,line_total_kobo,actor');
       for (final log in filtered) {
-      final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
-        buffer.writeln('${log['created_at']?.toString() ?? ''},${_escapeCsv(log['action']?.toString() ?? '')},${_escapeCsv(log['table_name']?.toString() ?? '')},${_escapeCsv(actor)}');
+        final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
+        buffer.writeln(
+          '${log['created_at']?.toString() ?? ''},'
+          '${_escapeCsv(log['audit_stream']?.toString() ?? '')},'
+          '${_escapeCsv(log['action']?.toString() ?? '')},'
+          '${_escapeCsv(log['table_name']?.toString() ?? '')},'
+          '${_escapeCsv(log['description']?.toString() ?? '')},'
+          '${log['quantity']?.toString() ?? ''},'
+          '${log['unit_price']?.toString() ?? ''},'
+          '${log['line_total']?.toString() ?? ''},'
+          '${_escapeCsv(actor.toString())}',
+        );
       }
       final filename = 'PZed_Homes_Audit_Log_$rangeLabel.csv';
       await triggerCsvDownload(buffer.toString(), filename);
@@ -2099,12 +2053,23 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 final log = filtered[index];
                 final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
                 final createdAt = log['created_at']?.toString() ?? '';
+                final qty = log['quantity']?.toString() ?? '';
+                final unit = (log['unit_price'] as num?)?.toInt();
+                final line = (log['line_total'] as num?)?.toInt();
+                final stream = log['audit_stream']?.toString() ?? '';
+                final description = log['description']?.toString() ?? '';
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: ListTile(
                     leading: const Icon(Icons.security),
                     title: Text('${log['action']} on ${log['table_name']}'),
-                    subtitle: Text('By $actor'),
+                    subtitle: Text(
+                      '$stream\n'
+                      '${description.isEmpty ? 'No details' : description}\n'
+                      'Qty: ${qty.isEmpty ? '-' : qty} | Unit: ${unit == null ? '-' : '₦${_formatKobo(unit)}'} | Total: ${line == null ? '-' : '₦${_formatKobo(line)}'}\n'
+                      'By $actor',
+                    ),
+                    isThreeLine: true,
                     trailing: Text(createdAt.length > 19 ? createdAt.substring(0, 19) : createdAt),
                   ),
                 );
@@ -3356,15 +3321,21 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             _buildPdfTable(
               title: 'Audit & Sales Activity',
-              headers: ['Timestamp', 'Action', 'Source', 'Amount (₦)', 'Actor'],
+              headers: ['Timestamp', 'Stream', 'Action', 'Source', 'Description', 'Qty', 'Unit (₦)', 'Line Total (₦)', 'Actor'],
               rows: _auditLogs.map((log) {
                 final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
-                final amount = (log['amount'] as num?)?.toInt();
+                final unit = (log['unit_price'] as num?)?.toInt();
+                final qty = log['quantity']?.toString() ?? '';
+                final lineTotal = ((log['line_total'] as num?)?.toInt()) ?? ((log['amount'] as num?)?.toInt());
                 return [
                   log['created_at']?.toString() ?? '',
+                  log['audit_stream']?.toString() ?? '',
                   log['action']?.toString() ?? '',
                   log['table_name']?.toString() ?? '',
-                  amount == null ? '' : _formatKobo(amount),
+                  (log['description']?.toString() ?? '').replaceAll('\n', ' '),
+                  qty,
+                  unit == null ? '' : _formatKobo(unit),
+                  lineTotal == null ? '' : _formatKobo(lineTotal),
                   actor.toString(),
                 ];
               }).toList(),
@@ -3492,16 +3463,19 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
     writeSection(
       'Audit and Sales Activity',
-      ['created_at', 'action', 'table_name', 'amount', 'actor', 'description'],
+      ['created_at', 'audit_stream', 'action', 'table_name', 'description', 'quantity', 'unit_price_kobo', 'line_total_kobo', 'actor'],
       _auditLogs.map((log) {
         final actor = (log['actor'] as Map?)?['full_name'] ?? log['actor_name'] ?? 'Unknown';
         return [
           log['created_at']?.toString() ?? '',
+          log['audit_stream']?.toString() ?? '',
           log['action']?.toString() ?? '',
           log['table_name']?.toString() ?? '',
-          log['amount']?.toString() ?? '',
-          actor.toString(),
           log['description']?.toString() ?? '',
+          log['quantity']?.toString() ?? '',
+          log['unit_price']?.toString() ?? '',
+          log['line_total']?.toString() ?? log['amount']?.toString() ?? '',
+          actor.toString(),
         ];
       }).toList(),
     );

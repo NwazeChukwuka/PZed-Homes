@@ -1809,16 +1809,29 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           // CRITICAL: Fail fast if stock_transactions insert fails - don't mask errors
           // If stock_transactions fails, we MUST NOT update inventory_items to prevent inconsistency
           try {
-            await supabase
-                .from('stock_transactions')
-                .insert({
-                  'stock_item_id': stockItemId!,
-                  'location_id': locationId,
-                  'staff_profile_id': userId,
-                  'transaction_type': 'Sale',
-                  'quantity': -quantity, // Negative for sale
-                  'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
-                });
+            final salePayload = <String, dynamic>{
+              'stock_item_id': stockItemId!,
+              'location_id': locationId,
+              'staff_profile_id': userId,
+              'transaction_type': 'Sale',
+              'quantity': -quantity, // Negative for sale
+              'unit_price_kobo': priceInKobo,
+              'line_total_kobo': priceInKobo * quantity,
+              'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
+            };
+            try {
+              await supabase.from('stock_transactions').insert(salePayload);
+            } on PostgrestException catch (e) {
+              // Backward-compatible retry when DB migration has not been applied yet.
+              final msg = (e.message).toLowerCase();
+              final isColumnError =
+                  e.code == '42703' ||
+                  (msg.contains('column') && msg.contains('does not exist'));
+              if (!isColumnError) rethrow;
+              salePayload.remove('unit_price_kobo');
+              salePayload.remove('line_total_kobo');
+              await supabase.from('stock_transactions').insert(salePayload);
+            }
             
             // Stock ledger is the source of truth; no direct inventory_items update
           } catch (e, stack) {
