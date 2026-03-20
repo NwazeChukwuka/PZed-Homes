@@ -562,28 +562,64 @@ class ReportingService {
 
     int vipBarSales = 0;
     int outsideBarSales = 0;
-    final deptResp = await _supabase
-        .from('department_sales')
-        .select('department, total_sales, date')
-        .inFilter('department', ['vip_bar', 'outside_bar'])
-        .gte('date', startStr)
-        .lte('date', endStr)
-        .order('date', ascending: false);
-    final deptList = List<Map<String, dynamic>>.from(deptResp as List);
-    for (final r in deptList) {
-      final dept = r['department']?.toString() ?? '';
-      final total = (r['total_sales'] as num?)?.toInt() ?? 0;
-      if (dept == 'vip_bar') {
-        vipBarSales += total;
-      } else if (dept == 'outside_bar') {
-        outsideBarSales += total;
+    List<Map<String, dynamic>> barSales;
+    try {
+      final barResp = await _supabase
+          .from('stock_transactions')
+          .select('created_at, quantity, total_cost, unit_price_kobo, line_total_kobo, transaction_type, stock_items(name), locations(name)')
+          .eq('transaction_type', 'Sale')
+          .gte('created_at', start.toIso8601String())
+          .lte('created_at', end.toIso8601String())
+          .order('created_at', ascending: false);
+      barSales = List<Map<String, dynamic>>.from(barResp as List);
+    } catch (_) {
+      // Backward compatible fallback for databases without snapshot columns.
+      final barResp = await _supabase
+          .from('stock_transactions')
+          .select('created_at, quantity, total_cost, transaction_type, stock_items(name), locations(name)')
+          .eq('transaction_type', 'Sale')
+          .gte('created_at', start.toIso8601String())
+          .lte('created_at', end.toIso8601String())
+          .order('created_at', ascending: false);
+      barSales = List<Map<String, dynamic>>.from(barResp as List);
+    }
+    for (final s in barSales) {
+      final qty = ((s['quantity'] as num?)?.toInt() ?? 0).abs();
+      final locationData = s['locations'];
+      final locationName = locationData is Map
+          ? (locationData['name']?.toString() ?? '')
+          : (locationData is List && locationData.isNotEmpty && locationData.first is Map)
+              ? ((locationData.first as Map)['name']?.toString() ?? '')
+              : '';
+      final locationLower = locationName.toLowerCase();
+      final isVip = locationLower.contains('vip');
+      final source = isVip ? 'VIP Bar' : 'Outside Bar';
+
+      final itemData = s['stock_items'];
+      final itemName = itemData is Map
+          ? (itemData['name']?.toString() ?? '')
+          : (itemData is List && itemData.isNotEmpty && itemData.first is Map)
+              ? ((itemData.first as Map)['name']?.toString() ?? '')
+              : '';
+
+      var lineTotal = _toIntValue(s['line_total_kobo']);
+      if (lineTotal <= 0) {
+        lineTotal = (s['total_cost'] as num?)?.toInt() ?? 0;
       }
+      lineTotal = lineTotal.abs();
+
+      if (isVip) {
+        vipBarSales += lineTotal;
+      } else {
+        outsideBarSales += lineTotal;
+      }
+
       rows.add({
-        'event_date': r['date'],
-        'source': dept == 'vip_bar' ? 'VIP Bar' : 'Outside Bar',
-        'description': 'Department sales aggregate',
+        'event_date': s['created_at'],
+        'source': source,
+        'description': '${itemName.isEmpty ? 'Bar sale' : itemName}${qty > 0 ? ' x$qty' : ''}${locationName.isEmpty ? '' : ' • $locationName'}',
         'status': 'Completed',
-        'amount': total,
+        'amount': lineTotal,
       });
     }
 
@@ -604,6 +640,13 @@ class ReportingService {
       vipBarSales: vipBarSales,
       outsideBarSales: outsideBarSales,
     );
+  }
+
+  int _toIntValue(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? 0;
   }
 
   List<CategoryAmount> _generateUnifiedExpenseBreakdown(
