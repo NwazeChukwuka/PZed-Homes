@@ -339,6 +339,9 @@ class _HrScreenState extends State<HrScreen>
                               case 'demote':
                                 _showPromoteDemoteDialog(u, isPromote: false);
                                 break;
+                              case 'transfer':
+                                _showTransferRoleDialog(u);
+                                break;
                               case 'assign':
                                 _showAssignRoleDialog(u);
                                 break;
@@ -366,6 +369,10 @@ class _HrScreenState extends State<HrScreen>
                               const PopupMenuItem(
                                 value: 'demote',
                                 child: Text('Demote'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'transfer',
+                                child: Text('Transfer'),
                               ),
                               const PopupMenuItem(
                                 value: 'assign',
@@ -918,6 +925,90 @@ class _HrScreenState extends State<HrScreen>
                 }
               },
               child: const Text('Assign'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTransferRoleDialog(Map<String, dynamic> user) async {
+    AppRole? selectedRole;
+    String? selectedBar;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Transfer Staff'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<AppRole>(
+                decoration: const InputDecoration(labelText: 'New Role'),
+                items: AppRole.values
+                    .where((r) => r != AppRole.owner && r != AppRole.guest)
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r.name)))
+                    .toList(),
+                onChanged: (v) {
+                  setDialogState(() {
+                    selectedRole = v;
+                    if (selectedRole != AppRole.bartender) {
+                      selectedBar = null;
+                    }
+                  });
+                },
+              ),
+              if (selectedRole == AppRole.bartender) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Select Bar'),
+                  initialValue: selectedBar,
+                  items: const [
+                    DropdownMenuItem(value: 'vip_bar', child: Text('VIP Bar')),
+                    DropdownMenuItem(value: 'outside_bar', child: Text('Outside Bar')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedBar = v),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (selectedRole == null) return;
+                if (selectedRole == AppRole.bartender && selectedBar == null) {
+                  ErrorHandler.showWarningMessage(
+                    context,
+                    'Please select a bar for the bartender role',
+                  );
+                  return;
+                }
+                final roleToAssign = selectedRole == AppRole.bartender
+                    ? (selectedBar == 'outside_bar'
+                        ? AppRole.outside_bartender
+                        : AppRole.vip_bartender)
+                    : selectedRole!;
+                await _dataService.assignRoleToStaff(
+                  user['id'] as String,
+                  roleToAssign.name,
+                  isTemporary: false,
+                );
+                if (!mounted) return;
+                Navigator.pop(context);
+                _loadStaff();
+                if (mounted) {
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Transferred ${user['full_name']} to ${roleToAssign.name}',
+                  );
+                }
+              },
+              child: const Text('Transfer'),
             ),
           ],
         ),
@@ -1958,6 +2049,10 @@ class _HrScreenState extends State<HrScreen>
                       DropdownMenuItem(
                         value: 'housekeeper',
                         child: Text('Housekeeper'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'porter',
+                        child: Text('Porter'),
                       ),
                       DropdownMenuItem(
                         value: 'cleaner',

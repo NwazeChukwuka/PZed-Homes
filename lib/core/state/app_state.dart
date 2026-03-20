@@ -194,6 +194,7 @@ class PermissionManager {
           AppRole.housekeeper,
           AppRole.laundry_attendant,
           AppRole.cleaner,
+          AppRole.porter,
         ].contains(userRole);
       
       case 'inventory':

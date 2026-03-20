@@ -549,6 +549,10 @@ class AppRouter {
                location.startsWith('/stock') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
+      case AppRole.porter:
+        return location.startsWith('/dashboard') ||
+               location.startsWith('/housekeeping') ||
+               location.startsWith('/profile');
       
       case AppRole.kitchen_staff:
         return location.startsWith('/kitchen') ||

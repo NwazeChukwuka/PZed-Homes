@@ -87,6 +87,12 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     return user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
   }
 
+  bool get _isPorter {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final user = authService.currentUser;
+    return user?.roles.any((r) => r == AppRole.porter) ?? false;
+  }
+
   /// Receptionist, housekeeper, or management (when assuming receptionist) can update room status.
   bool get _canUpdateRoomStatus {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -123,6 +129,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   /// Loads first page of bookings (performance: small chunk, cached in DataService).
   /// Passes date filter when set; filter changes trigger reload.
   Future<void> _loadBookings() async {
+    if (_isPorter) return;
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final currentUserId = authService.currentUser?.id;
@@ -156,6 +163,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
 
   /// Loads next page when user scrolls near bottom (infinite scroll).
   Future<void> _loadMoreBookings() async {
+    if (_isPorter) return;
     if (_bookingsLoadingMore || !_bookingsHasMore) return;
     _bookingsLoadingMore = true;
     setState(() {});
@@ -490,7 +498,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
 
   @override
   Widget build(BuildContext context) {
-    final tabCount = _isManagement ? 3 : 2;
+    final tabCount = _isPorter ? 1 : (_isManagement ? 3 : 2);
     if (_tabController.length != tabCount) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -523,7 +531,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                   unselectedLabelColor: Colors.grey[600],
                   indicatorColor: Colors.green[800],
                   tabs: [
-                    const Tab(text: 'Booking History', icon: Icon(Icons.history)),
+                    if (!_isPorter) const Tab(text: 'Booking History', icon: Icon(Icons.history)),
                     const Tab(text: 'Room Status', icon: Icon(Icons.hotel)),
                     if (_isManagement) const Tab(text: 'Manage Rooms', icon: Icon(Icons.settings)),
                   ],
@@ -532,7 +540,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                   child: TabBarView(
                     controller: tabController,
                     children: [
-                      _buildBookingHistoryTab(context),
+                      if (!_isPorter) _buildBookingHistoryTab(context),
                       _buildRoomStatusTab(context),
                       if (_isManagement) _buildManageRoomsTab(context),
                     ],

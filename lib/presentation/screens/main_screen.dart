@@ -24,48 +24,50 @@ List<NavigationItem> _computeNavItems(AuthService auth) {
   final featuresList = accessibleFeatures.toList();
   final isReceptionist = userRoles.contains(AppRole.receptionist) ||
       auth.hasAssumedRole(AppRole.receptionist);
+  final isPorter = userRoles.contains(AppRole.porter) ||
+      auth.hasAssumedRole(AppRole.porter);
 
   final items = <NavigationItem>[];
-  if (featuresList.contains('dashboard')) {
+  if (!isPorter && featuresList.contains('dashboard')) {
     items.add(NavigationItem(icon: Icons.dashboard, label: 'Dashboard', route: '/dashboard'));
   }
-  if (isReceptionist) {
+  if (!isPorter && isReceptionist) {
     items.add(NavigationItem(icon: Icons.book_online, label: 'Create Booking', route: '/booking/create'));
   }
   if (isReceptionist || featuresList.contains('housekeeping')) {
     items.add(NavigationItem(icon: Icons.meeting_room, label: 'Room Management', route: '/housekeeping'));
   }
-  if (featuresList.contains('inventory')) {
+  if (!isPorter && featuresList.contains('inventory')) {
     items.add(NavigationItem(icon: Icons.inventory, label: 'Inventory', route: '/inventory'));
   }
-  if (featuresList.contains('kitchen')) {
+  if (!isPorter && featuresList.contains('kitchen')) {
     items.add(NavigationItem(icon: Icons.restaurant, label: 'Kitchen', route: '/kitchen'));
   }
-  if (featuresList.contains('finance')) {
+  if (!isPorter && featuresList.contains('finance')) {
     items.add(NavigationItem(icon: Icons.account_balance, label: 'Finance', route: '/finance'));
   }
-  if (featuresList.contains('hr')) {
+  if (!isPorter && featuresList.contains('hr')) {
     items.add(NavigationItem(icon: Icons.people, label: 'HR', route: '/hr'));
   }
-  if (featuresList.contains('communications')) {
+  if (!isPorter && featuresList.contains('communications')) {
     items.add(NavigationItem(icon: Icons.announcement, label: 'Communications', route: '/communications'));
   }
-  if (featuresList.contains('maintenance')) {
+  if (!isPorter && featuresList.contains('maintenance')) {
     items.add(NavigationItem(icon: Icons.build, label: 'Maintenance', route: '/maintenance'));
   }
-  if (featuresList.contains('stock')) {
+  if (!isPorter && featuresList.contains('stock')) {
     items.add(NavigationItem(icon: Icons.inventory_2, label: 'Daily Stock Count', route: '/stock'));
   }
-  if (featuresList.contains('reporting')) {
+  if (!isPorter && featuresList.contains('reporting')) {
     items.add(NavigationItem(icon: Icons.analytics, label: 'Reporting', route: '/reporting'));
   }
-  if (featuresList.contains('purchasing')) {
+  if (!isPorter && featuresList.contains('purchasing')) {
     items.add(NavigationItem(icon: Icons.shopping_cart, label: 'Purchasing', route: '/purchasing'));
   }
-  if (featuresList.contains('storekeeping')) {
+  if (!isPorter && featuresList.contains('storekeeping')) {
     items.add(NavigationItem(icon: Icons.store, label: 'Storekeeping', route: '/storekeeping'));
   }
-  if (featuresList.contains('mini_mart')) {
+  if (!isPorter && featuresList.contains('mini_mart')) {
     items.add(NavigationItem(icon: Icons.storefront, label: 'Mini Mart', route: '/mini_mart'));
   }
   return items;

@@ -15,6 +15,7 @@ enum AppRole {
   purchaser,
   storekeeper,
   housekeeper,
+  porter,
   it_admin,
   guest
 }

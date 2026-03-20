@@ -739,6 +739,8 @@ class AuthService with ChangeNotifier {
         return 'Accountant';
       case AppRole.hr:
         return 'HR';
+      case AppRole.porter:
+        return 'Porter';
       default:
         return role.name.toUpperCase();
     }
