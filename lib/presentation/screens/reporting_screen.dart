@@ -172,14 +172,14 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       _financialLoadError = null;
     });
     try {
-      final plData = await _reportingService.getProfitAndLoss(
-        period: _selectedPeriod,
-        customStart: _customDateRange?.start,
-        customEnd: _customDateRange?.end,
-      );
-      if (mounted) {
-        setState(() {
-          _plData = plData;
+    final plData = await _reportingService.getProfitAndLoss(
+      period: _selectedPeriod,
+      customStart: _customDateRange?.start,
+      customEnd: _customDateRange?.end,
+    );
+    if (mounted) {
+      setState(() {
+        _plData = plData;
           _revenueItemsDisplayed = List.from(plData.revenueItems);
           _expenseItemsDisplayed = List.from(plData.expenseItems);
           _financialLoading = false;
@@ -404,16 +404,17 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(context),
-            _buildTabBar(),
-            _buildCurrentTabContent(),
-          ],
-        ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(context),
+          _buildTabBar(),
+          Expanded(
+            child: SingleChildScrollView(
+              child: _buildCurrentTabContent(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -442,18 +443,18 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                     Text('Reports & Analytics',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green[800])),
                     const SizedBox(height: 4),
                     Text(_periodLabel(), style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                  ],
-                ),
-              ),
+              ],
+            ),
+          ),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: _isLoadingForTab(_tabController.index) ? null : () {
@@ -475,20 +476,20 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                 tooltip: 'Refresh',
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green[200]!)),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.analytics, color: Colors.green[700], size: 16),
-                    const SizedBox(width: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.analytics, color: Colors.green[700], size: 16),
+                const SizedBox(width: 8),
                     Text('Business Intelligence', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
+        ],
+      ),
           const SizedBox(height: 16),
           _buildPeriodSelector(),
         ],
@@ -556,18 +557,18 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           ChoiceChip(label: const Text('Custom'), selected: _selectedPeriod == TimePeriod.custom,
             onSelected: (_) => _selectCustomDateRange()),
         ];
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
-            const SizedBox(height: 8),
+      children: [
+        const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
             isNarrow
                 ? SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: [
+          children: [
                         for (var i = 0; i < chips.length; i++) ...[
                           if (i > 0) const SizedBox(width: chipSpacing),
                           chips[i],
@@ -579,27 +580,27 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                     spacing: chipSpacing,
                     runSpacing: chipSpacing,
                     children: chips,
-                  ),
-            if (_selectedPeriod == TimePeriod.custom && _customDateRange != null) ...[
-              const SizedBox(height: 12),
+        ),
+        if (_selectedPeriod == TimePeriod.custom && _customDateRange != null) ...[
+          const SizedBox(height: 12),
               isNarrow
                   ? Column(
-                      children: [
+            children: [
                         TextField(
-                          controller: _startDateController,
+                  controller: _startDateController,
                           readOnly: true,
                           onTap: _selectCustomDateRange,
-                          decoration: const InputDecoration(
-                            labelText: 'Start Date',
-                            border: OutlineInputBorder(),
-                            suffixIcon: Icon(Icons.calendar_today),
-                          ),
+                  decoration: const InputDecoration(
+                    labelText: 'Start Date',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
                         ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: _endDateController,
-                          readOnly: true,
-                          onTap: _selectCustomDateRange,
+                  readOnly: true,
+                  onTap: _selectCustomDateRange,
                           decoration: const InputDecoration(
                             labelText: 'End Date',
                             border: OutlineInputBorder(),
@@ -620,25 +621,25 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                               border: OutlineInputBorder(),
                               suffixIcon: Icon(Icons.calendar_today),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextField(
-                            controller: _endDateController,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: _endDateController,
                             readOnly: true,
                             onTap: _selectCustomDateRange,
-                            decoration: const InputDecoration(
-                              labelText: 'End Date',
-                              border: OutlineInputBorder(),
-                              suffixIcon: Icon(Icons.calendar_today),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  decoration: const InputDecoration(
+                    labelText: 'End Date',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
+                ),
+              ),
             ],
-          ],
+          ),
+        ],
+      ],
         );
       },
     );
@@ -656,10 +657,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   }
 
   Widget _kpiCard(String label, String value, IconData icon, Color color) {
-    return Expanded(
-      child: _card(
-        child: Column(
-          children: [
+    return _card(
+      child: Column(
+      children: [
             Icon(icon, color: color, size: 28),
             const SizedBox(height: 8),
             Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
@@ -667,7 +667,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600]), textAlign: TextAlign.center),
           ],
         ),
-      ),
     );
   }
 
@@ -749,9 +748,25 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           _kpiCard('Net Profit', _fmtNaira(netProfit), Icons.account_balance_wallet, netProfit >= 0 ? Colors.green[800]! : Colors.red[800]!),
         ];
         if (isNarrow) {
-          return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+          return Column(
+            children: cards
+                .map((c) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: c,
+                    ))
+                .toList(),
+          );
         }
-        return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+        return Row(
+          children: cards
+              .map((c) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: c,
+                    ),
+                  ))
+              .toList(),
+        );
       },
     );
   }
@@ -767,9 +782,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           Icon(Icons.emoji_events, color: Colors.amber[700], size: 36),
           const SizedBox(width: 16),
           Expanded(
-            child: Column(
+      child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        children: [
                 Text('Top Performing', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                 Text(top.category, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ],
@@ -869,8 +884,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         _sectionTitle('Revenue Transactions'),
         if (revenueItems.isEmpty)
           _card(
@@ -887,9 +902,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         else
           _card(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+                children: [
                 SizedBox(
                   height: _kDetailTableHeight,
                   width: double.infinity,
@@ -975,7 +990,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             child: SizedBox(
               height: _kDetailTableHeight,
               child: Center(
-                child: Text(
+                    child: Text(
                   'No expense or payroll transactions for this period.',
                   style: TextStyle(color: Colors.grey[600]),
                 ),
@@ -1031,9 +1046,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                                   ],
                                 );
                               }).toList(),
-                            ),
-                          ),
-                        ),
+              ),
+            ),
+          ),
                       ),
                     ),
                   ),
@@ -1122,9 +1137,25 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _kpiCard('Avg Stay', '${g['avg_nights']} nights', Icons.nights_stay, Colors.purple[600]!),
       ];
       if (isNarrow) {
-        return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+        return Column(
+          children: cards
+              .map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: c,
+                  ))
+              .toList(),
+        );
       }
-      return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+      return Row(
+        children: cards
+            .map((c) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: c,
+                  ),
+                ))
+            .toList(),
+      );
     });
   }
 
@@ -1138,8 +1169,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       ('Cancelled', g['cancelled'] ?? 0, Colors.red),
     ];
     return _card(child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         _sectionTitle('Booking Status Breakdown'),
         ...statuses.map((s) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1155,7 +1186,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         const Divider(height: 24),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
+            children: [
             const Text('Avg Revenue / Booking', style: TextStyle(fontSize: 14)),
             Text(_fmtNaira(g['avg_revenue'] ?? 0), style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[700])),
           ],
@@ -1181,9 +1212,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                   style: TextStyle(color: Colors.grey[600]),
                 ),
               ),
-            ),
-          ),
-        ],
+                ),
+              ),
+            ],
       );
     }
     return Column(
@@ -1263,9 +1294,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                         onPressed: (_guestLoadingMore || rows.length >= total) ? null : _loadMoreGuestRows,
                         icon: _guestLoadingMore ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.add_circle_outline, size: 18),
                         label: Text(_guestLoadingMore ? 'Loading...' : 'Load more'),
-                      ),
-                    ],
-                  ),
+          ),
+        ],
+      ),
                 ),
             ],
           ),
@@ -1303,7 +1334,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             const Center(child: Text('No operations activity recorded for this period.'))
           else ...[
             _buildOpsKPIs(),
-            const SizedBox(height: 16),
+          const SizedBox(height: 16),
             _buildOpsDetails(),
             const SizedBox(height: 24),
             _buildOpsActivityTable(),
@@ -1336,9 +1367,25 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         _kpiCard('Stock Warnings', '${o['negative_adjustments']}', Icons.warning_amber, (o['negative_adjustments'] ?? 0) > 0 ? Colors.red[600]! : Colors.green[600]!),
       ];
       if (isNarrow) {
-        return Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [c]))).toList());
+        return Column(
+          children: cards
+              .map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: c,
+                  ))
+              .toList(),
+        );
       }
-      return Row(children: cards.map((c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: c)).toList());
+      return Row(
+        children: cards
+            .map((c) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: c,
+                  ),
+                ))
+            .toList(),
+      );
     });
   }
 
@@ -1395,7 +1442,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+            children: [
         _sectionTitle('Staff Activity Details'),
         _card(
           child: Column(
@@ -1476,9 +1523,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                       ),
                     ],
                   ),
-                ),
-            ],
           ),
+        ],
+      ),
         ),
       ],
     );
