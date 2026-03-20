@@ -56,6 +56,24 @@ class CategoryAmount {
   });
 }
 
+class _UnifiedRevenueData {
+  final List<Map<String, dynamic>> rows;
+  final List<Map<String, dynamic>> checkedInBookings;
+  final int miniMartSales;
+  final int kitchenSales;
+  final int vipBarSales;
+  final int outsideBarSales;
+
+  const _UnifiedRevenueData({
+    required this.rows,
+    required this.checkedInBookings,
+    required this.miniMartSales,
+    required this.kitchenSales,
+    required this.vipBarSales,
+    required this.outsideBarSales,
+  });
+}
+
 class ReportingService {
   final _supabase = Supabase.instance.client;
   
@@ -212,88 +230,15 @@ class ReportingService {
       final startStr = dateRange.start.toIso8601String().split('T')[0];
       final endStr = dateRange.end.toIso8601String().split('T')[0];
 
-      // 1. Room Bookings (checked-out) - room type from rooms.type or requested_room_type, guest_name for display
-      final revenueResponse = await _supabase
-          .from('bookings')
-          .select('''
-            id, guest_name, total_amount, paid_amount, extra_charges, status, requested_room_type,
-            check_out_date,
-            rooms!inner(type)
-          ''')
-          .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
-          .gte('check_out_date', dateRange.start.toIso8601String())
-          .lte('check_out_date', dateRange.end.toIso8601String())
-          .order('check_out_date', ascending: false);
-      final revenueItemsRaw = revenueResponse;
-      final revenueItems = revenueItemsRaw
-          .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
-          .toList();
-
-      // 2. Department revenue: Mini Mart, Kitchen/Restaurant, VIP Bar, Outside Bar (Reception removed - room sales tracked by room type)
-      // Primary: department_sales (aligned with dashboard). Fallback: income_records, mini_mart_sales, kitchen_sales
-      int miniMartSales = 0;
-      int kitchenSales = 0;
-      int vipBarSales = 0;
-      int outsideBarSales = 0;
-
-      try {
-        final deptResp = await _supabase
-            .from('department_sales')
-            .select('department, total_sales')
-            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
-            .gte('date', startStr)
-            .lte('date', endStr);
-        for (final r in deptResp as List) {
-          final dept = r['department']?.toString() ?? '';
-          final amt = (r['total_sales'] as num?)?.toInt() ?? 0;
-          if (dept == 'vip_bar') {
-            vipBarSales += amt;
-          } else if (dept == 'outside_bar') outsideBarSales += amt;
-          else if (dept == 'mini_mart') miniMartSales += amt;
-          else if (dept == 'restaurant') kitchenSales += amt;
-        }
-      } catch (_) {}
-
-      if (miniMartSales == 0) {
-        try {
-          final mmResp = await _supabase
-              .from('mini_mart_sales')
-              .select('total_amount')
-              .gte('sale_date', startStr)
-              .lte('sale_date', endStr);
-          miniMartSales = (mmResp as List).fold<int>(0, (s, r) => s + ((r['total_amount'] as num?)?.toInt() ?? 0));
-        } catch (_) {}
-      }
-      if (kitchenSales == 0) {
-        try {
-          final kResp = await _supabase
-              .from('kitchen_sales')
-              .select('total_amount')
-              .gte('created_at', dateRange.start.toIso8601String())
-              .lte('created_at', dateRange.end.toIso8601String());
-          kitchenSales = (kResp as List).fold<int>(0, (s, r) => s + ((r['total_amount'] as num?)?.toInt() ?? 0));
-        } catch (_) {}
-      }
-      if (vipBarSales == 0 && outsideBarSales == 0) {
-        try {
-          final incResp = await _supabase
-              .from('income_records')
-              .select('department, amount')
-              .gte('date', startStr)
-              .lte('date', endStr);
-          for (final r in incResp as List) {
-            final dept = (r['department']?.toString() ?? '').toLowerCase();
-            var amt = (r['amount'] as num?)?.toInt() ?? 0;
-            if (amt == 0) amt = (r['amount'] as num?)?.toDouble().round() ?? 0;
-            if (amt > 0 && amt < 100000) amt = amt * 100;
-            if (dept == 'vip_bar') {
-              vipBarSales += amt;
-            } else if (dept == 'outside_bar') outsideBarSales += amt;
-            else if (dept == 'mini_mart') miniMartSales += amt;
-            else if (dept == 'restaurant' || dept == 'kitchen') kitchenSales += amt;
-          }
-        } catch (_) {}
-      }
+      final unifiedRevenue = await _buildUnifiedRevenueData(
+        start: dateRange.start,
+        end: dateRange.end,
+      );
+      final revenueItems = unifiedRevenue.rows;
+      final miniMartSales = unifiedRevenue.miniMartSales;
+      final kitchenSales = unifiedRevenue.kitchenSales;
+      final vipBarSales = unifiedRevenue.vipBarSales;
+      final outsideBarSales = unifiedRevenue.outsideBarSales;
 
       // 5. Expenses
       final expenseResponse = await _supabase
@@ -318,22 +263,17 @@ class ReportingService {
         await _loadRoomTypePrices();
       }
 
-      // 8. Room revenue from bookings
-      int roomRevenueTotal = revenueItems.fold<int>(0, (sum, booking) {
-        final totalAmount = (booking['total_amount'] as num?)?.toInt();
-        final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
-        final extras = ((booking['extra_charges'] ?? []) as List).fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
-        final baseTotal = totalAmount ?? paidAmount;
-        final normalizedTotal = baseTotal >= extras ? baseTotal : baseTotal + extras;
-        return sum + normalizedTotal;
-      });
+      // 8. Unified revenue sum from all transaction rows.
+      final totalRevenue = revenueItems.fold<int>(
+        0,
+        (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
+      );
 
-      final totalRevenue = roomRevenueTotal + miniMartSales + kitchenSales + vipBarSales + outsideBarSales;
       var totalExpenses = expenseItems.fold<int>(0, (s, e) => s + ((e['amount'] ?? 0) as int)) + payrollTotal;
 
-      // 9. Revenue breakdown (always include all room types + departments, use ₦0 if zero; Reception removed)
+      // 9. Revenue breakdown aligned to checked-in room revenue + sales sources.
       final revenueBreakdown = _generateUnifiedRevenueBreakdown(
-        revenueItems,
+        unifiedRevenue.checkedInBookings,
         miniMartSales,
         kitchenSales,
         vipBarSales,
@@ -399,7 +339,7 @@ class ReportingService {
 
   static const int detailPageSize = 10;
 
-  /// Fetches a page of revenue (booking) detail items. Use after getProfitAndLoss for "Load more".
+  /// Fetches a page of unified revenue transaction items.
   Future<List<Map<String, dynamic>>> getRevenueItemsPage({
     required TimePeriod period,
     DateTime? customStart,
@@ -409,23 +349,15 @@ class ReportingService {
   }) async {
     final now = DateTime.now();
     final dateRange = _getDateRange(period, now, customStart, customEnd);
-    final response = await _supabase
-        .from('bookings')
-        .select('''
-          id, guest_name, total_amount, paid_amount, extra_charges, status, requested_room_type,
-          check_out_date,
-          rooms!inner(type)
-        ''')
-        .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
-        .gte('check_out_date', dateRange.start.toIso8601String())
-        .lte('check_out_date', dateRange.end.toIso8601String())
-        .order('check_out_date', ascending: false)
-        .range(offset, offset + limit - 1);
-    final list = response as List;
-    return list
-        .where((b) => _normalizeBookingStatus(b['status']?.toString()) == 'checked-out')
-        .map((b) => b as Map<String, dynamic>)
-        .toList();
+    final unifiedRevenue = await _buildUnifiedRevenueData(
+      start: dateRange.start,
+      end: dateRange.end,
+    );
+    if (offset >= unifiedRevenue.rows.length) return [];
+    final endIndex = (offset + limit) > unifiedRevenue.rows.length
+        ? unifiedRevenue.rows.length
+        : (offset + limit);
+    return unifiedRevenue.rows.sublist(offset, endIndex);
   }
 
   /// Fetches a page of expense detail items. Use after getProfitAndLoss for "Load more".
@@ -477,7 +409,7 @@ class ReportingService {
   }
 
   List<CategoryAmount> _generateUnifiedRevenueBreakdown(
-    List<Map<String, dynamic>> revenueItems,
+    List<Map<String, dynamic>> checkedInBookings,
     int miniMartSales,
     int kitchenSales,
     int vipBarSales,
@@ -490,8 +422,8 @@ class ReportingService {
     }
     int otherRoomRevenue = 0;
 
-    // Aggregate room revenue from bookings (from room_bookings / bookings + rooms join)
-    for (var booking in revenueItems) {
+    // Aggregate room revenue from checked-in bookings.
+    for (var booking in checkedInBookings) {
       String rawType = 'Standard Room';
       final rooms = booking['rooms'];
       if (rooms is Map && rooms['type'] != null) {
@@ -533,6 +465,145 @@ class ReportingService {
     result.add(CategoryAmount(category: 'VIP Bar', amount: vipBarSales));
     result.add(CategoryAmount(category: 'Outside Bar', amount: outsideBarSales));
     return result;
+  }
+
+  Future<_UnifiedRevenueData> _buildUnifiedRevenueData({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final startStr = start.toIso8601String().split('T')[0];
+    final endStr = end.toIso8601String().split('T')[0];
+
+    // Checked-in bookings (room revenue is recognized at check-in).
+    final bookingResp = await _supabase
+        .from('bookings')
+        .select('''
+          id, guest_name, total_amount, paid_amount, extra_charges, status, requested_room_type,
+          check_in_date,
+          rooms(type)
+        ''')
+        .inFilter('status', ['Checked-in', 'checked_in', 'checked-in', 'Checked in', 'checked in'])
+        .gte('check_in_date', startStr)
+        .lte('check_in_date', endStr)
+        .order('check_in_date', ascending: false);
+
+    final checkedInBookings = List<Map<String, dynamic>>.from(bookingResp as List);
+    final rows = <Map<String, dynamic>>[];
+
+    for (final b in checkedInBookings) {
+      final totalAmount = (b['total_amount'] as num?)?.toInt();
+      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+      final amount = totalAmount ?? paidAmount;
+      final rooms = b['rooms'];
+      String roomType = '';
+      if (rooms is Map && rooms['type'] != null) {
+        roomType = rooms['type']?.toString() ?? '';
+      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
+        roomType = (rooms.first as Map)['type']?.toString() ?? '';
+      } else {
+        roomType = b['requested_room_type']?.toString() ?? '';
+      }
+      rows.add({
+        'event_date': b['check_in_date'],
+        'source': 'Room Booking',
+        'description': '${b['guest_name'] ?? 'Guest'} • ${roomType.isEmpty ? 'Room' : roomType}',
+        'status': b['status']?.toString() ?? 'Checked-in',
+        'amount': amount,
+      });
+    }
+
+    final miniResp = await _supabase
+        .from('mini_mart_sales')
+        .select('sale_date, total_amount, quantity, unit_price, customer_name, mini_mart_items(name)')
+        .gte('sale_date', startStr)
+        .lte('sale_date', endStr)
+        .order('sale_date', ascending: false);
+    final miniList = List<Map<String, dynamic>>.from(miniResp as List);
+    int miniMartSales = 0;
+    for (final s in miniList) {
+      final total = (s['total_amount'] as num?)?.toInt() ?? 0;
+      miniMartSales += total;
+      final item = s['mini_mart_items'];
+      final itemName = item is Map ? item['name']?.toString() ?? '' : '';
+      final qty = (s['quantity'] as num?)?.toInt() ?? 0;
+      rows.add({
+        'event_date': s['sale_date'],
+        'source': 'Mini Mart',
+        'description': '${itemName.isEmpty ? 'Sale' : itemName}${qty > 0 ? ' x$qty' : ''}${(s['customer_name']?.toString() ?? '').isNotEmpty ? ' • ${s['customer_name']}' : ''}',
+        'status': 'Completed',
+        'amount': total,
+      });
+    }
+
+    final kitchenResp = await _supabase
+        .from('kitchen_sales')
+        .select('created_at, total_amount, quantity, item_name, menu_items(name)')
+        .gte('created_at', start.toIso8601String())
+        .lte('created_at', end.toIso8601String())
+        .order('created_at', ascending: false);
+    final kitchenList = List<Map<String, dynamic>>.from(kitchenResp as List);
+    int kitchenSales = 0;
+    for (final s in kitchenList) {
+      final total = (s['total_amount'] as num?)?.toInt() ?? 0;
+      kitchenSales += total;
+      final menuItem = s['menu_items'];
+      final itemName = (s['item_name']?.toString() ?? '').isNotEmpty
+          ? s['item_name']?.toString() ?? ''
+          : (menuItem is Map ? menuItem['name']?.toString() ?? '' : '');
+      final qty = (s['quantity'] as num?)?.toInt() ?? 0;
+      rows.add({
+        'event_date': s['created_at'],
+        'source': 'Kitchen/Restaurant',
+        'description': '${itemName.isEmpty ? 'Sale' : itemName}${qty > 0 ? ' x$qty' : ''}',
+        'status': 'Completed',
+        'amount': total,
+      });
+    }
+
+    int vipBarSales = 0;
+    int outsideBarSales = 0;
+    final deptResp = await _supabase
+        .from('department_sales')
+        .select('department, total_sales, date')
+        .inFilter('department', ['vip_bar', 'outside_bar'])
+        .gte('date', startStr)
+        .lte('date', endStr)
+        .order('date', ascending: false);
+    final deptList = List<Map<String, dynamic>>.from(deptResp as List);
+    for (final r in deptList) {
+      final dept = r['department']?.toString() ?? '';
+      final total = (r['total_sales'] as num?)?.toInt() ?? 0;
+      if (dept == 'vip_bar') {
+        vipBarSales += total;
+      } else if (dept == 'outside_bar') {
+        outsideBarSales += total;
+      }
+      rows.add({
+        'event_date': r['date'],
+        'source': dept == 'vip_bar' ? 'VIP Bar' : 'Outside Bar',
+        'description': 'Department sales aggregate',
+        'status': 'Completed',
+        'amount': total,
+      });
+    }
+
+    rows.sort((a, b) {
+      final at = DateTime.tryParse(a['event_date']?.toString() ?? '');
+      final bt = DateTime.tryParse(b['event_date']?.toString() ?? '');
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return bt.compareTo(at);
+    });
+
+    return _UnifiedRevenueData(
+      rows: rows,
+      checkedInBookings: checkedInBookings,
+      miniMartSales: miniMartSales,
+      kitchenSales: kitchenSales,
+      vipBarSales: vipBarSales,
+      outsideBarSales: outsideBarSales,
+    );
   }
 
   List<CategoryAmount> _generateUnifiedExpenseBreakdown(

@@ -919,25 +919,17 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                             constraints: const BoxConstraints(minWidth: 700),
                             child: DataTable(
                               columns: const [
-                                DataColumn(label: Text('Check-out Date')),
-                                DataColumn(label: Text('Guest')),
-                                DataColumn(label: Text('Room Type')),
+                                DataColumn(label: Text('Date')),
+                                DataColumn(label: Text('Source')),
+                                DataColumn(label: Text('Description')),
                                 DataColumn(label: Text('Status')),
                                 DataColumn(label: Text('Amount (₦)')),
                               ],
-                              rows: revenueItems.map((b) {
-                                final guestName = b['guest_name']?.toString()?.trim() ?? '—';
-                                final status = b['status']?.toString() ?? '';
-                                final rooms = b['rooms'];
-                                String roomType = '';
-                                if (rooms is Map && rooms['type'] != null) {
-                                  roomType = rooms['type']?.toString() ?? '';
-                                } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
-                                  roomType = (rooms.first as Map)['type']?.toString() ?? '';
-                                } else {
-                                  roomType = b['requested_room_type']?.toString() ?? '';
-                                }
-                                final rawDate = b['check_out_date']?.toString();
+                              rows: revenueItems.map((r) {
+                                final source = r['source']?.toString() ?? '';
+                                final description = r['description']?.toString() ?? '';
+                                final status = r['status']?.toString() ?? '';
+                                final rawDate = r['event_date']?.toString();
                                 String dateStr = rawDate ?? '';
                                 try {
                                   if (rawDate != null) {
@@ -945,14 +937,12 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                                     dateStr = DateFormat('MMM dd, yyyy').format(dt);
                                   }
                                 } catch (_) {}
-                                final totalAmount = (b['total_amount'] as num?)?.toInt();
-                                final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-                                final amount = totalAmount ?? paidAmount;
+                                final amount = (r['amount'] as num?)?.toInt() ?? 0;
                                 return DataRow(
                                   cells: [
                                     DataCell(Text(dateStr)),
-                                    DataCell(Text(guestName)),
-                                    DataCell(Text(roomType.isEmpty ? 'Room' : roomType)),
+                                    DataCell(Text(source.isEmpty ? 'Revenue' : source)),
+                                    DataCell(ConstrainedBox(constraints: const BoxConstraints(maxWidth: 280), child: Text(description.isEmpty ? '—' : description, overflow: TextOverflow.ellipsis))),
                                     DataCell(Text(status)),
                                     DataCell(Text(_fmtNaira(amount))),
                                   ],
@@ -1462,6 +1452,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(minWidth: 750),
                           child: DataTable(
+                            dataRowMinHeight: 88,
+                            dataRowMaxHeight: 88,
                             columns: const [
                               DataColumn(label: Text('Timestamp')),
                               DataColumn(label: Text('Department')),
@@ -1494,9 +1486,14 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                                   DataCell(Text(action)),
                                   DataCell(Text(staffName)),
                                   DataCell(
-                                    ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 320),
-                                      child: Text(details, softWrap: true, maxLines: 3, overflow: TextOverflow.ellipsis),
+                                    SizedBox(
+                                      width: 320,
+                                      height: 72,
+                                      child: Scrollbar(
+                                        child: SingleChildScrollView(
+                                          child: Text(details, softWrap: true),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1557,26 +1554,17 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final revenueItems = _revenueItemsDisplayed;
     final expenseItems = _expenseItemsDisplayed;
 
-    final revenueRows = revenueItems.map((b) {
-      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
-      final rooms = b['rooms'];
-      String roomType = '';
-      if (rooms is Map && rooms['type'] != null) {
-        roomType = rooms['type']?.toString() ?? '';
-      } else if (rooms is List && rooms.isNotEmpty && rooms.first is Map) {
-        roomType = (rooms.first as Map)['type']?.toString() ?? '';
-      } else {
-        roomType = b['requested_room_type']?.toString() ?? '';
-      }
+    final revenueRows = revenueItems.map((r) {
       String dateStr = '';
       try {
-        final raw = b['check_out_date']?.toString();
+        final raw = r['event_date']?.toString();
         if (raw != null) dateStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(raw));
       } catch (_) {}
-      final totalAmount = (b['total_amount'] as num?)?.toInt();
-      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-      final amount = totalAmount ?? paidAmount;
-      return [dateStr, guestName, roomType.isEmpty ? 'Room' : roomType, b['status']?.toString() ?? '', _fmtNaira(amount)];
+      final source = r['source']?.toString() ?? '';
+      final description = r['description']?.toString() ?? '';
+      final status = r['status']?.toString() ?? '';
+      final amount = (r['amount'] as num?)?.toInt() ?? 0;
+      return [dateStr, source, description, status, _fmtNaira(amount)];
     }).toList();
 
     final expenseRows = expenseItems.map((e) {
@@ -1620,8 +1608,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         pw.SizedBox(height: 8),
         ..._plData!.expenseBreakdown.map((item) => _pdfRow(item.category, _fmtNaira(item.amount))),
         _pdfTableSection(
-          title: 'Revenue Transactions (checked out in period)',
-          headers: const ['Check-out Date', 'Guest', 'Room Type', 'Status', 'Amount (₦)'],
+          title: 'Revenue Transactions',
+          headers: const ['Date', 'Source', 'Description', 'Status', 'Amount (₦)'],
           rows: revenueRows,
         ),
         _pdfTableSection(

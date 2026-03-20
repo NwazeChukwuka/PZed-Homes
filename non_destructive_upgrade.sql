@@ -3492,3 +3492,63 @@ VALUES ('paystack_public_key', '')
 ON CONFLICT (key) DO NOTHING;
 
 COMMENT ON TABLE public.app_config IS 'Runtime app configuration. paystack_public_key: set in Supabase dashboard. PAYSTACK_SECRET_KEY: set in Edge Function secrets.';
+
+-- ==============================================
+-- Comprehensive auditor trail upgrades
+-- ==============================================
+DO $$
+BEGIN
+  ALTER TABLE public.stock_transactions
+    ADD COLUMN IF NOT EXISTS unit_price_kobo INT8,
+    ADD COLUMN IF NOT EXISTS line_total_kobo INT8;
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- Catalog changes: insert/update/delete must be auditable.
+DROP TRIGGER IF EXISTS trg_finance_audit_inventory_items ON public.inventory_items;
+CREATE TRIGGER trg_finance_audit_inventory_items
+AFTER INSERT OR UPDATE OR DELETE ON public.inventory_items
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_mini_mart_items ON public.mini_mart_items;
+CREATE TRIGGER trg_finance_audit_mini_mart_items
+AFTER INSERT OR UPDATE OR DELETE ON public.mini_mart_items
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_menu_items ON public.menu_items;
+CREATE TRIGGER trg_finance_audit_menu_items
+AFTER INSERT OR UPDATE OR DELETE ON public.menu_items
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_room_types ON public.room_types;
+CREATE TRIGGER trg_finance_audit_room_types
+AFTER INSERT OR UPDATE OR DELETE ON public.room_types
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+-- Sales/dispatch mutations: update/delete should be separate audit lines.
+DROP TRIGGER IF EXISTS trg_finance_audit_kitchen_sales_mutation ON public.kitchen_sales;
+CREATE TRIGGER trg_finance_audit_kitchen_sales_mutation
+AFTER UPDATE OR DELETE ON public.kitchen_sales
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_mini_mart_sales_mutation ON public.mini_mart_sales;
+CREATE TRIGGER trg_finance_audit_mini_mart_sales_mutation
+AFTER UPDATE OR DELETE ON public.mini_mart_sales
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_department_transfers_mutation ON public.department_transfers;
+CREATE TRIGGER trg_finance_audit_department_transfers_mutation
+AFTER UPDATE OR DELETE ON public.department_transfers
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_booking_charges_mutation ON public.booking_charges;
+CREATE TRIGGER trg_finance_audit_booking_charges_mutation
+AFTER UPDATE OR DELETE ON public.booking_charges
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+DROP TRIGGER IF EXISTS trg_finance_audit_stock_transactions_mutation ON public.stock_transactions;
+CREATE TRIGGER trg_finance_audit_stock_transactions_mutation
+AFTER UPDATE OR DELETE ON public.stock_transactions
+FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
