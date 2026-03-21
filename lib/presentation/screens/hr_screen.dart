@@ -358,8 +358,9 @@ class _HrScreenState extends State<HrScreen>
                               context,
                               listen: false,
                             );
-                            final isOwner =
-                                authService.currentUser?.role == AppRole.owner;
+                            final role = authService.currentUser?.role;
+                            final canTerminate =
+                                role == AppRole.owner || role == AppRole.manager;
 
                             return [
                               const PopupMenuItem(
@@ -392,8 +393,8 @@ class _HrScreenState extends State<HrScreen>
                                   ],
                                 ),
                               ),
-                              // Only owner can terminate
-                              if (isOwner)
+                              // Owner and manager can terminate employment
+                              if (canTerminate)
                                 const PopupMenuItem(
                                   value: 'terminate',
                                   child: Row(
@@ -1762,6 +1763,7 @@ class _HrScreenState extends State<HrScreen>
   void _showTerminateDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     bool confirmTermination = false;
+    bool isTerminating = false;
 
     showDialog(
       context: context,
@@ -1865,12 +1867,13 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: isTerminating ? null : () => Navigator.pop(context),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: confirmTermination && reasonController.text.isNotEmpty
+              onPressed: !isTerminating && confirmTermination && reasonController.text.isNotEmpty
                   ? () async {
+                      setDialogState(() => isTerminating = true);
                       // Update staff status in database
                       try {
                         await _dataService.updateStaffStatus(
@@ -1888,6 +1891,9 @@ class _HrScreenState extends State<HrScreen>
                         }
                       } catch (e, stackTrace) {
                         if (kDebugMode) debugPrint('DEBUG terminate staff: $e\n$stackTrace');
+                        if (mounted) {
+                          setDialogState(() => isTerminating = false);
+                        }
                         Navigator.pop(context);
                         if (mounted) {
                           ErrorHandler.handleError(
@@ -1904,7 +1910,16 @@ class _HrScreenState extends State<HrScreen>
                 backgroundColor: Colors.red[700],
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Terminate Staff'),
+              child: isTerminating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text('Terminate Staff'),
             ),
           ],
         ),
@@ -1927,6 +1942,7 @@ class _HrScreenState extends State<HrScreen>
 
   // Hire New Staff Dialog (Owner and Manager Only)
   void _showHireNewStaffDialog() {
+    final parentContext = context;
     final fullNameController = TextEditingController();
     final emailController = TextEditingController();
     final phoneController = TextEditingController();
@@ -2296,7 +2312,7 @@ class _HrScreenState extends State<HrScreen>
                     // Show password dialog - creator stays logged in
                     // They can copy/screenshot the password and send it to the staff member
                     showDialog(
-                      context: context,
+                      context: parentContext,
                       barrierDismissible: false, // Prevent dismissing by tapping outside
                       builder: (context) => AlertDialog(
                         title: Row(
@@ -2390,7 +2406,7 @@ class _HrScreenState extends State<HrScreen>
                               // Copy password to clipboard
                               await Clipboard.setData(ClipboardData(text: securePassword));
                               if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                ScaffoldMessenger.of(parentContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('Password copied to clipboard'),
                                     duration: Duration(seconds: 2),

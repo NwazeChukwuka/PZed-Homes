@@ -372,10 +372,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       
       final now = DateTime.now();
       
-      // If elapsed:
+      // If elapsed (inclusive at 12:00 PM):
       // - checked-in stays are checked out
       // - pending bookings are expired/no-show
-      if (now.isAfter(checkOutExpiry)) {
+      if (!now.isBefore(checkOutExpiry)) {
         if (dbStatus == 'checked-in' || dbStatus == 'checked_in') return 'Checked Out';
         if (dbStatus == 'pending check-in' || dbStatus == 'pending_check_in' || dbStatus == 'pending') {
           return 'Expired';

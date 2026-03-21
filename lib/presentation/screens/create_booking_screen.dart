@@ -284,9 +284,14 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       if (totalAmount <= 0) {
         throw Exception('Invalid booking amount. Please check room selection and dates.');
       }
+
+      // Staff-created bookings must have a room and be checked in immediately.
+      if (_selectedRoomId == null || _selectedRoomId!.isEmpty) {
+        throw Exception('Please select a room before creating this booking.');
+      }
       
       final bookingId = await _dataService.createBooking({
-        'room_id': _selectedRoomId, // Can be null - receptionist can assign later
+        'room_id': _selectedRoomId,
         'requested_room_type': selectedRoomType['type'] as String?,
         'check_in': _checkInDate!.toIso8601String(),
         'check_out': _checkOutDate!.toIso8601String(),
@@ -302,6 +307,18 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         'guest_name': guestNameForRecord,
         'guest_phone': phone,
       });
+
+      try {
+        // Atomic DB function: validates room + flips booking to Checked-in + room to Occupied.
+        await _supabase.rpc('assign_room_to_booking', params: {
+          'booking_id': bookingId,
+          'room_id': _selectedRoomId,
+        });
+      } catch (_) {
+        // Avoid leaving misleading pending records for staff-created bookings.
+        await _supabase.from('bookings').delete().eq('id', bookingId);
+        rethrow;
+      }
 
       // If credit payment, create debt linked to booking
       if (_paymentMethod.toLowerCase() == 'credit') {

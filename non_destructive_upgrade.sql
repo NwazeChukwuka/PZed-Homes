@@ -1675,6 +1675,42 @@ BEGIN
 END;
 $$;
 
+-- Reconcile stale bookings: if room is assigned, booking should be checked in.
+-- Keeps management views truthful during/after lifecycle refactors.
+CREATE OR REPLACE FUNCTION public.reconcile_assigned_bookings()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_updated_count INTEGER := 0;
+BEGIN
+    WITH updated AS (
+        UPDATE public.bookings b
+        SET status = 'Checked-in',
+            updated_at = now()
+        WHERE b.room_id IS NOT NULL
+          AND b.status IN ('Pending Check-in', 'pending check-in', 'pending_check_in', 'pending')
+        RETURNING b.room_id
+    )
+    SELECT COUNT(*) INTO v_updated_count FROM updated;
+
+    -- Ensure rooms tied to checked-in bookings are marked occupied.
+    UPDATE public.rooms r
+    SET status = 'Occupied',
+        updated_at = now()
+    WHERE r.id IN (
+        SELECT DISTINCT b.room_id
+        FROM public.bookings b
+        WHERE b.status = 'Checked-in'
+          AND b.room_id IS NOT NULL
+    )
+      AND r.status <> 'Occupied';
+
+    RETURN v_updated_count;
+END;
+$$;
+
 -- Function to automatically update expired bookings.
 -- A booking expires at 12:00 PM on the check-out date
 CREATE OR REPLACE FUNCTION public.auto_update_expired_bookings()
@@ -1686,6 +1722,9 @@ DECLARE
     v_now TIMESTAMPTZ;
 BEGIN
     v_now := now();
+
+    -- First correct inconsistent records (assigned room but still pending).
+    PERFORM public.reconcile_assigned_bookings();
     
     -- Checked-in bookings become checked-out when the stay elapses.
     UPDATE public.bookings
@@ -1694,8 +1733,8 @@ BEGIN
     WHERE status = 'Checked-in'
       AND check_out_date IS NOT NULL
       AND (
-          -- Check if current time is past 12:00 PM on check-out date
-          v_now > (
+          -- Check if current time is at or past 12:00 PM on check-out date
+          v_now >= (
               DATE(check_out_date) + INTERVAL '12 hours'
           )
       );
@@ -1706,7 +1745,7 @@ BEGIN
         updated_at = v_now
     WHERE status = 'Pending Check-in'
       AND check_out_date IS NOT NULL
-      AND v_now > (DATE(check_out_date) + INTERVAL '12 hours');
+      AND v_now >= (DATE(check_out_date) + INTERVAL '12 hours');
     
     -- Update room status to Dirty for rooms that were occupied by expired bookings
     UPDATE public.rooms
@@ -1717,7 +1756,7 @@ BEGIN
         FROM public.bookings
         WHERE status = 'Checked-out'
           AND check_out_date IS NOT NULL
-          AND v_now > (DATE(check_out_date) + INTERVAL '12 hours')
+          AND v_now >= (DATE(check_out_date) + INTERVAL '12 hours')
           AND room_id IS NOT NULL
     )
     AND status = 'Occupied';
@@ -1739,9 +1778,9 @@ BEGIN
         -- Calculate expiry time (12:00 PM on check-out date)
         v_check_out_expiry := DATE(NEW.check_out_date) + INTERVAL '12 hours';
         
-        -- If current time is past expiry, preserve truthfulness:
+        -- If current time is at/past expiry, preserve truthfulness:
         -- checked-in -> checked-out, pending -> expired (never checked in).
-        IF now() > v_check_out_expiry AND NEW.status IN ('Checked-in', 'Pending Check-in') THEN
+        IF now() >= v_check_out_expiry AND NEW.status IN ('Checked-in', 'Pending Check-in') THEN
             NEW.status := CASE
                 WHEN NEW.status = 'Checked-in' THEN 'Checked-out'
                 ELSE 'Expired'

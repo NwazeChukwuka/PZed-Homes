@@ -138,6 +138,25 @@ class DataService {
   Future<void> updateExpiredBookings() async {
     await _retryOperation(() async {
       try {
+        // Reconcile stale records where room is already assigned but booking stayed pending.
+        await _supabase.rpc('reconcile_assigned_bookings');
+      } catch (_) {
+        // Backward-compatible fallback when migration function is not yet available.
+        try {
+          await _supabase
+              .from('bookings')
+              .update({
+                'status': 'Checked-in',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .inFilter('status', ['Pending Check-in', 'pending check-in', 'pending_check_in', 'pending'])
+              .not('room_id', 'is', null);
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG reconcile_assigned_bookings fallback: $e\n$stack');
+        }
+      }
+
+      try {
         await _supabase.rpc('auto_update_expired_bookings');
       } catch (e, stack) {
         if (kDebugMode) debugPrint('DEBUG auto_update_expired_bookings: $e\n$stack');
