@@ -1254,8 +1254,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                                 }
                               } catch (_) {}
                               final totalAmount = (b['total_amount'] as num?)?.toInt();
-                              final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-                              final amount = totalAmount ?? paidAmount;
+                              final paidAmount = (b['paid_amount'] as num?)?.toInt();
+                              final amount = paidAmount ?? (totalAmount ?? 0);
                               return DataRow(
                                 cells: [
                                   DataCell(Text(guestName)),
@@ -1650,8 +1650,8 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         if (co != null) coStr = DateFormat('MMM dd, yyyy').format(DateTime.parse(co));
       } catch (_) {}
       final totalAmount = (b['total_amount'] as num?)?.toInt();
-      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-      final amount = totalAmount ?? paidAmount;
+      final paidAmount = (b['paid_amount'] as num?)?.toInt();
+      final amount = paidAmount ?? (totalAmount ?? 0);
       return [guestName, ciStr, coStr, b['status']?.toString() ?? '', _fmtNaira(amount)];
     }).toList();
 

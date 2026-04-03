@@ -32,21 +32,30 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
     setState(() => _isLoading = true);
     try {
       final requestedType = widget.booking.requestedRoomType ?? widget.booking.roomType;
-      
-      // Get available rooms of the requested type
-      final rooms = await _supabase
-          .from('rooms')
-          .select()
-          .eq('type', requestedType)
-          .eq('status', 'Vacant')
-          .order('room_number');
 
-      // Filter out rooms that are booked during the check-in/check-out dates
-      // Correct overlap logic: A booking conflicts if:
-      // booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
+      String? typeId;
+      try {
+        final rt = await _supabase
+            .from('room_types')
+            .select('id')
+            .eq('type', requestedType)
+            .maybeSingle();
+        typeId = rt?['id'] as String?;
+      } catch (_) {}
+
+      var roomsQuery = _supabase.from('rooms').select().eq('status', 'Vacant');
+      if (typeId != null) {
+        roomsQuery = roomsQuery.eq('type_id', typeId);
+      } else {
+        roomsQuery = roomsQuery.eq('type', requestedType);
+      }
+      final rooms = await roomsQuery.order('room_number');
+
+      // Exclude this booking so its pre-linked room is not filtered out as "booked by self".
       final conflictingBookings = await _supabase
           .from('bookings')
           .select('room_id')
+          .neq('id', widget.booking.id)
           .or('status.eq.Pending Check-in,status.eq.Checked-in')
           .lt('check_in_date', widget.booking.checkOutDate.toIso8601String())
           .gt('check_out_date', widget.booking.checkInDate.toIso8601String());
@@ -56,12 +65,30 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
           .map((b) => b['room_id'] as String)
           .toSet();
 
-      final available = (rooms as List)
+      var available = (rooms as List)
           .where((r) => !bookedRoomIds.contains(r['id'] as String))
           .toList();
 
+      final preId = widget.booking.roomId;
+      if (preId != null && preId.isNotEmpty) {
+        try {
+          final existing = await _supabase.from('rooms').select().eq('id', preId).maybeSingle();
+          if (existing != null && (existing['status'] as String?) == 'Vacant') {
+            final rid = existing['type_id'] as String?;
+            final typeOk = typeId == null || rid == typeId;
+            if (typeOk && !available.any((r) => r['id'] == preId)) {
+              available = [...available, existing];
+            }
+          }
+        } catch (_) {}
+      }
+
+      final preset =
+          (preId != null && preId.isNotEmpty && available.any((r) => r['id'] == preId)) ? preId : null;
+
       setState(() {
         _availableRooms = List<Map<String, dynamic>>.from(available);
+        _selectedRoomId = preset;
         _isLoading = false;
       });
     } catch (e) {

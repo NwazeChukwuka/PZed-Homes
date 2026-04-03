@@ -435,9 +435,9 @@ class ReportingService {
         rawType = booking['requested_room_type']?.toString() ?? rawType;
       }
       final totalAmount = (booking['total_amount'] as num?)?.toInt();
-      final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
+      final paidAmount = (booking['paid_amount'] as num?)?.toInt();
       final extras = ((booking['extra_charges'] ?? []) as List).fold<int>(0, (s, c) => s + ((c['price'] ?? 0) as int));
-      final baseTotal = totalAmount ?? paidAmount;
+      final baseTotal = _collectedAmountKobo(totalAmount, paidAmount);
       final rev = baseTotal >= extras ? baseTotal - extras : baseTotal;
       final normalized = _normalizeRoomType(rawType);
       if (_roomTypes.contains(normalized)) {
@@ -493,8 +493,8 @@ class ReportingService {
 
     for (final b in checkedInBookings) {
       final totalAmount = (b['total_amount'] as num?)?.toInt();
-      final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
-      final amount = totalAmount ?? paidAmount;
+      final paidAmount = (b['paid_amount'] as num?)?.toInt();
+      final amount = _collectedAmountKobo(totalAmount, paidAmount);
       final rooms = b['rooms'];
       String roomType = '';
       if (rooms is Map && rooms['type'] != null) {
@@ -817,7 +817,10 @@ class ReportingService {
       else if (status == 'expired') expired++;
       else if (status == 'confirmed') confirmed++;
 
-      revenueSum += (b['total_amount'] as num?)?.toInt() ?? (b['paid_amount'] as num?)?.toInt() ?? 0;
+      revenueSum += _collectedAmountKobo(
+        (b['total_amount'] as num?)?.toInt(),
+        (b['paid_amount'] as num?)?.toInt(),
+      );
       try {
         final ci = DateTime.parse(b['check_in_date'] as String);
         final co = DateTime.parse(b['check_out_date'] as String);
@@ -874,6 +877,12 @@ class ReportingService {
     } catch (_) {
       // Keep reporting resilient if lifecycle RPC is unavailable.
     }
+  }
+
+  int _collectedAmountKobo(int? totalAmount, int? paidAmount) {
+    // Collected-first rule: paid_amount is authoritative when present.
+    if (paidAmount != null) return paidAmount;
+    return totalAmount ?? 0;
   }
 
   /// Operations stats for the Operations tab (staff activity, stock adjustments).

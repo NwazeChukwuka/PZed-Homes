@@ -1492,65 +1492,78 @@ BEGIN
   END IF;
 END $$;
 
--- Update assign_room_to_booking to automatically set status to Checked-in
+-- assign_room_to_booking: Checked-in + Occupied; type match via room_types.id (not denormalized rooms.type text).
+-- Pending bookings may change room_id (release previously linked room if switching).
 CREATE OR REPLACE FUNCTION public.assign_room_to_booking(booking_id UUID, room_id UUID)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     booking_room_type TEXT;
-    room_type TEXT;
+    old_room_id UUID;
 BEGIN
-    -- Get requested room type from booking
-    SELECT requested_room_type INTO booking_room_type
-    FROM public.bookings
-    WHERE id = booking_id;
-    
-    -- Get room type
-    SELECT type INTO room_type
-    FROM public.rooms
-    WHERE id = room_id;
-    
-    -- Verify room type matches (if booking has requested_room_type)
-    IF booking_room_type IS NOT NULL AND room_type != booking_room_type THEN
-        RAISE EXCEPTION 'Room type mismatch. Booking requested % but room is %', booking_room_type, room_type;
+    SELECT requested_room_type, b.room_id
+    INTO booking_room_type, old_room_id
+    FROM public.bookings b
+    WHERE b.id = booking_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Booking not found';
     END IF;
-    
-    -- Verify room is available
+
+    IF booking_room_type IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM public.rooms r
+            INNER JOIN public.room_types rt ON rt.id = r.type_id
+            WHERE r.id = assign_room_to_booking.room_id
+              AND rt.type = booking_room_type
+        ) THEN
+            RAISE EXCEPTION 'Room type mismatch. Booking requested % but selected room does not match room_types for that label.', booking_room_type;
+        END IF;
+    END IF;
+
     IF NOT EXISTS (
-        SELECT 1 FROM public.rooms 
-        WHERE id = room_id 
-        AND status = 'Vacant'
+        SELECT 1 FROM public.rooms
+        WHERE id = assign_room_to_booking.room_id
+          AND status = 'Vacant'
     ) THEN
         RAISE EXCEPTION 'Room is not available';
     END IF;
-    
-    -- Verify booking is in correct status
+
     IF NOT EXISTS (
         SELECT 1 FROM public.bookings
         WHERE id = booking_id
-        AND status = 'Pending Check-in'
-        AND (room_id IS NULL OR room_id = assign_room_to_booking.room_id)
+          AND status = 'Pending Check-in'
     ) THEN
         RAISE EXCEPTION 'Booking is not in valid state for room assignment';
     END IF;
-    
-    -- Assign room and automatically set status to Checked-in
+
     UPDATE public.bookings
     SET room_id = assign_room_to_booking.room_id,
         status = 'Checked-in',
         updated_at = now()
     WHERE id = booking_id;
-    
-    -- Update room status to Occupied
+
     UPDATE public.rooms
     SET status = 'Occupied',
         updated_at = now()
     WHERE id = assign_room_to_booking.room_id;
-    
+
+    IF old_room_id IS NOT NULL AND old_room_id <> assign_room_to_booking.room_id THEN
+        UPDATE public.rooms
+        SET status = 'Vacant',
+            updated_at = now()
+        WHERE id = old_room_id;
+    END IF;
+
     RETURN TRUE;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.assign_room_to_booking(UUID, UUID) TO authenticated;
 
 -- Ensure bookings can use improved lifecycle statuses safely.
 DO $$
@@ -3591,3 +3604,130 @@ DROP TRIGGER IF EXISTS trg_finance_audit_stock_transactions_mutation ON public.s
 CREATE TRIGGER trg_finance_audit_stock_transactions_mutation
 AFTER UPDATE OR DELETE ON public.stock_transactions
 FOR EACH ROW EXECUTE FUNCTION public.log_finance_change();
+
+-- ==============================================
+-- Staff reception: create booking already Checked-in in one transaction (no orphan Pending rows)
+-- ==============================================
+CREATE OR REPLACE FUNCTION public.staff_create_booking_and_check_in(
+  p_room_id UUID,
+  p_requested_room_type TEXT,
+  p_check_in_date TIMESTAMPTZ,
+  p_check_out_date TIMESTAMPTZ,
+  p_total_amount INT8,
+  p_paid_amount INT8,
+  p_payment_method TEXT DEFAULT 'cash',
+  p_guest_name TEXT DEFAULT NULL,
+  p_guest_phone TEXT DEFAULT NULL,
+  p_guest_email TEXT DEFAULT NULL,
+  p_discount_applied BOOLEAN DEFAULT FALSE,
+  p_discount_amount INT8 DEFAULT 0,
+  p_discount_percentage NUMERIC(5, 2) DEFAULT 0,
+  p_discount_reason TEXT DEFAULT NULL,
+  p_discount_applied_by UUID DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  IF NOT public.is_user_active(auth.uid()) THEN
+    RAISE EXCEPTION 'Account inactive';
+  END IF;
+  IF NOT (
+    public.user_has_role(auth.uid(), 'receptionist')
+    OR public.user_has_role(auth.uid(), 'manager')
+    OR public.user_has_role(auth.uid(), 'owner')
+  ) THEN
+    RAISE EXCEPTION 'Only reception or management can create this booking';
+  END IF;
+
+  IF p_check_out_date <= p_check_in_date THEN
+    RAISE EXCEPTION 'Invalid stay dates';
+  END IF;
+
+  IF p_requested_room_type IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.rooms r
+      INNER JOIN public.room_types rt ON rt.id = r.type_id
+      WHERE r.id = p_room_id
+        AND rt.type = p_requested_room_type
+    ) THEN
+      RAISE EXCEPTION 'Room type mismatch for selected room';
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.rooms WHERE id = p_room_id AND status = 'Vacant'
+  ) THEN
+    RAISE EXCEPTION 'Room is not available';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.bookings b
+    WHERE b.room_id = p_room_id
+      AND b.status IN ('Pending Check-in', 'Checked-in')
+      AND b.check_in_date < p_check_out_date
+      AND b.check_out_date > p_check_in_date
+  ) THEN
+    RAISE EXCEPTION 'Room already tied to an overlapping booking';
+  END IF;
+
+  INSERT INTO public.bookings (
+    room_id,
+    requested_room_type,
+    check_in_date,
+    check_out_date,
+    status,
+    total_amount,
+    paid_amount,
+    payment_method,
+    guest_name,
+    guest_email,
+    guest_phone,
+    discount_applied,
+    discount_amount,
+    discount_percentage,
+    discount_reason,
+    discount_applied_by,
+    created_by
+  ) VALUES (
+    p_room_id,
+    p_requested_room_type,
+    p_check_in_date,
+    p_check_out_date,
+    'Checked-in',
+    p_total_amount,
+    p_paid_amount,
+    COALESCE(NULLIF(trim(p_payment_method), ''), 'cash'),
+    NULLIF(trim(p_guest_name), ''),
+    NULLIF(trim(p_guest_email), ''),
+    NULLIF(trim(p_guest_phone), ''),
+    COALESCE(p_discount_applied, FALSE),
+    COALESCE(p_discount_amount, 0),
+    COALESCE(p_discount_percentage, 0),
+    NULLIF(trim(p_discount_reason), ''),
+    p_discount_applied_by,
+    auth.uid()
+  )
+  RETURNING id INTO v_id;
+
+  UPDATE public.rooms
+  SET status = 'Occupied',
+      updated_at = now()
+  WHERE id = p_room_id;
+
+  RETURN v_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.staff_create_booking_and_check_in(
+  UUID, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT8, INT8, TEXT,
+  TEXT, TEXT, TEXT, BOOLEAN, INT8, NUMERIC, TEXT, UUID
+) TO authenticated;

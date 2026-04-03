@@ -289,36 +289,28 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       if (_selectedRoomId == null || _selectedRoomId!.isEmpty) {
         throw Exception('Please select a room before creating this booking.');
       }
-      
-      final bookingId = await _dataService.createBooking({
-        'room_id': _selectedRoomId,
-        'requested_room_type': selectedRoomType['type'] as String?,
-        'check_in': _checkInDate!.toIso8601String(),
-        'check_out': _checkOutDate!.toIso8601String(),
-        'status': 'Pending Check-in',
-        'total_amount': totalAmount, // Already in kobo from room_types.price
-        'paid_amount': paidAmount, // Amount actually paid by customer
-        'payment_method': _paymentMethod.toLowerCase(),
-        'discount_applied': _discountApplied,
-        'discount_amount': _discountAmount,
-        'discount_percentage': _discountPercentage,
-        'discount_reason': _discountApplied ? (_discountReasonController.text.trim().isEmpty ? null : _discountReasonController.text.trim()) : null,
-        'discount_applied_by': _discountApplied ? userId : null,
-        'guest_name': guestNameForRecord,
-        'guest_phone': phone,
-      });
 
-      try {
-        // Atomic DB function: validates room + flips booking to Checked-in + room to Occupied.
-        await _supabase.rpc('assign_room_to_booking', params: {
-          'booking_id': bookingId,
-          'room_id': _selectedRoomId,
-        });
-      } catch (_) {
-        // Avoid leaving misleading pending records for staff-created bookings.
-        await _supabase.from('bookings').delete().eq('id', bookingId);
-        rethrow;
-      }
+      final requestedTypeName = (selectedRoomType['type'] as String?)?.trim();
+      final bookingId = await _dataService.staffCreateBookingAndCheckIn(
+        roomId: _selectedRoomId!,
+        requestedRoomType:
+            (requestedTypeName != null && requestedTypeName.isNotEmpty) ? requestedTypeName : null,
+        checkIn: _checkInDate!,
+        checkOut: _checkOutDate!,
+        totalAmountKobo: totalAmount,
+        paidAmountKobo: paidAmount,
+        paymentMethod: _paymentMethod.toLowerCase(),
+        guestName: guestNameForRecord,
+        guestPhone: phone,
+        guestEmail: null,
+        discountApplied: _discountApplied,
+        discountAmountKobo: _discountAmount,
+        discountPercentage: _discountPercentage,
+        discountReason: _discountApplied
+            ? (_discountReasonController.text.trim().isEmpty ? null : _discountReasonController.text.trim())
+            : null,
+        discountAppliedByProfileId: _discountApplied ? userId : null,
+      );
 
       // If credit payment, create debt linked to booking
       if (_paymentMethod.toLowerCase() == 'credit') {

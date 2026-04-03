@@ -320,6 +320,54 @@ class DataService {
     });
   }
 
+  /// Atomically creates a staff booking as [Checked-in] and marks the room [Occupied]
+  /// (see `staff_create_booking_and_check_in` in non_destructive_upgrade.sql).
+  Future<String> staffCreateBookingAndCheckIn({
+    required String roomId,
+    String? requestedRoomType,
+    required DateTime checkIn,
+    required DateTime checkOut,
+    required int totalAmountKobo,
+    required int paidAmountKobo,
+    required String paymentMethod,
+    String? guestName,
+    String? guestPhone,
+    String? guestEmail,
+    bool discountApplied = false,
+    int discountAmountKobo = 0,
+    double discountPercentage = 0,
+    String? discountReason,
+    String? discountAppliedByProfileId,
+  }) async {
+    return await _retryOperation(() async {
+      final res = await _supabase.rpc(
+        'staff_create_booking_and_check_in',
+        params: {
+          'p_room_id': roomId,
+          'p_requested_room_type': requestedRoomType,
+          'p_check_in_date': checkIn.toIso8601String(),
+          'p_check_out_date': checkOut.toIso8601String(),
+          'p_total_amount': totalAmountKobo,
+          'p_paid_amount': paidAmountKobo,
+          'p_payment_method': paymentMethod,
+          'p_guest_name': guestName,
+          'p_guest_phone': guestPhone,
+          'p_guest_email': guestEmail,
+          'p_discount_applied': discountApplied,
+          'p_discount_amount': discountAmountKobo,
+          'p_discount_percentage': discountPercentage,
+          'p_discount_reason': discountReason,
+          'p_discount_applied_by': discountAppliedByProfileId,
+        },
+      );
+      final id = res?.toString();
+      if (id == null || id.isEmpty) {
+        throw Exception('Booking was not created. Please try again.');
+      }
+      return id;
+    });
+  }
+
   Future<void> updateBookingStatus(String bookingId, String newStatus) async {
     await _retryOperation(() async {
       await _supabase
@@ -1731,8 +1779,8 @@ class DataService {
       int roomRevenue = 0;
       for (final b in bookResp) {
         final total = (b['total_amount'] as num?)?.toInt();
-        final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
-        roomRevenue += total ?? paid;
+        final paid = (b['paid_amount'] as num?)?.toInt();
+        roomRevenue += _collectedAmountKobo(total, paid);
       }
       totalIncome += roomRevenue.toDouble();
 
@@ -1848,8 +1896,8 @@ class DataService {
             .lt('check_out_date', beforeDate);
         for (final b in bookResp as List) {
           final total = (b['total_amount'] as num?)?.toInt();
-          final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
-          inflows += (total ?? paid).toDouble();
+          final paid = (b['paid_amount'] as num?)?.toInt();
+          inflows += _collectedAmountKobo(total, paid).toDouble();
         }
       } catch (_) {}
 
@@ -1942,9 +1990,9 @@ class DataService {
         double receptionTotal = 0.0;
         for (final b in bookingResp as List) {
           final total = b['total_amount'] as num?;
-          final paid = (b['paid_amount'] as num?) ?? 0;
-          final val = total ?? paid;
-          receptionTotal += val?.toDouble() ?? 0.0;
+          final paid = b['paid_amount'] as num?;
+          final val = _collectedAmountKobo(total?.toInt(), paid?.toInt());
+          receptionTotal += val.toDouble();
         }
 
         if (receptionTotal > 0) {
@@ -2985,6 +3033,12 @@ class DataService {
           })
           .eq('id', profileId);
     });
+  }
+
+  int _collectedAmountKobo(int? totalAmount, int? paidAmount) {
+    // Collected-first rule: if paid_amount exists (including 0 for credit), it is the truth.
+    if (paidAmount != null) return paidAmount;
+    return totalAmount ?? 0;
   }
 
 }

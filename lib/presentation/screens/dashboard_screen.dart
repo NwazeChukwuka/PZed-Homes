@@ -411,22 +411,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   /// Computes total room revenue for a given date range from bookings.
   /// Revenue is recognized at check-in; filters by check_in_date in range.
-  /// Uses total_amount if available, otherwise falls back to paid_amount,
-  /// and includes extra_charges when present.
+  /// Uses collected-first rule (paid_amount takes precedence over total_amount),
+  /// and includes extra_charges normalization when present.
   num _calculateRoomRevenueForRange(List<Map<String, dynamic>> bookings, DateTimeRange range) {
     return bookings.where((b) {
       final checkIn = _parseTimestamp(b['check_in_date']);
       if (checkIn == null) return false;
       return _isDateInRange(checkIn, range);
     }).fold<num>(0, (sum, booking) {
-      final totalAmount = (booking['total_amount'] as num?)?.toInt();
       final paidAmount = (booking['paid_amount'] as num?)?.toInt() ?? 0;
       final extrasList = (booking['extra_charges'] as List?) ?? const [];
       final extras = extrasList.fold<int>(0, (s, c) {
         final price = (c['price'] as num?)?.toInt() ?? 0;
         return s + price;
       });
-      final baseTotal = totalAmount ?? paidAmount;
+      final baseTotal = paidAmount;
       final normalizedTotal = baseTotal >= extras ? baseTotal : baseTotal + extras;
       return sum + normalizedTotal;
     });
