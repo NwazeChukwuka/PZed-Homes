@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/core/utils/room_number_sort.dart';
 
 /// Lightweight in-memory cache with short TTL, stale-while-revalidate, and memoization.
 class _DataServiceCache {
@@ -433,7 +434,10 @@ class DataService {
             .select()
             .order('room_number')
             .range(offset, offset + limit - 1);
-        return List<Map<String, dynamic>>.from(response);
+        final list = List<Map<String, dynamic>>.from(response);
+        // Postgres TEXT room_number sorts lexicographically; normalize to numeric 101→212 for UI parity.
+        sortRoomMapsByNumber(list);
+        return list;
       }),
     );
   }

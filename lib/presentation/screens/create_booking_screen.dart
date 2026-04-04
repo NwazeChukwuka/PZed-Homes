@@ -13,6 +13,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/utils/room_number_sort.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateBookingScreen extends StatefulWidget {
@@ -178,8 +179,11 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       final rooms = await query
           .not('id', 'in', bookedRoomIds.isEmpty ? [''] : bookedRoomIds.toList());
 
+      final roomList = List<Map<String, dynamic>>.from(rooms);
+      sortRoomMapsByNumber(roomList);
+
       setState(() {
-        _availableRooms = List<Map<String, dynamic>>.from(rooms);
+        _availableRooms = roomList;
         _selectedRoomId = null;
       });
     } catch (e, stackTrace) {

@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/core/utils/room_number_sort.dart';
 
 class DatabaseService {
   final _supabase = Supabase.instance.client;
@@ -45,7 +46,9 @@ class DatabaseService {
   // Fetch all rooms
   Future<List<Map<String, dynamic>>> getRooms() async {
     final response = await _supabase.from('rooms').select().order('room_number');
-    return response;
+    final list = List<Map<String, dynamic>>.from(response as List);
+    sortRoomMapsByNumber(list);
+    return list;
   }
 
   // Update a room's status

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/presentation/screens/booking_details_screen.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/utils/room_number_sort.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
 class AssignRoomScreen extends StatefulWidget {
@@ -49,7 +50,7 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       } else {
         roomsQuery = roomsQuery.eq('type', requestedType);
       }
-      final rooms = await roomsQuery.order('room_number');
+      final rooms = await roomsQuery;
 
       // Exclude this booking so its pre-linked room is not filtered out as "booked by self".
       final conflictingBookings = await _supabase
@@ -65,7 +66,8 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
           .map((b) => b['room_id'] as String)
           .toSet();
 
-      var available = (rooms as List)
+      List<Map<String, dynamic>> available = (rooms as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
           .where((r) => !bookedRoomIds.contains(r['id'] as String))
           .toList();
 
@@ -77,11 +79,13 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
             final rid = existing['type_id'] as String?;
             final typeOk = typeId == null || rid == typeId;
             if (typeOk && !available.any((r) => r['id'] == preId)) {
-              available = [...available, existing];
+              available = [...available, Map<String, dynamic>.from(existing)];
             }
           }
         } catch (_) {}
       }
+
+      sortRoomMapsByNumber(available);
 
       final preset =
           (preId != null && preId.isNotEmpty && available.any((r) => r['id'] == preId)) ? preId : null;

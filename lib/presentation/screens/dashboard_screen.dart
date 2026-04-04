@@ -15,6 +15,7 @@ import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/core/utils/room_number_sort.dart';
 
 enum TimeRange { today, month, lastMonth, custom }
 
@@ -1374,7 +1375,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // If no rooms from bookings, load all rooms from database
     List<String> rooms = [];
     if (roomSet.isNotEmpty) {
-      rooms = roomSet.toList()..sort();
+      rooms = roomSet.toList();
+      sortRoomNumberStrings(rooms);
     } else {
       // Load all rooms from database
       try {
@@ -1383,8 +1385,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .map((r) => r['room_number']?.toString() ?? '')
             .where((rn) => rn.isNotEmpty)
             .toSet()
-            .toList()
-          ..sort();
+            .toList();
+        sortRoomNumberStrings(roomNumbers);
         rooms = roomNumbers;
       } catch (e, stack) {
         if (kDebugMode) debugPrint('DEBUG rooms query: $e\n$stack');
