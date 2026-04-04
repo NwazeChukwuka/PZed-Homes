@@ -1773,6 +1773,42 @@ BEGIN
           AND room_id IS NOT NULL
     )
     AND status = 'Occupied';
+
+    -- One hour after checkout cutoff (1:00 PM on check-out date): Dirty -> Vacant for normal turnover.
+    -- Uses latest Checked-out stay per room; skips if an active stay still holds the room.
+    -- Bookings updated in the last 14 days avoids flipping rooms left Dirty long-term for deep clean / maintenance intent.
+    WITH latest_checked_out AS (
+      SELECT DISTINCT ON (b.room_id)
+        b.room_id AS rid,
+        b.check_out_date AS co_date,
+        b.updated_at AS co_updated
+      FROM public.bookings b
+      WHERE b.room_id IS NOT NULL
+        AND b.status = 'Checked-out'
+      ORDER BY b.room_id, b.check_out_date DESC NULLS LAST, b.updated_at DESC NULLS LAST
+    )
+    UPDATE public.rooms r
+    SET status = 'Vacant',
+        updated_at = v_now
+    FROM latest_checked_out lc
+    WHERE r.id = lc.rid
+      AND r.status = 'Dirty'
+      AND v_now >= (DATE(lc.co_date) + INTERVAL '13 hours')
+      AND lc.co_updated >= v_now - INTERVAL '14 days'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.bookings b
+        WHERE b.room_id = r.id
+          AND b.status IN (
+            'Checked-in',
+            'checked_in',
+            'Checked_in',
+            'Pending Check-in',
+            'pending check-in',
+            'pending_check_in',
+            'pending'
+          )
+      );
 END;
 $$;
 

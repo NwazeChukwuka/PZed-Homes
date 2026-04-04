@@ -94,7 +94,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   num _previousPayroll = 0;
   num _previousProfit = 0;
   int _previousCheckedInCount = 0;
-  /// Period payroll (gross fallback + actual overrides) for current date range; used for Payroll card and Profit.
+  /// Period payroll for Payroll card and Net Profit. Omitted (zero) when [TimeRange.today] is selected—payroll is monthly-only on the dashboard.
   num _calculatedPayrollTotal = 0;
   /// Current period KPI totals (computed once when data loads; used by _buildAllCards to avoid recomputing on every build).
   num _currentIncome = 0;
@@ -591,18 +591,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           startDate: previousRange.start,
           endDate: previousRange.end,
         ),
-        _dataService.getPayrollRecords(
-          startMonth: DateTime(timeRange.start.year, timeRange.start.month, 1),
-          endMonth: DateTime(timeRange.end.year, timeRange.end.month, 1),
-          approvalStatus: 'approved',
-        ),
-        _dataService.getPayrollRecords(
-          startMonth: DateTime(previousRange.start.year, previousRange.start.month, 1),
-          endMonth: DateTime(previousRange.end.year, previousRange.end.month, 1),
-          approvalStatus: 'approved',
-        ),
-        _dataService.calculatePeriodPayroll(timeRange.start, timeRange.end),
-        _dataService.calculatePeriodPayroll(previousRange.start, previousRange.end),
+        _timeRange == TimeRange.today
+            ? Future<List<Map<String, dynamic>>>.value([])
+            : _dataService.getPayrollRecords(
+                startMonth: DateTime(timeRange.start.year, timeRange.start.month, 1),
+                endMonth: DateTime(timeRange.end.year, timeRange.end.month, 1),
+                approvalStatus: 'approved',
+              ),
+        _timeRange == TimeRange.today
+            ? Future<List<Map<String, dynamic>>>.value([])
+            : _dataService.getPayrollRecords(
+                startMonth: DateTime(previousRange.start.year, previousRange.start.month, 1),
+                endMonth: DateTime(previousRange.end.year, previousRange.end.month, 1),
+                approvalStatus: 'approved',
+              ),
+        _timeRange == TimeRange.today
+            ? Future<num>.value(0)
+            : _dataService.calculatePeriodPayroll(timeRange.start, timeRange.end),
+        _timeRange == TimeRange.today
+            ? Future<num>.value(0)
+            : _dataService.calculatePeriodPayroll(previousRange.start, previousRange.end),
       ]);
 
       final otherSection = Future.wait([

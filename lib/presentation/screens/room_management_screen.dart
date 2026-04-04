@@ -203,6 +203,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   Future<void> _loadRooms() async {
     setState(() => _isLoading = true);
     try {
+      // Apply booking/room lifecycle (checkout -> Dirty -> Vacant after 1h past noon) before reading rooms.
+      await _dataService.updateExpiredBookings();
+      _dataService.invalidateCacheForTable('rooms');
+
       final results = await Future.wait([
         _dataService.getRooms(limit: 500, offset: 0),
         _dataService.getCheckedInRoomIds(),
