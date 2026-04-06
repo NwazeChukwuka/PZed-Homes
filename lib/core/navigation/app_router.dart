@@ -118,7 +118,7 @@ class AppRouter {
             ),
             const SizedBox(height: 16),
             Text(
-              'Page not found: ${state.uri}',
+              'Page not found: ${state.uri.path.isEmpty ? '/' : state.uri.path}',
               style: const TextStyle(fontSize: 18),
               textAlign: TextAlign.center,
             ),
@@ -439,7 +439,7 @@ class AppRouter {
 
         final isLoggedIn = authService.isLoggedIn;
         final currentUser = authService.currentUser;
-        final location = state.uri.toString();
+        final location = state.uri.path.isEmpty ? '/' : state.uri.path;
 
         // Guest routes - allow access
         if (location.startsWith('/guest') || location == '/') {

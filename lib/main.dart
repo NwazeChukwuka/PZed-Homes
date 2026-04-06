@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -15,6 +16,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    // Use path URLs on web so auth fragments are not interpreted as route paths.
+    usePathUrlStrategy();
+  }
 
   // Defer orientation lock - run in background so runApp is not blocked
   if (!kIsWeb) {

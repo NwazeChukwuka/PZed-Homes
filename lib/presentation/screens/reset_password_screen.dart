@@ -149,15 +149,27 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
       final fragment = uri.fragment;
 
-      // 5) Implicit flow: parse fragment for refresh_token
+      // 5) Implicit flow: parse fragment tokens from Supabase confirmation URLs.
       if (fragment.isNotEmpty) {
-        final params = Uri.splitQueryString(fragment);
-        final refreshToken = params['refresh_token'];
-        if (refreshToken != null && refreshToken.isNotEmpty) {
-          await supabase.auth.setSession(refreshToken);
-          _initChecked = true;
-          if (mounted) setState(() => _sessionReady = true);
-          return;
+        final normalizedFragment = fragment.startsWith('/') ? fragment.substring(1) : fragment;
+        try {
+          final params = Uri.splitQueryString(normalizedFragment);
+          final refreshToken = params['refresh_token'];
+          final accessToken = params['access_token'];
+          if ((refreshToken != null && refreshToken.isNotEmpty) ||
+              (accessToken != null && accessToken.isNotEmpty)) {
+            if (refreshToken != null && refreshToken.isNotEmpty) {
+              await supabase.auth.setSession(refreshToken);
+            } else {
+              // Access token without refresh token is rare; rely on SDK auth listener/current session.
+              await Future<void>.delayed(const Duration(milliseconds: 100));
+            }
+            _initChecked = true;
+            if (mounted) setState(() => _sessionReady = true);
+            return;
+          }
+        } catch (e, stack) {
+          if (kDebugMode) debugPrint('DEBUG fragment parse recovery: $e\n$stack');
         }
       }
 
