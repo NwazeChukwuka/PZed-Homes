@@ -7,6 +7,16 @@ import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// True when the browser is on a password-recovery or auth-callback route (or recovery tokens in URL).
+bool _isAuthRecoveryNavigationUri(Uri uri) {
+  final p = uri.path;
+  if (p.contains('reset-password') || p.contains('auth/callback')) return true;
+  if (uri.queryParameters['type'] == 'recovery') return true;
+  final f = uri.fragment;
+  if (f.contains('type=recovery') || f.contains('refresh_token')) return true;
+  return false;
+}
+
 class AuthService with ChangeNotifier {
   SupabaseClient? _supabase;
   AppUser? _currentUser;
@@ -115,10 +125,7 @@ class AuthService with ChangeNotifier {
     // EXCEPTION: Do NOT sign out when user landed on password reset URL (recovery flow)
     try {
       final uri = Uri.base;
-      final isRecoveryUrl = uri.path.contains('reset-password') ||
-          uri.fragment.contains('type=recovery') ||
-          uri.fragment.contains('refresh_token') ||
-          uri.queryParameters['type'] == 'recovery';
+      final isRecoveryUrl = _isAuthRecoveryNavigationUri(uri);
       final initialSession = _supabase!.auth.currentSession;
       if (initialSession != null && !isRecoveryUrl) {
         // Sign out any existing session to force explicit login
@@ -163,9 +170,9 @@ class AuthService with ChangeNotifier {
         // This prevents auto-login from localStorage persistence
         if (!_initializationComplete) {
           // If we see a session during initialization, sign it out immediately
-          // (passwordRecovery is handled above)
+          // (passwordRecovery is handled above). Never sign out on reset-password / auth-callback URLs.
           final session = data.session;
-          if (session != null) {
+          if (session != null && !_isAuthRecoveryNavigationUri(Uri.base)) {
             try {
               await _supabase!.auth.signOut();
             } catch (e) {
@@ -184,7 +191,7 @@ class AuthService with ChangeNotifier {
           // EXCEPT when in recovery flow (isRecovering keeps the session alive)
           // EXCEPT when on reset-password URL (handles PKCE where passwordRecovery may not fire)
           final uri = Uri.base;
-          final onResetPasswordPage = uri.path.contains('reset-password');
+          final onResetPasswordPage = _isAuthRecoveryNavigationUri(uri);
           if (_currentUser == null && onResetPasswordPage) {
             _isRecovering = true;
             _isLoading = false;

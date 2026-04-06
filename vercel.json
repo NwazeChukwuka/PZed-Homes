@@ -2,6 +2,17 @@
   "buildCommand": "bash ./vercel_build.sh",
   "outputDirectory": "build/web",
   "installCommand": "echo 'Dependencies installed during build'",
-  "cleanUrls": true,
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "pzedluxuryhotels.com" }],
+      "destination": "https://www.pzedluxuryhotels.com/:path*",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": "/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

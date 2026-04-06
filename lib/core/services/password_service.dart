@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:pzed_homes/core/config/app_config.dart';
 import '../error/error_handler.dart';
 
 class PasswordService {
@@ -23,11 +24,11 @@ class PasswordService {
       
       if (customRedirectUrl != null) {
         redirectUrl = customRedirectUrl;
+      } else if (kIsWeb) {
+        // Fixed production URL — must match Supabase Redirect URLs (see AppConfig.productionUrl).
+        redirectUrl = AppConfig.passwordResetUrl;
       } else {
-        // Environment-aware: web uses current origin, mobile uses deep link
-        // Must match Redirect URLs in Supabase Dashboard
-        final base = kIsWeb ? Uri.base.origin : 'com.pzed.app://reset-password';
-        redirectUrl = kIsWeb ? '$base/auth/reset-password' : base;
+        redirectUrl = 'com.pzed.app://reset-password';
       }
       
       await _supabase.auth.resetPasswordForEmail(
