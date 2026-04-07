@@ -35,7 +35,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     setState(() {
       _categories = [
         'utilities',
-        'payroll',
+        // Salaries: use Finance → Payroll (approved rows), not a manual expense here.
         'maintenance',
         'supplies',
         'others',

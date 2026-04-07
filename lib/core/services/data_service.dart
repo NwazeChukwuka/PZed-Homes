@@ -996,7 +996,7 @@ class DataService {
     });
   }
 
-  /// Updates a staff profile's monthly gross salary (in kobo). Used for payroll fallback when no actual is recorded.
+  /// Updates a staff profile's monthly gross salary (in kobo). Used to prefill payroll entry and configuration checks only — not for financial totals.
   Future<void> updateStaffMonthlySalary(String profileId, int amountKobo) async {
     await _retryOperation(() async {
       await _supabase.from('profiles').update({
@@ -1006,54 +1006,43 @@ class DataService {
     });
   }
 
-  /// Calculates total payroll for a date range using: approved actuals from payroll_records where they exist,
-  /// otherwise staff monthly_salary (gross) from profiles. Sums per staff per month across all months in range.
-  /// Note: Payroll is MONTH-BASED, not day-based. A custom range of e.g. March 31–April 1 still includes two full
-  /// months of payroll (March + April). All amounts are in kobo.
+  /// Sums **approved** `payroll_records` only (kobo). No imputation from `monthly_salary`.
+  /// Uses the same month window as [getPayrollRecords] (first-of-month bounds). If multiple
+  /// approved rows exist for the same staff and calendar month, keeps the latest by `approved_at` then `created_at`.
   Future<num> calculatePeriodPayroll(DateTime start, DateTime end) async {
-    final staff = await getStaffProfiles(); // Active staff only (status = 'Active'); deactivated staff are excluded.
     final startMonth = DateTime(start.year, start.month, 1);
     final endMonth = DateTime(end.year, end.month, 1);
     final records = await getPayrollRecords(
       startMonth: startMonth,
       endMonth: endMonth,
       approvalStatus: 'approved',
-      limit: 500,
+      limit: 5000,
     );
-    // Build set of months in range (first day of each month). Dashboard is month-based: any day in a month includes full month payroll.
-    final months = <DateTime>{};
-    var m = DateTime(startMonth.year, startMonth.month, 1);
-    while (m.isBefore(endMonth) || m.isAtSameMomentAs(endMonth)) {
-      months.add(DateTime(m.year, m.month, 1));
-      m = DateTime(m.year, m.month + 1, 1);
+    String monthKeyFromRow(Map<String, dynamic> r) {
+      final raw = r['month']?.toString() ?? '';
+      if (raw.length >= 7) return raw.substring(0, 7);
+      return raw;
     }
-    if (kDebugMode && months.length >= 2 && end.difference(start).inDays <= 3) {
-      debugPrint('Payroll: period is month-based; ${months.length} month(s) in range (short date window still uses full months of salary).');
-    }
-    // All amounts below are in kobo (payroll_records.amount, profiles.monthly_salary).
-    num total = 0;
-    for (final month in months) {
-      for (final s in staff) {
-        final staffId = s['id']?.toString();
-        if (staffId == null) continue;
-        final actual = records.cast<Map<String, dynamic>>().where((r) {
-          final rMonth = r['month']?.toString();
-          final rStaff = r['staff_id']?.toString();
-          return rStaff == staffId && (rMonth?.startsWith('${month.year}-${month.month.toString().padLeft(2, '0')}') ?? false);
-        }).toList();
-        // Duplicate-record guard: if multiple approved records exist for same staff/month, use the latest by approved_at to avoid double-counting.
-        if (actual.length > 1) {
-          actual.sort((a, b) {
-            final at = a['approved_at']?.toString() ?? a['created_at']?.toString() ?? '';
-            final bt = b['approved_at']?.toString() ?? b['created_at']?.toString() ?? '';
-            return bt.compareTo(at);
-          });
-        }
-        final amount = actual.isNotEmpty
-            ? (actual.first['amount'] is int ? (actual.first['amount'] as int).toDouble() : (double.tryParse(actual.first['amount']?.toString() ?? '') ?? 0))
-            : ((s['monthly_salary'] is int ? (s['monthly_salary'] as int).toDouble() : (double.tryParse(s['monthly_salary']?.toString() ?? '') ?? 0)));
-        total += amount;
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final r in records) {
+      final staffId = r['staff_id']?.toString();
+      if (staffId == null || staffId.isEmpty) continue;
+      final mk = monthKeyFromRow(r);
+      if (mk.isEmpty) continue;
+      final key = '$staffId|$mk';
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = r;
+        continue;
       }
+      final at = r['approved_at']?.toString() ?? r['created_at']?.toString() ?? '';
+      final bt = existing['approved_at']?.toString() ?? existing['created_at']?.toString() ?? '';
+      if (at.compareTo(bt) > 0) byKey[key] = r;
+    }
+    num total = 0;
+    for (final r in byKey.values) {
+      final a = r['amount'];
+      total += a is int ? a.toDouble() : (double.tryParse(a?.toString() ?? '') ?? 0);
     }
     return total;
   }

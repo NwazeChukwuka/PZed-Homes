@@ -31,6 +31,8 @@ class PLData {
   final int totalExpenseCount;
   final List<CategoryAmount> revenueBreakdown;
   final List<CategoryAmount> expenseBreakdown;
+  /// Payroll lines for PDF / audit: all statuses in period (capped); P&L still uses approved totals only.
+  final List<Map<String, dynamic>> payrollPdfRows;
 
   PLData({
     required this.totalRevenue,
@@ -42,6 +44,7 @@ class PLData {
     required this.totalExpenseCount,
     required this.revenueBreakdown,
     required this.expenseBreakdown,
+    required this.payrollPdfRows,
   });
 }
 
@@ -250,13 +253,32 @@ class ReportingService {
           .order('transaction_date', ascending: false);
       final expenseItems = expenseResponse;
 
-      // 6. Payroll
+      // 6. Payroll (approved only — matches dashboard / period payroll)
       final payrollResponse = await _supabase
           .from('payroll_records')
           .select('amount')
+          .eq('approval_status', 'approved')
           .gte('month', startStr)
           .lte('month', endStr);
       final payrollTotal = (payrollResponse as List).fold<int>(0, (s, r) => s + ((r['amount'] as num?)?.toInt() ?? 0));
+
+      // 6b. Payroll detail for PDF (all statuses; newest months first, capped)
+      List<Map<String, dynamic>> payrollPdfRows = [];
+      try {
+        final payrollDetailResp = await _supabase
+            .from('payroll_records')
+            .select('month, amount, approval_status, rejection_reason, staff:profiles!staff_id(full_name)')
+            .gte('month', startStr)
+            .lte('month', endStr)
+            .order('month', ascending: false)
+            .limit(60);
+        payrollPdfRows = (payrollDetailResp as List).map((row) {
+          final r = Map<String, dynamic>.from(row as Map);
+          final staff = r.remove('staff') as Map?;
+          r['staff_name'] = staff?['full_name'];
+          return r;
+        }).toList();
+      } catch (_) {}
 
       // 7. Load room type prices for breakdown
       if (_roomTypePrices == null || _roomTypeCacheTime == null ||
@@ -332,6 +354,7 @@ class ReportingService {
         totalExpenseCount: expenseItems.length,
         revenueBreakdown: revenueBreakdown,
         expenseBreakdown: expenseBreakdown,
+        payrollPdfRows: payrollPdfRows,
       );
     } catch (e) {
       rethrow;

@@ -689,7 +689,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
-              'P&L includes payroll, purchases and maintenance. Room revenue is from check-outs in the selected period.',
+              'P&L includes approved payroll only, plus purchases and maintenance. Use Finance → Payroll to see pending or rejected rows. Room revenue is from check-outs in the selected period.',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
           ),
@@ -867,14 +867,15 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
           const SizedBox(height: 24),
-          _sectionTitle('Expense & Payroll Transactions'),
+          _sectionTitle('Expense transactions'),
           _card(
             child: SizedBox(
               height: _kDetailTableHeight,
               child: Center(
                 child: Text(
-                  'No expense or payroll transactions for this period.',
+                  'No expense transactions for this period. Staff Payroll is in the breakdown; payroll rows are in the PDF export.',
                   style: TextStyle(color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
@@ -974,15 +975,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
             ),
           ),
         const SizedBox(height: 24),
-        _sectionTitle('Expense & Payroll Transactions'),
+        _sectionTitle('Expense transactions'),
         if (expenseItems.isEmpty)
           _card(
             child: SizedBox(
               height: _kDetailTableHeight,
               child: Center(
-                    child: Text(
-                  'No expense or payroll transactions for this period.',
+                child: Text(
+                  'No expense transactions for this period. Staff Payroll is in the breakdown; payroll rows are in the PDF export.',
                   style: TextStyle(color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
@@ -1584,6 +1586,23 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       ];
     }).toList();
 
+    String shortPdfCell(String? s, {int max = 48}) {
+      final t = (s ?? '').replaceAll('\n', ' ').trim();
+      if (t.length <= max) return t;
+      return '${t.substring(0, max)}…';
+    }
+
+    final payrollPdfRows = _plData!.payrollPdfRows.map((r) {
+      final amt = (r['amount'] as num?)?.toInt() ?? 0;
+      return [
+        r['month']?.toString() ?? '',
+        shortPdfCell(r['staff_name']?.toString(), max: 28),
+        _fmtNaira(amt),
+        r['approval_status']?.toString() ?? '',
+        shortPdfCell(r['rejection_reason']?.toString(), max: 36),
+      ];
+    }).toList();
+
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(40),
@@ -1613,10 +1632,32 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
           rows: revenueRows,
         ),
         _pdfTableSection(
-          title: 'Expense & Payroll Transactions',
+          title: 'Expense transactions',
           headers: const ['Date', 'Category', 'Department', 'Description', 'Amount (₦)'],
           rows: expenseRows,
         ),
+        if (payrollPdfRows.isEmpty)
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 12),
+            child: pw.Text(
+              'Payroll: no rows in this period.',
+              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+            ),
+          )
+        else ...[
+          _pdfTableSection(
+            title: 'Payroll records (period, up to 60 rows)',
+            headers: const ['Month', 'Staff', 'Amount (₦)', 'Approval', 'Rejection note'],
+            rows: payrollPdfRows,
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 4, bottom: 4),
+            child: pw.Text(
+              'Totals above: P&L includes approved payroll only in Staff Payroll. This table lists every payroll row in the period (all statuses).',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+            ),
+          ),
+        ],
         pw.SizedBox(height: 20),
         pw.Align(
           alignment: pw.Alignment.centerRight,

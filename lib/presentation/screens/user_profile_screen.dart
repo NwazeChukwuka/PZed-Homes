@@ -833,14 +833,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       });
       final avgTicketValue = totalTransactions > 0 ? (totalSales / totalTransactions / 100) : 0.0;
       
-      // Calculate overtime cost (from payroll - simplified)
+      // Approved payroll only (same rule as dashboard / P&L)
       final overtimeCost = payrollRecords.fold<int>(0, (sum, record) {
+        if ((record['approval_status']?.toString() ?? '') != 'approved') return sum;
         return sum + ((record['amount'] as num?)?.toInt() ?? 0);
       });
-      
-      // Check payroll status
-      final pendingPayroll = payrollRecords.where((r) => r['status'] == 'pending').length;
-      final payrollStatus = pendingPayroll > 0 ? 'Pending ($pendingPayroll)' : 'Up-to-date';
+
+      final pendingApproval =
+          payrollRecords.where((r) => (r['approval_status']?.toString() ?? '').toLowerCase() == 'pending').length;
+      final rejected =
+          payrollRecords.where((r) => (r['approval_status']?.toString() ?? '').toLowerCase() == 'rejected').length;
+      final payrollStatus = pendingApproval > 0
+          ? 'Awaiting approval ($pendingApproval)'
+          : rejected > 0
+              ? 'Up-to-date ($rejected rejected)'
+              : 'Up-to-date';
       
       if (mounted) {
         setState(() {
@@ -907,8 +914,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         {'label': 'Refunds/Discounts', 'value': 'N/A'},
         {'label': 'Cash Variance', 'value': 'N/A'},
         {'label': 'Avg. Ticket Value', 'value': 'Loading...'},
-        {'label': 'Overtime Cost (30d)', 'value': 'Loading...'},
-        {'label': 'Payroll Status', 'value': 'Loading...'},
+        {'label': 'Approved payroll (30d)', 'value': 'Loading...'},
+        {'label': 'Payroll approval', 'value': 'Loading...'},
       ];
     } else if (_performanceData != null) {
       final data = _performanceData!;
@@ -928,8 +935,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         {'label': 'Refunds/Discounts', 'value': 'N/A'}, // Not tracked separately yet
         {'label': 'Cash Variance', 'value': 'N/A'}, // Not tracked yet
         {'label': 'Avg. Ticket Value', 'value': '₦${NumberFormat('#,##0.00').format(avgTicket)}'},
-        {'label': 'Payroll Cost (30d)', 'value': '₦${NumberFormat('#,##0.00').format(overtime)}'},
-        {'label': 'Payroll Status', 'value': data['payroll_status'] as String? ?? 'N/A'},
+        {'label': 'Approved payroll (30d)', 'value': '₦${NumberFormat('#,##0.00').format(overtime)}'},
+        {'label': 'Payroll approval', 'value': data['payroll_status'] as String? ?? 'N/A'},
       ];
     } else {
       // Fallback if data failed to load
@@ -944,8 +951,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         {'label': 'Refunds/Discounts', 'value': 'N/A'},
         {'label': 'Cash Variance', 'value': 'N/A'},
         {'label': 'Avg. Ticket Value', 'value': 'N/A'},
-        {'label': 'Payroll Cost (30d)', 'value': 'N/A'},
-        {'label': 'Payroll Status', 'value': 'N/A'},
+        {'label': 'Approved payroll (30d)', 'value': 'N/A'},
+        {'label': 'Payroll approval', 'value': 'N/A'},
       ];
     }
 

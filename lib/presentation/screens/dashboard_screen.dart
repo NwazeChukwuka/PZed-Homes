@@ -59,6 +59,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _stockTransactions = [];
   final List<Map<String, dynamic>> _stockLevels = [];
   List<Map<String, dynamic>> _payrollRecords = [];
+  /// Same month window as [_payrollRecords] but every `approval_status` (for accountant workload insight).
+  List<Map<String, dynamic>> _payrollRecordsAllStatuses = [];
   final List<Map<String, dynamic>> _cashDeposits = [];
   List<Map<String, dynamic>> _purchaseOrders = [];
   List<Map<String, dynamic>> _maintenanceOrders = [];
@@ -612,6 +614,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _timeRange == TimeRange.today
             ? Future<num>.value(0)
             : _dataService.calculatePeriodPayroll(previousRange.start, previousRange.end),
+        _timeRange == TimeRange.today
+            ? Future<List<Map<String, dynamic>>>.value([])
+            : _dataService.getPayrollRecords(
+                startMonth: DateTime(timeRange.start.year, timeRange.start.month, 1),
+                endMonth: DateTime(timeRange.end.year, timeRange.end.month, 1),
+                limit: 2000,
+              ),
       ]);
 
       final otherSection = Future.wait([
@@ -658,6 +667,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final previousPayrollList = financeResults[9] as List<Map<String, dynamic>>;
       final calculatedCurrentPayroll = (financeResults[10] as num).toDouble();
       final calculatedPreviousPayroll = (financeResults[11] as num).toDouble();
+      final payrollRecordsAllStatuses = financeResults[12] as List<Map<String, dynamic>>;
 
       final otherResults = results[3] as List;
       final locations = otherResults[0] as List<Map<String, dynamic>>;
@@ -899,6 +909,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _incomeRecords = incomeRecords;
           _expenseRecords = expenses;
           _payrollRecords = payrollRecords;
+          _payrollRecordsAllStatuses = payrollRecordsAllStatuses;
           
           // Store additional data for income/expense calculation
           _bookings = bookings;
@@ -3118,14 +3129,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final depositsInRange = countInRange(_cashDeposits, 'date');
-    final payrollInRange = _payrollRecords.where((p) {
+    final monthPrefix = '${r.start.year}-${r.start.month.toString().padLeft(2, '0')}';
+    final approvedPayrollInMonth = _payrollRecords.where((p) {
       final month = p['month']?.toString() ?? '';
-      return month.startsWith('${r.start.year}-${r.start.month.toString().padLeft(2, '0')}');
+      return month.startsWith(monthPrefix);
+    }).length;
+    final allPayrollRowsInMonth = _payrollRecordsAllStatuses.where((p) {
+      final month = p['month']?.toString() ?? '';
+      return month.startsWith(monthPrefix);
     }).length;
 
     return _inlineCards(context, MediaQuery.sizeOf(context).width, [
       ('Cash Deposits', '$depositsInRange', Icons.savings),
-      ('Payroll Runs', '$payrollInRange', Icons.payments),
+      ('Approved payroll', '$approvedPayrollInMonth', Icons.payments),
+      ('Payroll rows (all)', '$allPayrollRowsInMonth', Icons.pending_actions),
     ]);
   }
 

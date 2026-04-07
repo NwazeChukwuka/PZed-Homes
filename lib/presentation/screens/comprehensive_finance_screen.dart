@@ -127,7 +127,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   int _activeTabLoadToken = 0;
   DateTimeRange? _summaryRange;
   bool _showPendingExpenses = false;
-  bool _showPendingPayroll = false;
+  /// Payroll tab list filter: all | pending | approved | rejected (client-side on loaded rows).
+  String _payrollListFilter = 'all';
   bool _showOverdueDebtsOnly = false;
   String? _auditFilterTable;
   String? _auditFilterAction;
@@ -222,8 +223,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  /// Non-blocking UI guard: when a staff + month are selected for payroll, warn if an approved
-  /// record already exists for that staff/month. Does not block save; just surfaces the risk.
+  /// Non-blocking UI guard: warn if any payroll row already exists for this staff + month (any approval status).
   Future<void> _maybeShowDuplicatePayrollWarning() async {
     final staffId = _selectedPayrollStaffId;
     final month = _selectedPayrollMonth;
@@ -233,15 +233,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       final records = await _dataService.getPayrollRecords(
         startMonth: monthStart,
         endMonth: monthStart,
-        approvalStatus: 'approved',
+        limit: 50,
       );
       final hasExisting = records.any((r) => (r['staff_id']?.toString() ?? '') == staffId);
       if (hasExisting && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Note: An approved payroll record already exists for this month. '
-              'Saving this will override the previous record in dashboard calculations.',
+              'Note: A payroll row already exists for this staff and month (any status). '
+              'Saving adds another row — use the Payroll tab to review or approve.',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -250,6 +250,98 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     } catch (_) {
       // Silently ignore; this is best-effort warning only.
     }
+  }
+
+  List<Map<String, dynamic>> _payrollListForFilter() {
+    if (_payrollListFilter == 'all') return List<Map<String, dynamic>>.from(_payrollRecords);
+    final want = _payrollListFilter.toLowerCase();
+    return _payrollRecords
+        .where((r) => (r['approval_status']?.toString().toLowerCase() ?? '') == want)
+        .toList();
+  }
+
+  Color _payrollStatusChipColor(String? approvalStatus) {
+    switch ((approvalStatus ?? '').toLowerCase()) {
+      case 'approved':
+        return Colors.green.shade100;
+      case 'rejected':
+        return Colors.red.shade100;
+      default:
+        return Colors.orange.shade100;
+    }
+  }
+
+  Future<void> _showPayrollRecordDetail(Map<String, dynamic> payroll, {required bool canApprove}) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.id;
+    final approval = (payroll['approval_status']?.toString() ?? 'pending').toLowerCase();
+    final isPending = approval == 'pending';
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(payroll['staff_name']?.toString() ?? 'Payroll'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Amount: ₦${_formatKobo(payroll['amount'] ?? 0)}'),
+              const SizedBox(height: 8),
+              Text('Month: ${payroll['month']?.toString() ?? '—'}'),
+              const SizedBox(height: 8),
+              Text('Approval: ${payroll['approval_status']?.toString() ?? '—'}'),
+              if (approval == 'rejected' &&
+                  (payroll['rejection_reason']?.toString().isNotEmpty ?? false)) ...[
+                const SizedBox(height: 8),
+                Text('Rejection reason: ${payroll['rejection_reason']}'),
+              ],
+              const SizedBox(height: 8),
+              Text('Payment method: ${payroll['payment_method']?.toString() ?? '—'}'),
+              if (payroll['notes'] != null && payroll['notes'].toString().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Notes: ${payroll['notes']}'),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          if (isPending && canApprove && userId != null) ...[
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                await _showRejectionReasonDialog(
+                  onSubmit: (reason) async {
+                    await _dataService.rejectPayroll(
+                      payrollId: payroll['id']?.toString() ?? '',
+                      rejectedBy: userId,
+                      reason: reason,
+                    );
+                  },
+                );
+                _loadCurrentTabData();
+              },
+              child: const Text('Reject'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                await _dataService.approvePayroll(
+                  payrollId: payroll['id']?.toString() ?? '',
+                  approvedBy: userId,
+                );
+                _loadCurrentTabData();
+              },
+              child: const Text('Approve'),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -408,7 +500,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _dataService.getPayrollRecords(
         startMonth: range.start,
         endMonth: range.end,
-        approvalStatus: _showPendingPayroll ? 'pending' : null,
+        limit: 2000,
       ),
       _dataService.getStaffProfiles(),
     ]);
@@ -456,7 +548,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       _dataService.getIncomeRecords(startDate: range.start, endDate: range.end),
       _dataService.getExpenses(startDate: range.start, endDate: range.end),
       _dataService.getDebts(startDate: range.start, endDate: range.end),
-      _dataService.getPayrollRecords(startMonth: range.start, endMonth: range.end),
+      _dataService.getPayrollRecords(startMonth: range.start, endMonth: range.end, limit: 2000),
       _dataService.getCashDeposits(startDate: range.start, endDate: range.end),
       _dataService.getAuditorTransactions(startDate: range.start, endDate: range.end),
     ]);
@@ -1197,55 +1289,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Future<void> _showPayrollApprovalDialog(Map<String, dynamic> payroll) async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = authService.currentUser?.id;
-    if (userId == null) return;
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Payroll Approval'),
-        content: Text(
-          'Approve payroll of ₦${_formatKobo(payroll['amount'] ?? 0)}?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _showRejectionReasonDialog(
-                onSubmit: (reason) async {
-                  await _dataService.rejectPayroll(
-                    payrollId: payroll['id'],
-                    rejectedBy: userId,
-                    reason: reason,
-                  );
-                },
-              );
-              _loadCurrentTabData();
-            },
-            child: const Text('Reject'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _dataService.approvePayroll(
-                payrollId: payroll['id'],
-                approvedBy: userId,
-              );
-              _loadCurrentTabData();
-            },
-            child: const Text('Approve'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _showRejectionReasonDialog({
     required Future<void> Function(String? reason) onSubmit,
   }) async {
@@ -1817,49 +1860,89 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               ],
             ),
           ),
-        if (canApprove)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _showPendingPayroll ? 'Showing pending only' : 'Showing all',
-                    style: TextStyle(color: Colors.grey[700]),
-                  ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Filter by approval',
+                style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: const Text('All'),
+                      selected: _payrollListFilter == 'all',
+                      onSelected: (_) => setState(() => _payrollListFilter = 'all'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('Pending'),
+                      selected: _payrollListFilter == 'pending',
+                      onSelected: (_) => setState(() => _payrollListFilter = 'pending'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('Approved'),
+                      selected: _payrollListFilter == 'approved',
+                      onSelected: (_) => setState(() => _payrollListFilter = 'approved'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('Rejected'),
+                      selected: _payrollListFilter == 'rejected',
+                      onSelected: (_) => setState(() => _payrollListFilter = 'rejected'),
+                    ),
+                  ],
                 ),
-                Switch(
-                  value: _showPendingPayroll,
-                  onChanged: (value) {
-                    setState(() => _showPendingPayroll = value);
-                    _loadCurrentTabData();
-                  },
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+        ),
         Expanded(
-          child: ListView.builder(
-            itemCount: _payrollRecords.length,
-            itemBuilder: (context, index) {
-              final payroll = _payrollRecords[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: ListTile(
-                  title: Text(payroll['staff_name'] ?? 'Unknown'),
-                  subtitle: Text('₦${_formatKobo(payroll['amount'] ?? 0)} - ${payroll['month'] ?? ''}'),
-                  trailing: Chip(
-                    label: Text(payroll['approval_status'] ?? payroll['status'] ?? ''),
-                    backgroundColor: (payroll['approval_status'] ?? 'pending') == 'approved'
-                        ? Colors.green
-                        : Colors.orange,
+          child: Builder(
+            builder: (context) {
+              final filtered = _payrollListForFilter();
+              if (filtered.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _payrollRecords.isEmpty
+                          ? 'No payroll rows in this date range.'
+                          : 'No rows match this filter.',
+                      style: TextStyle(color: Colors.grey[600]),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                  leading: const Icon(Icons.payment, color: Colors.blue),
-                  onTap: canApprove &&
-                          (payroll['approval_status']?.toString() ?? '').toLowerCase() == 'pending'
-                      ? () => _showPayrollApprovalDialog(payroll)
-                      : null,
-                ),
+                );
+              }
+              return ListView.builder(
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final payroll = filtered[index];
+                  final approvalLabel = payroll['approval_status']?.toString() ?? payroll['status']?.toString() ?? '';
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: ListTile(
+                      title: Text(payroll['staff_name'] ?? 'Unknown'),
+                      subtitle: Text(
+                        '₦${_formatKobo(payroll['amount'] ?? 0)} · ${payroll['month'] ?? ''} · tap for details',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: Chip(
+                        label: Text(approvalLabel),
+                        backgroundColor: _payrollStatusChipColor(payroll['approval_status']?.toString()),
+                      ),
+                      leading: const Icon(Icons.payment, color: Colors.blue),
+                      onTap: () => _showPayrollRecordDetail(payroll, canApprove: canApprove),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -2472,7 +2555,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Set the expected monthly basic salary for a staff. This is used as payroll when no actual payment is recorded for that month.'),
+                  const Text(
+                    'Set the expected monthly basic salary for a staff. This pre-fills “Record payroll” and helps spot missing configuration. '
+                    'Dashboard totals and P&L use only approved payroll rows, not this figure.',
+                  ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: _selectedSalaryStaffId ?? '',
@@ -2528,7 +2614,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     return;
                   }
                   try {
-                    // Store in kobo (INT8) for consistency with payroll_records and calculatePeriodPayroll.
+                    // Store in kobo (INT8) for consistency with payroll_records.
                     final amountKobo = PaymentService.nairaToKobo(naira);
                     await _dataService.updateStaffMonthlySalary(staffId, amountKobo);
 
@@ -3333,7 +3419,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             _buildPdfTable(
               title: 'Payroll',
-              headers: ['Month', 'Staff', 'Amount (₦)', 'Status'],
+              headers: ['Month', 'Staff', 'Amount (₦)', 'Approval', 'Rejection note'],
               rows: _payrollRecords.map((r) {
                 final amt = (r['amount'] as num?)?.toInt() ?? 0;
                 return [
@@ -3341,6 +3427,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   r['staff_name']?.toString() ?? '',
                   _formatKobo(amt),
                   r['approval_status']?.toString() ?? '',
+                  (r['rejection_reason']?.toString() ?? '').replaceAll('\n', ' '),
                 ];
               }).toList(),
             ),
@@ -3475,7 +3562,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
     writeSection(
       'Payroll',
-      ['month', 'staff', 'amount', 'approval_status', 'payment_method'],
+      ['month', 'staff', 'amount', 'approval_status', 'payment_method', 'rejection_reason'],
       _payrollRecords.map((r) {
         return [
           r['month']?.toString() ?? '',
@@ -3483,6 +3570,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           r['amount']?.toString() ?? '0',
           r['approval_status']?.toString() ?? '',
           r['payment_method']?.toString() ?? '',
+          r['rejection_reason']?.toString() ?? '',
         ];
       }).toList(),
     );
