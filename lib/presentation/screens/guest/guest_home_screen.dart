@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
+import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -41,7 +42,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadPortalData();
   }
 
@@ -308,7 +309,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<AuthService>(context).currentUser;
+    final AppUser? user = Provider.of<AuthService>(context).currentUser;
 
     return Scaffold(
       appBar: AppBar(
@@ -341,70 +342,241 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
             }
             return null;
           }),
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: const [
+            Tab(icon: Icon(Icons.home_rounded), text: 'Overview'),
             Tab(icon: Icon(Icons.restaurant_menu_rounded), text: 'Restaurant'),
             Tab(icon: Icon(Icons.wine_bar_rounded), text: 'Bar'),
             Tab(icon: Icon(Icons.storefront_rounded), text: 'Mini-Mart'),
           ],
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadPortalData,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.green.shade800, Colors.green.shade600]),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('My Stay', style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Welcome${user?.name.isNotEmpty == true ? ', ${user!.name}' : ''}',
-                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildOverviewTab(context, user),
+          _buildRestaurantCatalogTab(),
+          _buildBarCatalogTab(),
+          _buildMiniMartCatalogTab(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewTab(BuildContext context, AppUser? user) {
+    return RefreshIndicator(
+      onRefresh: _loadPortalData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.green.shade800, Colors.green.shade600]),
+              borderRadius: BorderRadius.circular(16),
             ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('My Stay', style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 4),
+                Text(
+                  'Welcome${user != null && user.name.trim().isNotEmpty ? ', ${user.name}' : ''}',
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (user == null)
+            _buildEmptyState('Login required', 'Login to view your stay dashboard and statement of account.')
+          else ...[
+            _buildActiveStayCard(),
             const SizedBox(height: 12),
-            if (_isLoading)
-              const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
-            else if (user == null)
-              _buildEmptyState('Login required', 'Login to view your stay dashboard and statement of account.')
-            else ...[
-              _buildActiveStayCard(),
-              const SizedBox(height: 12),
-              _buildPlanNextVisitCard(context),
-              const SizedBox(height: 12),
-              _buildPastStaysSection(),
-            ],
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 420,
-              child: TabBarView(
-                controller: _tabController,
+            _buildPlanNextVisitCard(context),
+            const SizedBox(height: 12),
+            _buildPastStaysSection(),
+          ],
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRestaurantCatalogTab() {
+    return _buildCompactCatalogTab(
+      emptyTitle: 'No menu available',
+      emptySubtitle: 'Restaurant items will appear here when published.',
+      items: _restaurantItems,
+    );
+  }
+
+  Widget _buildMiniMartCatalogTab() {
+    return _buildCompactCatalogTab(
+      emptyTitle: 'No items available',
+      emptySubtitle: 'Mini-mart items will appear here when published.',
+      items: _miniMartItems,
+    );
+  }
+
+  /// Dense name + price rows; full tab height, pull-to-refresh.
+  Widget _buildCompactCatalogTab({
+    required String emptyTitle,
+    required String emptySubtitle,
+    required List<Map<String, dynamic>> items,
+  }) {
+    return RefreshIndicator(
+      onRefresh: _loadPortalData,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          if (_isLoading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+            )
+          else if (items.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildEmptyState(emptyTitle, emptySubtitle),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 16),
+              sliver: SliverList.separated(
+                itemCount: items.length,
+                separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16, color: Colors.green.shade100),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final name = item['name']?.toString() ?? 'Item';
+                  final priceLabel = _catalogPriceLabel(item['price']);
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                    minVerticalPadding: 10,
+                    title: Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    trailing: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 120),
+                      child: Text(
+                        priceLabel,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green[800],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBarCatalogTab() {
+    final barTitle = _barView == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
+    final barHint = _barView == 'vip_bar' ? 'Premium selections' : 'Outdoor selections';
+
+    return RefreshIndicator(
+      onRefresh: _loadPortalData,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Row(
                 children: [
-                  _buildCatalogPanel(
-                    title: 'Restaurant Menu',
-                    subtitle: 'Curated dining selections',
-                    items: _restaurantItems,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          barTitle,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          barHint,
+                          style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                        ),
+                      ],
+                    ),
                   ),
-                  _buildBarPanel(),
-                  _buildCatalogPanel(
-                    title: 'Mini-Mart',
-                    subtitle: 'Convenience essentials',
-                    items: _miniMartItems,
+                  TextButton.icon(
+                    onPressed: _openBarTypePicker,
+                    icon: const Icon(Icons.swap_horiz, size: 20),
+                    label: const Text('Switch'),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          if (_isLoading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+            )
+          else if (_barItems.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildEmptyState('No menu available', 'Bar items will appear here when published.'),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 16),
+              sliver: SliverList.separated(
+                itemCount: _barItems.length,
+                separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16, color: Colors.green.shade100),
+                itemBuilder: (context, index) {
+                  final item = _barItems[index];
+                  final name = item['name']?.toString() ?? 'Item';
+                  final priceLabel = _catalogPriceLabel(item['price']);
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                    minVerticalPadding: 10,
+                    title: Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    trailing: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 120),
+                      child: Text(
+                        priceLabel,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green[800],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -613,110 +785,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildBarPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                _barView == 'vip_bar' ? 'VIP Bar Menu' : 'Outside Bar Menu',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-            TextButton.icon(
-              onPressed: _openBarTypePicker,
-              icon: const Icon(Icons.swap_horiz),
-              label: const Text('Switch Bar'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: _buildCatalogPanel(
-            title: '',
-            subtitle: _barView == 'vip_bar' ? 'Premium bar selections' : 'Outdoor bar selections',
-            items: _barItems,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCatalogPanel({
-    required String title,
-    required String subtitle,
-    required List<Map<String, dynamic>> items,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (title.isNotEmpty) Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        if (subtitle.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(subtitle, style: TextStyle(color: Colors.grey[700])),
-        ],
-        const SizedBox(height: 12),
-        if (items.isEmpty)
-          _buildEmptyState('No menu available', 'Menu items will appear here as soon as they are published.')
-        else
-          Expanded(
-            child: GridView.builder(
-              itemCount: items.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 1.45,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final name = item['name']?.toString() ?? 'Item';
-                final priceLabel = _catalogPriceLabel(item['price']);
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.green.shade100),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        priceLabel,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[800],
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-      ],
     );
   }
 
