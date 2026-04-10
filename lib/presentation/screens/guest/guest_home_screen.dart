@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -15,6 +16,9 @@ class GuestHomeScreen extends StatefulWidget {
 }
 
 class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProviderStateMixin {
+  /// Matches tab indicator; reads as luxury gold on dark green.
+  static const Color _guestGold = Color(0xFFFFD54F);
+
   final DateFormat _dateFormatter = DateFormat('EEE, MMM d, yyyy');
   late TabController _tabController;
   bool _isLoading = true;
@@ -81,6 +85,14 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
     return NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(naira);
   }
 
+  /// Catalog grid: null price → Contact Reception; zero kobo → TBD; else formatted money.
+  String _catalogPriceLabel(dynamic rawPrice) {
+    if (rawPrice == null) return 'Contact Reception';
+    final kobo = rawPrice is num ? rawPrice.toInt() : int.tryParse(rawPrice.toString()) ?? 0;
+    if (kobo == 0) return 'TBD';
+    return _money(kobo);
+  }
+
   Future<void> _loadPortalData() async {
     setState(() => _isLoading = true);
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -92,82 +104,125 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
       return;
     }
 
+    var stays = <Map<String, dynamic>>[];
+    var restaurant = <Map<String, dynamic>>[];
+    var barSource = <Map<String, dynamic>>[];
+    var miniMart = <Map<String, dynamic>>[];
+    var fetchFailureCount = 0;
+
     try {
-      final results = await Future.wait([
-        supabase
-            .from('bookings')
-            .select(
-              'id,status,requested_room_type,room_id,room_number,check_in_date,check_out_date,paid_amount,total_amount,payment_reference,extra_charges,created_at',
-            )
-            .eq('guest_profile_id', currentUser.id)
-            .order('created_at', ascending: false)
-            .limit(50),
-        supabase
-            .from('menu_items')
-            .select('name,price')
-            .eq('department', 'restaurant')
-            .order('name', ascending: true),
-        _barView == 'vip_bar'
-            ? supabase
-                .from('inventory_items')
-                .select('name,vip_bar_price')
-                .inFilter('department', ['vip_bar', 'both'])
-                .order('name', ascending: true)
-            : supabase
-                .from('inventory_items')
-                .select('name,outside_bar_price')
-                .inFilter('department', ['outside_bar', 'both'])
-                .order('name', ascending: true),
-        supabase.from('mini_mart_items').select('name,price').order('name', ascending: true),
-      ]);
-
-      final stays = List<Map<String, dynamic>>.from(results[0] as List);
-      final restaurant = List<Map<String, dynamic>>.from(results[1] as List);
-      final barSource = List<Map<String, dynamic>>.from(results[2] as List);
-      final miniMart = List<Map<String, dynamic>>.from(results[3] as List);
-
-      final mappedBarItems = barSource
-          .map((row) {
-            final priceKey = _barView == 'vip_bar' ? 'vip_bar_price' : 'outside_bar_price';
-            return {'name': row['name'], 'price': row[priceKey] ?? 0};
-          })
-          .where((row) => ((row['price'] as num?)?.toInt() ?? 0) > 0)
-          .toList();
-
-      Map<String, dynamic>? primaryBooking;
-      final now = DateTime.now();
-      final active = stays.where((b) {
-        final status = (b['status']?.toString().toLowerCase() ?? '');
-        final checkOut = _safeDate(b['check_out_date']);
-        final isPast = checkOut != null && checkOut.isBefore(DateTime(now.year, now.month, now.day));
-        return status != 'checked-out' &&
-            status != 'cancelled' &&
-            status != 'rejected' &&
-            !isPast;
-      }).toList();
-      if (active.isNotEmpty) {
-        primaryBooking = active.first;
+      final bookingsRes = await supabase
+          .from('bookings')
+          .select(
+            'id,status,requested_room_type,room_id,room_number,check_in_date,check_out_date,paid_amount,total_amount,payment_reference,extra_charges,created_at',
+          )
+          .eq('guest_profile_id', currentUser.id)
+          .order('created_at', ascending: false)
+          .limit(50);
+      stays = List<Map<String, dynamic>>.from(bookingsRes as List);
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] bookings rows: ${stays.length}');
       }
+    } catch (e, st) {
+      fetchFailureCount++;
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] bookings fetch failed: $e\n$st');
+      }
+    }
 
-      final past = stays.where((b) {
-        final out = _safeDate(b['check_out_date']);
-        if (out == null) return false;
-        return out.isBefore(DateTime(now.year, now.month, now.day));
-      }).toList();
+    try {
+      final res = await supabase
+          .from('menu_items')
+          .select('name,price')
+          .eq('department', 'restaurant')
+          .order('name', ascending: true);
+      restaurant = List<Map<String, dynamic>>.from(res as List);
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] restaurant catalog rows: ${restaurant.length}');
+      }
+    } catch (e, st) {
+      fetchFailureCount++;
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] restaurant catalog fetch failed: $e\n$st');
+      }
+    }
 
-      if (!mounted) return;
-      setState(() {
-        _stays = stays;
-        _primaryBooking = primaryBooking;
-        _pastStays = past;
-        _restaurantItems = restaurant;
-        _barItems = List<Map<String, dynamic>>.from(mappedBarItems);
-        _miniMartItems = miniMart;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+    try {
+      final res = _barView == 'vip_bar'
+          ? await supabase
+              .from('inventory_items')
+              .select('name,vip_bar_price')
+              .inFilter('department', ['vip_bar', 'both'])
+              .order('name', ascending: true)
+          : await supabase
+              .from('inventory_items')
+              .select('name,outside_bar_price')
+              .inFilter('department', ['outside_bar', 'both'])
+              .order('name', ascending: true);
+      barSource = List<Map<String, dynamic>>.from(res as List);
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] bar (${_barView == 'vip_bar' ? 'vip' : 'outside'}) catalog rows: ${barSource.length}');
+      }
+    } catch (e, st) {
+      fetchFailureCount++;
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] bar catalog fetch failed: $e\n$st');
+      }
+    }
+
+    try {
+      final res = await supabase.from('mini_mart_items').select('name,price').order('name', ascending: true);
+      miniMart = List<Map<String, dynamic>>.from(res as List);
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] mini_mart catalog rows: ${miniMart.length}');
+      }
+    } catch (e, st) {
+      fetchFailureCount++;
+      if (kDebugMode) {
+        debugPrint('[GuestPortal] mini_mart catalog fetch failed: $e\n$st');
+      }
+    }
+
+    final mappedBarItems = barSource
+        .map((row) {
+          final priceKey = _barView == 'vip_bar' ? 'vip_bar_price' : 'outside_bar_price';
+          return <String, dynamic>{'name': row['name'], 'price': row[priceKey]};
+        })
+        .toList();
+
+    Map<String, dynamic>? primaryBooking;
+    final now = DateTime.now();
+    final active = stays.where((b) {
+      final status = (b['status']?.toString().toLowerCase() ?? '');
+      final checkOut = _safeDate(b['check_out_date']);
+      final isPast = checkOut != null && checkOut.isBefore(DateTime(now.year, now.month, now.day));
+      return status != 'checked-out' &&
+          status != 'cancelled' &&
+          status != 'rejected' &&
+          !isPast;
+    }).toList();
+    if (active.isNotEmpty) {
+      primaryBooking = active.first;
+    }
+
+    final past = stays.where((b) {
+      final out = _safeDate(b['check_out_date']);
+      if (out == null) return false;
+      return out.isBefore(DateTime(now.year, now.month, now.day));
+    }).toList();
+
+    if (!mounted) return;
+    setState(() {
+      _stays = stays;
+      _primaryBooking = primaryBooking;
+      _pastStays = past;
+      _restaurantItems = restaurant;
+      _barItems = List<Map<String, dynamic>>.from(mappedBarItems);
+      _miniMartItems = miniMart;
+      _isLoading = false;
+    });
+
+    if (fetchFailureCount >= 4 && mounted) {
       ErrorHandler.showWarningMessage(context, 'Could not load your guest portal data. Pull to refresh.');
     }
   }
@@ -258,9 +313,34 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.green[800],
-        title: const Text('P-ZED Guest Portal'),
+        foregroundColor: Colors.white,
+        title: Text(
+          'P-ZED Guest Portal',
+          style: TextStyle(
+            color: _guestGold,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+            shadows: const [
+              Shadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 1)),
+            ],
+          ),
+        ),
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white.withValues(alpha: 0.72),
+          indicatorColor: const Color(0xFFFFD54F),
+          indicatorWeight: 3,
+          dividerColor: Colors.white24,
+          overlayColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.pressed)) {
+              return Colors.white.withValues(alpha: 0.12);
+            }
+            if (states.contains(WidgetState.hovered)) {
+              return Colors.white.withValues(alpha: 0.08);
+            }
+            return null;
+          }),
           tabs: const [
             Tab(icon: Icon(Icons.restaurant_menu_rounded), text: 'Restaurant'),
             Tab(icon: Icon(Icons.wine_bar_rounded), text: 'Bar'),
@@ -299,6 +379,8 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
             else ...[
               _buildActiveStayCard(),
               const SizedBox(height: 12),
+              _buildPlanNextVisitCard(context),
+              const SizedBox(height: 12),
               _buildPastStaysSection(),
             ],
             const SizedBox(height: 16),
@@ -322,6 +404,105 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Future stay booking — distinct from the active stay statement above.
+  Widget _buildPlanNextVisitCard(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          final now = DateTime.now();
+          final checkOut = now.add(const Duration(days: 1));
+          context.push('/guest/rooms', extra: <String, dynamic>{
+            'checkInDate': now,
+            'checkOutDate': checkOut,
+          });
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _guestGold.withValues(alpha: 0.85), width: 1.5),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.green.shade900,
+                Colors.green.shade800,
+                Colors.green.shade700,
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _guestGold.withValues(alpha: 0.12),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.event_available_rounded, color: _guestGold, size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Plan your next visit',
+                      style: TextStyle(
+                        color: _guestGold,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.arrow_forward_ios_rounded, color: _guestGold.withValues(alpha: 0.9), size: 16),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Book a new stay for a future trip—choose dates and room type. This is separate from your current stay and bill above.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  fontSize: 13,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _guestGold,
+                    foregroundColor: Colors.green.shade900,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    final now = DateTime.now();
+                    final checkOut = now.add(const Duration(days: 1));
+                    context.push('/guest/rooms', extra: <String, dynamic>{
+                      'checkInDate': now,
+                      'checkOutDate': checkOut,
+                    });
+                  },
+                  icon: const Icon(Icons.bed_rounded, size: 22),
+                  label: const Text(
+                    'Book a new stay',
+                    style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.2),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -495,7 +676,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
               itemBuilder: (context, index) {
                 final item = items[index];
                 final name = item['name']?.toString() ?? 'Item';
-                final price = (item['price'] as num?)?.toInt() ?? 0;
+                final priceLabel = _catalogPriceLabel(item['price']);
                 return Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -522,7 +703,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _money(price),
+                        priceLabel,
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green[800],

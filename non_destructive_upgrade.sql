@@ -556,6 +556,26 @@ EXCEPTION
     NULL;
 END $$;
 
+-- Guest digital menu: mini_mart catalog (RLS). Column GRANT narrows API surface once table-level
+-- SELECT is not granted more broadly than these columns on authenticated (guests and staff share
+-- that role; staff apps still need full-row SELECT—do not REVOKE table SELECT here without listing
+-- every column the staff client needs).
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Guest read mini mart catalog" ON public.mini_mart_items;
+  CREATE POLICY "Guest read mini mart catalog" ON public.mini_mart_items
+  FOR SELECT
+  USING (
+    is_user_active(auth.uid())
+    AND user_has_role(auth.uid(), 'guest')
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+GRANT SELECT (name, price) ON public.mini_mart_items TO authenticated;
+
 -- 10.4) Debts: allow sales staff to insert debts they created
 DO $$
 BEGIN
@@ -1455,6 +1475,24 @@ WITH CHECK (
     OR user_has_role(auth.uid(), 'owner')
   )
 );
+
+-- Guest digital menu: restaurant rows only (RLS). See mini_mart block for GRANT caveats.
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Guest read restaurant menu catalog" ON public.menu_items;
+  CREATE POLICY "Guest read restaurant menu catalog" ON public.menu_items
+  FOR SELECT
+  USING (
+    is_user_active(auth.uid())
+    AND user_has_role(auth.uid(), 'guest')
+    AND department = 'restaurant'
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+GRANT SELECT (name, price, department) ON public.menu_items TO authenticated;
 
 -- Product catalog tables: ensure updated_at exists for app updateProduct()
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
@@ -2795,6 +2833,24 @@ EXCEPTION
   WHEN OTHERS THEN
     NULL;
 END $$;
+
+-- Guest digital menu: bar-facing inventory rows only (RLS). See mini_mart block for GRANT caveats.
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS "Guest read bar inventory catalog" ON public.inventory_items;
+  CREATE POLICY "Guest read bar inventory catalog" ON public.inventory_items
+  FOR SELECT
+  USING (
+    is_user_active(auth.uid())
+    AND user_has_role(auth.uid(), 'guest')
+    AND department IN ('vip_bar', 'outside_bar', 'both')
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+GRANT SELECT (name, vip_bar_price, outside_bar_price, department) ON public.inventory_items TO authenticated;
 
 -- 6b) Department transfers add payment/booking fields
 DO $$

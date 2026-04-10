@@ -450,6 +450,7 @@ class AppRouter {
             currentUser.roles.any((role) => role == AppRole.guest);
 
         // Guest role hardening: guest users are restricted to guest area only.
+        // Allowed funnel: /guest/home → /guest/rooms → /guest/booking (repeat bookings).
         if (isGuestUser) {
           if (location == '/guest/booking-lookup') return '/guest/home';
           if (location.startsWith('/guest')) return null;

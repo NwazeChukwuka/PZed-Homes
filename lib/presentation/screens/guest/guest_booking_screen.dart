@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
+import 'package:pzed_homes/data/models/user.dart';
 
 class GuestBookingScreen extends StatefulWidget {
   const GuestBookingScreen({super.key});
@@ -27,6 +30,11 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   bool _termsAccepted = false;
   String? _paymentReference;
   static const String _termsVersion = 'v1';
+  bool _loggedInGuestPrefillScheduled = false;
+  /// Name and email from profile; read-only for logged-in guests.
+  bool _lockedNameAndEmail = false;
+  /// Phone read-only when loaded from profile and non-empty.
+  bool _phoneLocked = false;
 
   // Get Supabase client safely (returns null if not initialized)
   SupabaseClient? get _supabase {
@@ -64,6 +72,58 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     } catch (e) {
       // If GoRouterState is not available, use fallback values from initState
       // This can happen if the screen is accessed without router context
+    }
+    if (!_loggedInGuestPrefillScheduled) {
+      _loggedInGuestPrefillScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _applyLoggedInGuestPrefill());
+    }
+  }
+
+  bool _isLoggedInGuestAccount(AuthService auth) {
+    final u = auth.currentUser;
+    if (u == null) return false;
+    return u.roles.contains(AppRole.guest);
+  }
+
+  Future<void> _applyLoggedInGuestPrefill() async {
+    if (!mounted) return;
+    final auth = Provider.of<AuthService>(context, listen: false);
+    if (!_isLoggedInGuestAccount(auth)) return;
+
+    final u = auth.currentUser!;
+    final hasName = u.name.trim().isNotEmpty;
+    final hasEmail = u.email.trim().isNotEmpty;
+    if (hasName) {
+      _nameController.text = u.name.trim();
+    }
+    if (hasEmail) {
+      _emailController.text = u.email.trim();
+    }
+    if (hasName || hasEmail) {
+      setState(() => _lockedNameAndEmail = true);
+    }
+
+    await _loadPhoneFromProfile();
+  }
+
+  Future<void> _loadPhoneFromProfile() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final id = auth.currentUser?.id;
+    if (id == null || _supabase == null || !mounted) return;
+    try {
+      final row = await _supabase!.from('profiles').select('phone').eq('id', id).maybeSingle();
+      final p = row?['phone']?.toString().trim() ?? '';
+      if (!mounted) return;
+      setState(() {
+        if (p.isNotEmpty) {
+          _phoneController.text = p;
+          _phoneLocked = true;
+        } else {
+          _phoneLocked = false;
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _phoneLocked = false);
     }
   }
 
@@ -339,7 +399,8 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         try {
-          context.go('/guest');
+          final auth = Provider.of<AuthService>(context, listen: false);
+          context.go(auth.currentUser != null ? '/guest/home' : '/guest');
         } catch (e) {
           // If GoRouter is not available, use Navigator as fallback
           Navigator.of(context).popUntil((route) => route.isFirst);
@@ -441,18 +502,40 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
               )),
 
               // Guest Information Form
-              Text(
-                'Guest Information',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  fontSize: ResponsiveHelper.getResponsiveFontSize(
-                    context,
-                    mobile: 18,
-                    tablet: 20,
-                    desktop: 22,
-                  ),
+              if (_lockedNameAndEmail) ...[
+                Text(
+                  'Booking as ${_nameController.text.isNotEmpty ? _nameController.text : 'Guest'}',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 18,
+                          tablet: 20,
+                          desktop: 22,
+                        ),
+                      ),
                 ),
-              ),
+                const SizedBox(height: 6),
+                Text(
+                  'Your profile details below are locked for this reservation. Add or update phone if needed.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey[700],
+                        height: 1.35,
+                      ),
+                ),
+              ] else
+                Text(
+                  'Guest Information',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
+                          context,
+                          mobile: 18,
+                          tablet: 20,
+                          desktop: 22,
+                        ),
+                      ),
+                ),
               SizedBox(height: ResponsiveHelper.getResponsiveValue(
                 context,
                 mobile: 12,
@@ -466,10 +549,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                   children: [
                     TextFormField(
                       controller: _nameController,
+                      readOnly: _lockedNameAndEmail,
+                      enableInteractiveSelection: true,
                       decoration: InputDecoration(
                         labelText: 'Full Name',
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.person),
+                        filled: _lockedNameAndEmail,
+                        fillColor: _lockedNameAndEmail ? Colors.grey.shade100 : null,
+                        helperText: _lockedNameAndEmail ? 'From your account' : null,
                         contentPadding: ResponsiveHelper.getResponsivePadding(
                           context,
                           mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -498,10 +586,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                     )),
                     TextFormField(
                       controller: _emailController,
+                      readOnly: _lockedNameAndEmail,
+                      enableInteractiveSelection: true,
                       decoration: InputDecoration(
                         labelText: 'Email Address',
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.email),
+                        filled: _lockedNameAndEmail,
+                        fillColor: _lockedNameAndEmail ? Colors.grey.shade100 : null,
+                        helperText: _lockedNameAndEmail ? 'From your account' : null,
                         contentPadding: ResponsiveHelper.getResponsivePadding(
                           context,
                           mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -537,10 +630,15 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                     )),
                     TextFormField(
                       controller: _phoneController,
+                      readOnly: _phoneLocked,
+                      enableInteractiveSelection: true,
                       decoration: InputDecoration(
                         labelText: 'Phone Number',
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.phone),
+                        filled: _phoneLocked,
+                        fillColor: _phoneLocked ? Colors.grey.shade100 : null,
+                        helperText: _phoneLocked ? 'From your account' : 'Required for payment confirmation',
                         contentPadding: ResponsiveHelper.getResponsivePadding(
                           context,
                           mobile: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
