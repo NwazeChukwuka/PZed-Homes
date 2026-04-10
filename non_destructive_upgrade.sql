@@ -3138,6 +3138,120 @@ ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_by UUID REF
 ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 ALTER TABLE public.payroll_records ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 
+-- Payroll duplicate guard: only one salary row per staff per month.
+-- If legacy duplicates exist, skip index creation and rely on RPC advisory lock + existence check.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.payroll_records
+    WHERE staff_id IS NOT NULL
+    GROUP BY staff_id, month
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE NOTICE 'Skipping payroll unique index creation due to legacy duplicates';
+  ELSE
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_records_staff_month
+      ON public.payroll_records (staff_id, month)
+      WHERE staff_id IS NOT NULL;
+  END IF;
+END $$;
+
+-- Atomic + idempotent payroll record creation.
+-- Duplicate month/staff or duplicate client request returns applied=false.
+CREATE OR REPLACE FUNCTION public.create_payroll_record(
+  p_staff_id uuid,
+  p_amount bigint,
+  p_month date,
+  p_payment_method text,
+  p_notes text,
+  p_processed_by uuid,
+  p_approval_status text DEFAULT 'pending',
+  p_client_request_id uuid DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_existing_id uuid;
+  v_payroll_id uuid;
+BEGIN
+  IF NOT is_user_active(auth.uid()) THEN
+    RAISE EXCEPTION 'User not active';
+  END IF;
+  IF p_processed_by IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'Not authorized for this staff id';
+  END IF;
+  IF NOT (
+    user_has_role(auth.uid(), 'owner')
+    OR user_has_role(auth.uid(), 'manager')
+    OR user_has_role(auth.uid(), 'accountant')
+    OR user_has_role(auth.uid(), 'hr')
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to create payroll records';
+  END IF;
+
+  IF p_staff_id IS NULL OR p_month IS NULL THEN
+    RAISE EXCEPTION 'staff_id and month are required';
+  END IF;
+  IF COALESCE(p_amount, 0) <= 0 THEN
+    RAISE EXCEPTION 'Payroll amount must be greater than zero';
+  END IF;
+
+  IF p_client_request_id IS NOT NULL THEN
+    IF NOT public.claim_client_mutation_request(p_client_request_id, 'payroll_record', p_processed_by) THEN
+      RETURN jsonb_build_object('applied', false, 'duplicate', true);
+    END IF;
+  END IF;
+
+  -- Serialize by staff/month to prevent race duplicates even without unique index.
+  PERFORM pg_advisory_xact_lock(hashtext(p_staff_id::text || ':' || p_month::text));
+
+  SELECT id INTO v_existing_id
+  FROM public.payroll_records
+  WHERE staff_id = p_staff_id
+    AND month = p_month
+  LIMIT 1;
+
+  IF v_existing_id IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'applied', false,
+      'duplicate', true,
+      'existing_id', v_existing_id
+    );
+  END IF;
+
+  INSERT INTO public.payroll_records (
+    staff_id,
+    amount,
+    month,
+    status,
+    payment_method,
+    notes,
+    processed_by,
+    approval_status
+  ) VALUES (
+    p_staff_id,
+    p_amount,
+    p_month,
+    'pending',
+    COALESCE(NULLIF(trim(p_payment_method), ''), 'bank_transfer'),
+    p_notes,
+    p_processed_by,
+    COALESCE(NULLIF(trim(p_approval_status), ''), 'pending')
+  ) RETURNING id INTO v_payroll_id;
+
+  RETURN jsonb_build_object(
+    'applied', true,
+    'duplicate', false,
+    'id', v_payroll_id
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.create_payroll_record(uuid, bigint, date, text, text, uuid, text, uuid) TO authenticated;
+
 -- Staff monthly gross (kobo) for payroll fallback when no actual payment is recorded
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS monthly_salary INT8 DEFAULT 0;
 

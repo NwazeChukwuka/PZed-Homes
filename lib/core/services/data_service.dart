@@ -1031,16 +1031,37 @@ class DataService {
 
   Future<void> addPayrollRecord(Map<String, dynamic> payroll) async {
     await _retryOperation(() async {
-      await _supabase.from('payroll_records').insert({
-        'staff_id': payroll['staff_id'],
-        'amount': payroll['amount'],
-        'month': payroll['month'],
-        'status': payroll['status'] ?? 'pending',
-        'payment_method': payroll['payment_method'] ?? 'bank_transfer',
-        'processed_by': payroll['processed_by'],
-        'notes': payroll['notes'],
-        'approval_status': payroll['approval_status'] ?? 'pending',
+      final monthRaw = payroll['month']?.toString();
+      final monthDate = DateTime.tryParse(monthRaw ?? '');
+      final monthStart = monthDate == null
+          ? monthRaw
+          : DateTime(monthDate.year, monthDate.month, 1)
+              .toIso8601String()
+              .split('T')[0];
+
+      final response = await _supabase.rpc('create_payroll_record', params: {
+        'p_staff_id': payroll['staff_id'],
+        'p_amount': payroll['amount'],
+        'p_month': monthStart,
+        'p_payment_method': payroll['payment_method'] ?? 'bank_transfer',
+        'p_notes': payroll['notes'],
+        'p_processed_by': payroll['processed_by'],
+        'p_approval_status': payroll['approval_status'] ?? 'pending',
+        // Optional idempotency key if caller provides one.
+        'p_client_request_id': payroll['client_request_id'],
       });
+
+      final mapped = response is Map<String, dynamic>
+          ? response
+          : (response is Map ? Map<String, dynamic>.from(response) : <String, dynamic>{});
+      final applied = mapped['applied'] == true;
+      final duplicate = mapped['duplicate'] == true;
+      if (!applied && duplicate) {
+        throw Exception('Payroll already recorded for this staff and month.');
+      }
+      if (!applied && !duplicate) {
+        throw Exception('Failed to save payroll record.');
+      }
     });
   }
 
