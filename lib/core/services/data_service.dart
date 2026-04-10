@@ -715,8 +715,76 @@ class DataService {
     );
   }
 
-  Future<void> recordStockTransaction(Map<String, dynamic> transaction) async {
-    await _retryOperation(() async {
+  Future<bool> claimClientMutationRequest({
+    required String requestId,
+    required String kind,
+    required String staffProfileId,
+  }) async {
+    return _retryOperation(() async {
+      final res = await _supabase.rpc(
+        'claim_client_mutation_request',
+        params: {
+          'p_id': requestId,
+          'p_kind': kind,
+          'p_staff_id': staffProfileId,
+        },
+      );
+      if (res is bool) return res;
+      return res == true;
+    });
+  }
+
+  /// Single atomic sale mutation across flow-specific tables and department totals.
+  /// Returns {applied: bool, duplicate: bool, ...}.
+  Future<Map<String, dynamic>> processUnifiedSale({
+    required List<Map<String, dynamic>> items,
+    required Map<String, dynamic> paymentData,
+    required String transactionId,
+  }) async {
+    return _retryOperation(() async {
+      final res = await _supabase.rpc(
+        'process_unified_sale',
+        params: {
+          'p_items': items,
+          'p_payment_data': paymentData,
+          'p_transaction_id': transactionId,
+        },
+      );
+      if (res is Map<String, dynamic>) return res;
+      if (res is Map) return Map<String, dynamic>.from(res);
+      throw Exception('Invalid unified sale response from server');
+    });
+  }
+
+  /// Ledger insert for storekeeper restock. [clientRequestId] enables server-side deduplication.
+  /// Returns false if this request id was already applied.
+  Future<bool> recordDirectStockEntry({
+    required String clientRequestId,
+    required String stockItemId,
+    required String locationId,
+    required String staffProfileId,
+    required int quantity,
+    String? notes,
+  }) async {
+    return _retryOperation(() async {
+      final res = await _supabase.rpc(
+        'record_direct_stock_entry',
+        params: {
+          'p_client_request_id': clientRequestId,
+          'p_staff_profile_id': staffProfileId,
+          'p_stock_item_id': stockItemId,
+          'p_location_id': locationId,
+          'p_quantity': quantity,
+          'p_notes': notes,
+        },
+      );
+      if (res is bool) return res;
+      return res == true;
+    });
+  }
+
+  Future<bool> recordStockTransaction(Map<String, dynamic> transaction) async {
+    return await _retryOperation(() async {
       // Validate foreign key relationships before insert
       final stockItemId = transaction['stock_item_id'] as String?;
       final locationId = transaction['location_id'] as String?;
@@ -775,11 +843,13 @@ class DataService {
         'notes': transaction['notes'], // Optional
         // shift_id removed - bartender_shifts table no longer exists
       });
+      return true;
     });
   }
 
   // Stock Transfers (Main Store -> Department)
-  Future<void> createStockTransfer({
+  /// Returns null if [clientRequestId] was already used (idempotent duplicate).
+  Future<String?> createStockTransfer({
     required String stockItemId,
     required String sourceLocationId,
     required String destinationLocationId,
@@ -787,9 +857,10 @@ class DataService {
     required String issuedById,
     required String receivedById,
     String? notes,
+    String? clientRequestId,
   }) async {
-    await _retryOperation(() async {
-      await _supabase.rpc('create_stock_transfer', params: {
+    return _retryOperation(() async {
+      final params = <String, dynamic>{
         'p_stock_item_id': stockItemId,
         'p_source_location_id': sourceLocationId,
         'p_destination_location_id': destinationLocationId,
@@ -797,7 +868,13 @@ class DataService {
         'p_issued_by_id': issuedById,
         'p_received_by_id': receivedById,
         'p_notes': notes,
-      });
+      };
+      if (clientRequestId != null && clientRequestId.isNotEmpty) {
+        params['p_client_request_id'] = clientRequestId;
+      }
+      final res = await _supabase.rpc('create_stock_transfer', params: params);
+      if (res == null) return null;
+      return res.toString();
     });
   }
 
@@ -2472,23 +2549,32 @@ class DataService {
     });
   }
 
-  Future<String> createDepartmentTransfer(Map<String, dynamic> transfer) async {
-    return await _retryOperation(() async {
-      final response = await _supabase.from('department_transfers').insert({
-        'source_department': transfer['source_department'],
-        'destination_department': transfer['destination_department'],
-        'menu_item_id': transfer['menu_item_id'],
-        'quantity': transfer['quantity'],
-        'dispatched_by_id': transfer['dispatched_by_id'],
-        'status': transfer['status'] ?? 'Pending',
-        'unit_price': transfer['unit_price'],
-        'total_amount': transfer['total_amount'],
-        'payment_method': transfer['payment_method'],
-        'payment_status': transfer['payment_status'],
-        'booking_id': transfer['booking_id'],
-        'notes': transfer['notes'],
-      }).select('id').single();
-      return response['id'] as String;
+  /// Uses SECURITY DEFINER RPC (claim + insert). Returns null if [clientRequestId] was already applied.
+  Future<String?> createDepartmentTransfer(
+    Map<String, dynamic> transfer, {
+    String? clientRequestId,
+  }) async {
+    return _retryOperation(() async {
+      final params = <String, dynamic>{
+        'p_source_department': transfer['source_department'],
+        'p_destination_department': transfer['destination_department'],
+        'p_menu_item_id': transfer['menu_item_id'],
+        'p_quantity': transfer['quantity'],
+        'p_dispatched_by_id': transfer['dispatched_by_id'],
+        'p_status': transfer['status'] ?? 'Pending',
+        'p_unit_price': transfer['unit_price'],
+        'p_total_amount': transfer['total_amount'],
+        'p_payment_method': transfer['payment_method'],
+        'p_payment_status': transfer['payment_status'],
+        'p_booking_id': transfer['booking_id'],
+        'p_notes': transfer['notes'],
+      };
+      if (clientRequestId != null && clientRequestId.isNotEmpty) {
+        params['p_client_request_id'] = clientRequestId;
+      }
+      final res = await _supabase.rpc('create_department_transfer', params: params);
+      if (res == null) return null;
+      return res.toString();
     });
   }
 

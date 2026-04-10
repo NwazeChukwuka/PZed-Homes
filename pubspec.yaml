@@ -33,6 +33,7 @@ dependencies:
   file_selector: ^1.0.3
   url_launcher: ^6.3.1
   share_plus: ^10.0.2
+  uuid: ^4.5.1
 
   # Important web upgrade
   fl_chart: ^0.69.2

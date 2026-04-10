@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import '../../core/services/data_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
@@ -689,13 +690,18 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
     final quantityController = TextEditingController();
     String? selectedItem;
     String source = 'general_store';
+    bool isSubmitting = false;
+    String? transferRequestId;
+    StateSetter? dialogSetState;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Record Transfer'),
         content: StatefulBuilder(
-          builder: (context, setDialogState) => Column(
+          builder: (context, setDialogState) {
+            dialogSetState = setDialogState;
+            return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
@@ -729,7 +735,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                 onChanged: (value) => setDialogState(() => source = value!),
               ),
             ],
-          ),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -738,8 +745,10 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
           ),
           ElevatedButton(
             onPressed: () async {
+              if (isSubmitting) return;
               if (selectedItem != null && quantityController.text.isNotEmpty) {
                 try {
+                  dialogSetState?.call(() => isSubmitting = true);
                   final authService = Provider.of<AuthService>(context, listen: false);
                   final staffId = authService.currentUser?.id ?? 'unknown';
                   final item = _availableItems.firstWhere((i) => i['id'].toString() == selectedItem);
@@ -799,7 +808,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                       throw Exception('Source location not found for transfer. Please check locations setup.');
                     }
 
-                    await _dataService.createStockTransfer(
+                    transferRequestId ??= const Uuid().v4();
+                    final transferId = await _dataService.createStockTransfer(
                       stockItemId: stockItem['id'] as String,
                       sourceLocationId: sourceLocationId,
                       destinationLocationId: destinationLocationId,
@@ -807,7 +817,20 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                       issuedById: staffId,
                       receivedById: staffId,
                       notes: 'Bar transfer from $sourceLocationName',
+                      clientRequestId: transferRequestId,
                     );
+                    if (transferId == null) {
+                      ErrorHandler.showInfoMessage(
+                        context,
+                        'This transfer was already recorded (duplicate ignored).',
+                      );
+                      ErrorHandler.showLedgerConfirmedSnackBar(
+                        context,
+                        'Transfer already on ledger — no duplicate.',
+                      );
+                      return;
+                    }
+                    transferRequestId = null;
 
                   }
 
@@ -831,6 +854,12 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                     );
                   }
                   await _loadShiftData();
+                  ErrorHandler.showLedgerConfirmedSnackBar(
+                    context,
+                    source == 'direct_supply'
+                        ? 'Supply request saved.'
+                        : 'Transfer saved to ledger.',
+                  );
                   Navigator.pop(context);
                 } catch (e) {
                   if (mounted) {
@@ -840,10 +869,20 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                       customMessage: 'Failed to record transfer. Please try again.',
                     );
                   }
+                } finally {
+                  if (mounted) {
+                    dialogSetState?.call(() => isSubmitting = false);
+                  }
                 }
               }
             },
-            child: const Text('Record'),
+            child: isSubmitting
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Record'),
           ),
         ],
       ),

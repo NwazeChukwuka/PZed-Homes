@@ -23,6 +23,7 @@ import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
+import 'package:uuid/uuid.dart';
 
 class KitchenDispatchScreen extends StatefulWidget {
   const KitchenDispatchScreen({super.key});
@@ -70,6 +71,11 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   String? _selectedDispatchBookingId;
   String? _sourceLocationId; // Kitchen location id
   bool _isLoading = false;
+  bool _isProcessingDispatch = false;
+  String? _dispatchLedgerRequestId;
+  bool _isProcessingSale = false;
+  String? _kitchenSaleLedgerSessionId;
+  StateSetter? _kitchenSaleModalSetState;
   final bool _isCustomSale = false;
   String? _selectedSaleItemId;
   String? _selectedBookingId;
@@ -164,6 +170,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _currentSale[existingIndex]['quantity'] =
             (_currentSale[existingIndex]['quantity'] ?? 0) + 1;
       } else {
+        _kitchenSaleLedgerSessionId ??= const Uuid().v4();
         _currentSale.add({
           'id': item['id'],
           'name': item['name'] ?? 'Item',
@@ -187,6 +194,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final priceNaira = double.tryParse(_saleUnitPriceController.text.trim()) ?? 0;
     if (priceNaira <= 0) return;
     setState(() {
+      _kitchenSaleLedgerSessionId ??= const Uuid().v4();
       _currentSale.add({
         'id': null,
         'name': name,
@@ -220,6 +228,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void _removeItemFromSale(int index) {
     setState(() {
       _currentSale.removeAt(index);
+      if (_currentSale.isEmpty) _kitchenSaleLedgerSessionId = null;
       _saleTotal = _currentSale.fold(
         0.0,
         (sum, s) => sum + (_safeDouble(s['price']) * _safeInt(s['quantity'], 1)),
@@ -244,6 +253,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   void _clearSale() {
     setState(() {
       _currentSale.clear();
+      _kitchenSaleLedgerSessionId = null;
       _saleTotal = 0.0;
       _selectedBookingId = null;
       _chargeToRoom = false;
@@ -530,20 +540,32 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   ),
                 ],
                 const SizedBox(height: 16),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton.icon(
-                        onPressed: _currentSale.isEmpty ? null : _recordKitchenSale,
-                        icon: const Icon(Icons.point_of_sale),
-                        label: const Text('Record Sale'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade800,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                ElevatedButton(
+                  onPressed: (_currentSale.isEmpty || _isProcessingSale) ? null : _recordKitchenSale,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: _isProcessingSale
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.point_of_sale),
+                            SizedBox(width: 8),
+                            Text('Record Sale'),
+                          ],
                         ),
-                      ),
+                ),
                 if (_currentSale.isNotEmpty)
                   TextButton(
-                    onPressed: _clearSale,
+                    onPressed: _isProcessingSale ? null : _clearSale,
                     child: const Text('Clear Sale'),
                   ),
               ],
@@ -602,6 +624,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
+          _kitchenSaleModalSetState = setModalState;
           return SafeArea(
             child: Container(
               height: MediaQuery.of(context).size.height * 0.7,
@@ -627,7 +650,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: _isProcessingSale ? null : () => Navigator.pop(context),
                         ),
                       ],
                     ),
@@ -706,7 +729,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           );
         },
       ),
-    );
+    ).whenComplete(() => _kitchenSaleModalSetState = null);
   }
 
   Widget _buildKitchenMobileSaleSheetActions({
@@ -790,27 +813,43 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           ),
         ],
         const SizedBox(height: 16),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton.icon(
-                        onPressed: _currentSale.isEmpty ? null : () {
-                          _recordKitchenSale();
-                          onClose?.call();
+                ElevatedButton(
+                  onPressed: (_currentSale.isEmpty || _isProcessingSale)
+                      ? null
+                      : () async {
+                          await _recordKitchenSale();
+                          if (context.mounted && _currentSale.isEmpty) onClose?.call();
                         },
-                        icon: const Icon(Icons.point_of_sale),
-                        label: const Text('Record Sale'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade800,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: _isProcessingSale
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.point_of_sale),
+                            SizedBox(width: 8),
+                            Text('Record Sale'),
+                          ],
                         ),
-                      ),
+                ),
                 if (_currentSale.isNotEmpty)
                   TextButton(
-                    onPressed: () {
-                      _clearSale();
-                      onUpdate?.call();
-                      onClose?.call();
-                    },
+                    onPressed: _isProcessingSale
+                        ? null
+                        : () {
+                            _clearSale();
+                            onUpdate?.call();
+                            onClose?.call();
+                          },
                     child: const Text('Clear Sale'),
                   ),
       ],
@@ -1124,6 +1163,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   }
 
   Future<void> _dispatchItem() async {
+    if (_isProcessingDispatch) return;
     if (!_formKey.currentState!.validate()) return;
     if (_selectedStockItemId == null || _selectedDestinationDepartment == null) return;
 
@@ -1135,7 +1175,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     );
     if (staffId == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _isProcessingDispatch = true);
     try {
       final quantity = int.parse(_quantityController.text);
       final unitPriceNaira = double.tryParse(_dispatchUnitPriceController.text.trim()) ?? 0;
@@ -1172,7 +1212,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       final effectivePaymentMethod =
           paymentStatus == 'unpaid' ? 'credit' : _dispatchPaymentMethod;
 
-      // Create department transfer
+      _dispatchLedgerRequestId ??= const Uuid().v4();
       final transferId = await _dataService.createDepartmentTransfer({
         'source_department': 'restaurant',
         'destination_department': destinationDepartment,
@@ -1185,7 +1225,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         'payment_method': effectivePaymentMethod,
         'payment_status': paymentStatus,
         'booking_id': bookingId,
-      });
+      }, clientRequestId: _dispatchLedgerRequestId);
+      if (transferId == null) {
+        if (mounted) {
+          ErrorHandler.showInfoMessage(
+            context,
+            'This dispatch was already saved to the ledger (duplicate ignored).',
+          );
+          ErrorHandler.showLedgerConfirmedSnackBar(
+            context,
+            'Dispatch already recorded — no duplicate written.',
+          );
+        }
+        _dispatchLedgerRequestId = null;
+        return;
+      }
+      _dispatchLedgerRequestId = null;
 
       if (totalInKobo > 0 && paymentStatus == 'paid') {
         await _recordDepartmentSale(
@@ -1284,6 +1339,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           bookingId: bookingId,
           guestName: guestName,
         );
+        ErrorHandler.showLedgerConfirmedSnackBar(
+          context,
+          'Dispatch saved to ledger. Safe to close.',
+        );
         ErrorHandler.showSuccessMessage(context, 'Item dispatched successfully!');
         await _loadStockAndLocations();
       }
@@ -1298,11 +1357,17 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isProcessingDispatch = false);
     }
   }
 
+  void _notifyKitchenSaleProcessingChanged() {
+    if (mounted) setState(() {});
+    _kitchenSaleModalSetState?.call(() {});
+  }
+
   Future<void> _recordKitchenSale() async {
+    if (_isProcessingSale) return;
     if (_currentSale.isEmpty) return;
     if (_chargeToRoom && _selectedBookingId == null) {
       ErrorHandler.showWarningMessage(context, 'Select a booking to charge to room');
@@ -1327,13 +1392,15 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     );
     if (staffId == null) return;
 
-    setState(() => _isLoading = true);
+    _isProcessingSale = true;
+    _notifyKitchenSaleProcessingChanged();
+
     final List<String> partialErrors = [];
     try {
       final effectivePaymentMethod = _chargeToRoom ? 'credit' : _salePaymentMethod;
       int totalSaleInKobo = 0;
       String? firstSaleId;
-
+      final unifiedItems = <Map<String, dynamic>>[];
       for (final saleItem in _currentSale) {
         final itemName = _safeStr(saleItem['name']).isEmpty ? 'Item' : _safeStr(saleItem['name']);
         final quantity = _safeInt(saleItem['quantity'], 1);
@@ -1351,19 +1418,51 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           }
         }
 
-        final saleId = await _dataService.createKitchenSale({
+        unifiedItems.add({
           'menu_item_id': saleItem['id'],
           'item_name': itemName,
+          'stock_item_id': saleItem['stock_item_id'],
+          'location_id': _sourceLocationId,
           'quantity': quantity,
-          'unit_price': unitPriceKobo,
-          'total_amount': itemTotalKobo,
-          'payment_method': effectivePaymentMethod,
-          'booking_id': _selectedBookingId,
-          'sold_by': staffId,
+          'unit_price_kobo': unitPriceKobo,
+          'line_total_kobo': itemTotalKobo,
+          'notes': 'Kitchen sale',
         });
-        firstSaleId ??= saleId;
         totalSaleInKobo += itemTotalKobo;
+      }
 
+      final unifiedRes = await _dataService.processUnifiedSale(
+        transactionId: _kitchenSaleLedgerSessionId ?? const Uuid().v4(),
+        items: unifiedItems,
+        paymentData: {
+          'flow': 'kitchen',
+          'department': 'restaurant',
+          'payment_method': effectivePaymentMethod,
+          'staff_id': staffId,
+          'booking_id': _selectedBookingId,
+          'sale_date': DateTime.now().toIso8601String().split('T')[0],
+        },
+      );
+      if (unifiedRes['applied'] != true) {
+        if (unifiedRes['duplicate'] == true) {
+          if (mounted) {
+            ErrorHandler.showInfoMessage(
+              context,
+              'This kitchen sale was already recorded (duplicate ignored).',
+            );
+          }
+          _clearSale();
+          return;
+        }
+        throw Exception('Failed to persist kitchen sale atomically.');
+      }
+      firstSaleId = unifiedRes['first_sale_id']?.toString();
+
+      // Non-core side effects (room charges/debts) stay separate intentionally.
+      for (final saleItem in _currentSale) {
+        final itemName = _safeStr(saleItem['name']).isEmpty ? 'Item' : _safeStr(saleItem['name']);
+        final quantity = _safeInt(saleItem['quantity'], 1);
+        final unitPriceKobo = PaymentService.nairaToKobo(_safeDouble(saleItem['price']));
         if (_chargeToRoom && _selectedBookingId != null) {
           try {
             // RLS: booking_charges INSERT allows vip_bartender (non_destructive_upgrade.sql)
@@ -1382,45 +1481,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             }
           }
         }
-
-        final stockItemId = saleItem['stock_item_id']?.toString();
-        if (stockItemId != null && _sourceLocationId != null) {
-          try {
-            // RLS: stock_transactions INSERT allows vip_bartender for Kitchen (non_destructive_upgrade.sql)
-            await _dataService.recordStockTransaction({
-              'stock_item_id': stockItemId,
-              'location_id': _sourceLocationId,
-              'staff_profile_id': staffId,
-              'transaction_type': 'Sale',
-              'quantity': -quantity,
-              'notes': 'Kitchen sale',
-            });
-          } catch (e) {
-            if (kDebugMode) debugPrint('DEBUG recordStockTransaction: $e');
-            if (!partialErrors.any((m) => m.contains('stock update failed'))) {
-              partialErrors.add('Sale recorded, but stock update failed. Please adjust inventory manually.');
-            }
-          }
-        }
       }
 
       final isWalkInCredit = _salePaymentMethod == 'credit' && !_chargeToRoom;
-
-      if (!_chargeToRoom && !isWalkInCredit) {
-        try {
-          await _recordDepartmentSale(
-            department: 'restaurant',
-            amountInKobo: totalSaleInKobo,
-            staffId: staffId,
-            paymentMethod: effectivePaymentMethod,
-          );
-        } catch (e) {
-          if (kDebugMode) debugPrint('DEBUG _recordDepartmentSale: $e');
-          if (!partialErrors.any((m) => m.contains('department sales'))) {
-            partialErrors.add('Sale recorded, but department sales update failed.');
-          }
-        }
-      }
 
       if (isWalkInCredit) {
         final customerName = _saleCreditCustomerNameController.text.trim();
@@ -1498,6 +1561,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       _clearSale();
 
       if (mounted) {
+        ErrorHandler.showLedgerConfirmedSnackBar(
+          context,
+          'Kitchen sale saved to ledger. Safe to continue.',
+        );
         if (partialErrors.isNotEmpty) {
           ErrorHandler.showWarningMessage(context, partialErrors.first);
         } else {
@@ -1534,6 +1601,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         }
         if (mounted) setState(() {});
       }
+      _kitchenSaleLedgerSessionId = null;
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG record sale: $e\n$stackTrace');
       if (mounted) {
@@ -1545,7 +1613,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      _isProcessingSale = false;
+      _notifyKitchenSaleProcessingChanged();
     }
   }
 
@@ -2566,7 +2635,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                             ))
                         .toList(),
                                         onChanged: (val) {
-                                          setState(() => _selectedStockItemId = val);
+                                          setState(() {
+                                            _selectedStockItemId = val;
+                                            _dispatchLedgerRequestId = null;
+                                          });
                                           _setDispatchPriceFromItem(val);
                                         },
                                         validator: (val) =>
@@ -2609,8 +2681,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                         ),
                                   ))
                               .toList(),
-                                              onChanged: (val) =>
-                                                  setState(() => _selectedDestinationDepartment = val),
+                                              onChanged: (val) => setState(() {
+                                                _selectedDestinationDepartment = val;
+                                                _dispatchLedgerRequestId = null;
+                                              }),
                                               validator: (val) =>
                                                   val == null ? 'Select department' : null,
                         ),
@@ -2710,17 +2784,19 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                               );
                                             })
                                             .toList(),
-                                        onChanged: (val) =>
-                                            setState(() => _selectedDispatchBookingId = val),
+                                        onChanged: (val) => setState(() {
+                                          _selectedDispatchBookingId = val;
+                                          _dispatchLedgerRequestId = null;
+                                        }),
                                         validator: (val) => _dispatchPaymentStatus == 'unpaid' && val == null
                                             ? 'Select a booking'
                                             : null,
                                       ),
                   const SizedBox(height: 24),
-                  _isLoading
+                  _isProcessingDispatch
                       ? const Center(child: CircularProgressIndicator())
                       : ElevatedButton.icon(
-                          onPressed: _dispatchItem,
+                          onPressed: _isProcessingDispatch ? null : _dispatchItem,
                           icon: const Icon(Icons.send),
                           label: const Text('Dispatch Item'),
                           style: ElevatedButton.styleFrom(

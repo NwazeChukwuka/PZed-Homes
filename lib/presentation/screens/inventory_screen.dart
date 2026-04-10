@@ -18,6 +18,7 @@ import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:uuid/uuid.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -64,6 +65,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   final _customerPhoneController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit sales
   String _paymentMethod = 'cash';
+  bool _isProcessingSale = false;
+  String? _saleLedgerSessionId;
+  StateSetter? _inventorySaleModalSetState;
   List<String> _missingStockItems = [];
   final Set<String> _dismissedWarnings = {}; // Track dismissed warnings
   final Map<String, Map<String, int>> _stockByLocation = {};
@@ -1072,6 +1076,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
+          _inventorySaleModalSetState = setModalState;
           return SafeArea(
             child: Container(
               height: MediaQuery.of(context).size.height * 0.7,
@@ -1093,7 +1098,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: _isProcessingSale ? null : () => Navigator.pop(context),
                         ),
                       ],
                     ),
@@ -1133,7 +1138,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           );
         },
       ),
-    );
+    ).whenComplete(() => _inventorySaleModalSetState = null);
   }
 
   Widget _buildInventoryMobileSaleSheetActions({
@@ -1211,7 +1216,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           children: [
             Expanded(
               child: ElevatedButton(
-                onPressed: _currentSale.isEmpty
+                onPressed: (_currentSale.isEmpty || _isProcessingSale)
                     ? null
                     : () {
                         _clearSale();
@@ -1228,15 +1233,23 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             const SizedBox(width: 8),
             Expanded(
               child: ElevatedButton(
-                onPressed: _currentSale.isEmpty ? null : () {
-                  _processSale();
-                  onClose?.call();
-                },
+                onPressed: (_currentSale.isEmpty || _isProcessingSale)
+                    ? null
+                    : () async {
+                        await _processSale();
+                        if (context.mounted && _currentSale.isEmpty) onClose?.call();
+                      },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[700],
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Process Sale'),
+                child: _isProcessingSale
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Process Sale'),
               ),
             ),
           ],
@@ -1538,18 +1551,24 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                               children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _currentSale.isEmpty ? null : _processSale,
+                  onPressed: (_currentSale.isEmpty || _isProcessingSale) ? null : _processSale,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green[700],
                     foregroundColor: Colors.white,
                   ),
-                  child: const Text('Process Sale'),
+                  child: _isProcessingSale
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Process Sale'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _currentSale.isEmpty ? null : _clearSale,
+                  onPressed: (_currentSale.isEmpty || _isProcessingSale) ? null : _clearSale,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.grey[600],
                     foregroundColor: Colors.white,
@@ -1634,6 +1653,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       if (existingIndex != -1) {
         _currentSale[existingIndex]['quantity']++;
       } else {
+        _saleLedgerSessionId ??= const Uuid().v4();
         _currentSale.add({
           'item': item,
           'quantity': 1,
@@ -1649,6 +1669,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   void _removeItemFromSale(String itemId) {
                 setState(() {
       _currentSale.removeWhere((saleItem) => saleItem['item']['id'] == itemId);
+      if (_currentSale.isEmpty) _saleLedgerSessionId = null;
       _calculateTotal();
     });
   }
@@ -1691,6 +1712,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   void _clearSale() {
     setState(() {
       _currentSale.clear();
+      _saleLedgerSessionId = null;
       _saleTotal = 0.0;
       _customerNameController.clear();
       _customerPhoneController.clear();
@@ -1699,32 +1721,41 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     });
   }
 
+  void _notifyInventorySaleProcessingChanged() {
+    if (mounted) setState(() {});
+    _inventorySaleModalSetState?.call(() {});
+  }
+
   Future<void> _processSale() async {
+    if (_isProcessingSale) return;
     if (_currentSale.isEmpty) return;
 
-    // Unified staff auth guard: require valid session for transactions
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = StaffAuthHelper.requireStaffProfileId(
-      context,
-      authService: authService,
-      supabase: _dataService.supabase,
-    );
-    if (userId == null) return; // Session Expired dialog already shown
-
-    // Validate credit payment requirements
-    if (_paymentMethod == 'credit') {
-      if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
-        if (mounted) {
-          ErrorHandler.showWarningMessage(
-            context,
-            'Customer name and phone are required for credit sales',
-          );
-        }
-        return;
-      }
-    }
+    _isProcessingSale = true;
+    _notifyInventorySaleProcessingChanged();
 
     try {
+      // Unified staff auth guard: require valid session for transactions
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = StaffAuthHelper.requireStaffProfileId(
+        context,
+        authService: authService,
+        supabase: _dataService.supabase,
+      );
+      if (userId == null) return;
+
+      if (_paymentMethod == 'credit') {
+        if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
+          if (mounted) {
+            ErrorHandler.showWarningMessage(
+              context,
+              'Customer name and phone are required for credit sales',
+            );
+          }
+          return;
+        }
+      }
+
+      try {
       final supabase = _dataService.supabase;
       final user = authService.currentUser;
       final isBartender = _hasBartenderRole(authService, user);
@@ -1759,7 +1790,8 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         throw Exception('Failed to get location ID for $locationName');
       }
 
-      // Process each item sale
+      // Build atomic payload for unified RPC (one transactional mutation call)
+      final unifiedItems = <Map<String, dynamic>>[];
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
         final quantity = saleItem['quantity'] as int;
@@ -1804,40 +1836,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             );
           }
           
-          // Record sale in stock_transactions for proper location-based tracking
-          // This ensures VIP Bar and Outside Bar maintain separate stock levels
-          // CRITICAL: Fail fast if stock_transactions insert fails - don't mask errors
-          // If stock_transactions fails, we MUST NOT update inventory_items to prevent inconsistency
-          try {
-            final salePayload = <String, dynamic>{
-              'stock_item_id': stockItemId!,
-              'location_id': locationId,
-              'staff_profile_id': userId,
-              'transaction_type': 'Sale',
-              'quantity': -quantity, // Negative for sale
-              'unit_price_kobo': priceInKobo,
-              'line_total_kobo': priceInKobo * quantity,
-              'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
-            };
-            try {
-              await supabase.from('stock_transactions').insert(salePayload);
-            } on PostgrestException catch (e) {
-              // Backward-compatible retry when DB migration has not been applied yet.
-              final msg = (e.message).toLowerCase();
-              final isColumnError =
-                  e.code == '42703' ||
-                  (msg.contains('column') && msg.contains('does not exist'));
-              if (!isColumnError) rethrow;
-              salePayload.remove('unit_price_kobo');
-              salePayload.remove('line_total_kobo');
-              await supabase.from('stock_transactions').insert(salePayload);
-            }
-            
-            // Stock ledger is the source of truth; no direct inventory_items update
-          } catch (e, stack) {
-            if (kDebugMode) debugPrint('DEBUG stock_transactions: $e\n$stack');
-            rethrow;
-          }
+          unifiedItems.add({
+            'stock_item_id': stockItemId!,
+            'location_id': locationId,
+            'quantity': quantity,
+            'unit_price_kobo': priceInKobo,
+            'line_total_kobo': priceInKobo * quantity,
+            'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
+          });
         } catch (e) {
           // Re-throw the error from stock item lookup
           rethrow;
@@ -1847,72 +1853,33 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       // Calculate total sale amount in kobo
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
-      // Create or update department_sales record (paid sales only)
       final today = DateTime.now().toIso8601String().split('T')[0];
       final department = barKey ?? 'vip_bar';
-      if (_paymentMethod != 'credit') {
-        try {
-          final existingSales = await supabase
-              .from('department_sales')
-              .select()
-              .eq('department', department)
-              .eq('date', today)
-              .maybeSingle();
-
-          final paymentBreakdown = <String, int>{_paymentMethod: saleTotalInKobo};
-
-          if (existingSales != null) {
-            // Update existing record (only if same staff_id or NULL)
-            final existingStaffId = existingSales['staff_id'] as String?;
-            // Only update if it's the same staff member or aggregate (NULL)
-            if (existingStaffId == null || existingStaffId == userId) {
-              final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-              final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-              final currentMethodTotal = (updatedBreakdown[_paymentMethod] as int? ?? 0);
-              updatedBreakdown[_paymentMethod] = currentMethodTotal + saleTotalInKobo;
-
-              await supabase
-                  .from('department_sales')
-                  .update({
-                    'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                    'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                    'payment_method_breakdown': updatedBreakdown,
-                    'staff_id': userId, // Set staff_id if it was NULL, or keep existing
-                  })
-                  .eq('id', existingSales['id']);
-            } else {
-              // Different staff member - create separate record for this staff
-              await supabase
-                  .from('department_sales')
-                  .insert({
-                    'department': department,
-                    'date': today,
-                    'total_sales': saleTotalInKobo,
-                    'transaction_count': 1,
-                    'payment_method_breakdown': paymentBreakdown,
-                    'recorded_by': userId,
-                    'staff_id': userId,
-                  });
-            }
-          } else {
-            // Create new record
-            await supabase
-                .from('department_sales')
-                .insert({
-                  'department': department,
-                  'date': today,
-                  'total_sales': saleTotalInKobo,
-                  'transaction_count': 1,
-                  'payment_method_breakdown': paymentBreakdown,
-                  'recorded_by': userId,
-                  'staff_id': userId, // Track which staff member made the sales
-                });
+      final unifiedRes = await _dataService.processUnifiedSale(
+        transactionId: _saleLedgerSessionId ?? const Uuid().v4(),
+        items: unifiedItems,
+        paymentData: {
+          'flow': 'inventory_bar',
+          'department': department,
+          'payment_method': _paymentMethod,
+          'staff_id': userId,
+          'sale_date': today,
+        },
+      );
+      if (unifiedRes['applied'] != true) {
+        if (unifiedRes['duplicate'] == true) {
+          if (mounted) {
+            ErrorHandler.showInfoMessage(
+              context,
+              'This sale was already recorded (duplicate request ignored).',
+            );
           }
-
-        } catch (e, stack) {
-          if (kDebugMode) debugPrint('DEBUG department_sales: $e\n$stack');
+          _clearSale();
+          return;
         }
+        throw Exception('Failed to persist sale atomically.');
       }
+      _saleLedgerSessionId = null;
 
       // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'credit') {
@@ -1939,6 +1906,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         await _dataService.recordDebt(debt);
         
         if (mounted) {
+          ErrorHandler.showLedgerConfirmedSnackBar(
+            context,
+            'Sale saved to ledger. Safe to close.',
+          );
           ErrorHandler.showWarningMessage(
             context,
             'Sale on credit recorded! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)} - Debt created',
@@ -1947,6 +1918,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       } else {
         // Show success message for regular payment
         if (mounted) {
+          ErrorHandler.showLedgerConfirmedSnackBar(
+            context,
+            'Sale saved to ledger. Safe to close.',
+          );
           ErrorHandler.showSuccessMessage(
             context,
             'Sale processed successfully! Total: ₦${NumberFormat('#,##0.00').format(_saleTotal)}',
@@ -1987,6 +1962,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           stackTrace: stackTrace,
         );
       }
+    }
+    } finally {
+      _isProcessingSale = false;
+      _notifyInventorySaleProcessingChanged();
     }
   }
 

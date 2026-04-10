@@ -24,6 +24,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 
 class MiniMartScreen extends StatefulWidget {
   const MiniMartScreen({super.key});
@@ -49,6 +50,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   List<Map<String, dynamic>> _salesHistory = [];
   double _saleTotal = 0.0;
   bool _isLoading = true;
+  bool _isProcessingSale = false;
+  String? _saleLedgerSessionId;
+  StateSetter? _miniMartSaleModalSetState;
   
   // Customer info
   final _customerNameController = TextEditingController();
@@ -363,6 +367,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       if (existingIndex != -1) {
         _currentSale[existingIndex]['quantity'] = (_currentSale[existingIndex]['quantity'] ?? 0) + 1;
       } else {
+        _saleLedgerSessionId ??= const Uuid().v4();
         _currentSale.add({
           ...item,
           'quantity': 1,
@@ -377,6 +382,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   void _removeItemFromSale(int index) {
     setState(() {
       _currentSale.removeAt(index);
+      if (_currentSale.isEmpty) _saleLedgerSessionId = null;
       _calculateTotal();
     });
   }
@@ -413,7 +419,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     });
   }
 
+  void _notifyMiniMartSaleProcessingChanged() {
+    if (mounted) setState(() {});
+    _miniMartSaleModalSetState?.call(() {});
+  }
+
   Future<void> _processSale() async {
+    if (_isProcessingSale) return;
+
     if (_currentSale.isEmpty) {
       if (mounted) {
         ErrorHandler.showWarningMessage(
@@ -424,38 +437,40 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       return;
     }
 
-    // Unified staff auth guard: require valid session for transactions
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = StaffAuthHelper.requireStaffProfileId(
-      context,
-      authService: authService,
-      supabase: _supabase,
-    );
-    if (userId == null) return; // Session Expired dialog already shown
-
-    // Validate credit payment requirements
-    if (_paymentMethod == 'Credit') {
-      if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
-        if (mounted) {
-          ErrorHandler.showWarningMessage(
-            context,
-            'Customer name and phone are required for credit sales',
-          );
-        }
-        return;
-      }
-    }
+    _isProcessingSale = true;
+    _notifyMiniMartSaleProcessingChanged();
 
     try {
+      // Unified staff auth guard: require valid session for transactions
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = StaffAuthHelper.requireStaffProfileId(
+        context,
+        authService: authService,
+        supabase: _supabase,
+      );
+      if (userId == null) return;
+
+      if (_paymentMethod == 'Credit') {
+        if (_customerNameController.text.trim().isEmpty || _customerPhoneController.text.trim().isEmpty) {
+          if (mounted) {
+            ErrorHandler.showWarningMessage(
+              context,
+              'Customer name and phone are required for credit sales',
+            );
+          }
+          return;
+        }
+      }
+
+      try {
       final customerName = _customerNameController.text.trim().isNotEmpty 
           ? _customerNameController.text.trim() 
           : 'Walk-in Customer';
       final customerPhone = _customerPhoneController.text.trim();
-      final saleDate = DateTime.now().toIso8601String();
+      final saleDateOnly = DateTime.now().toIso8601String().split('T')[0];
       
-      // Create one mini_mart_sales record per item (schema supports single item per record)
-      // _currentSale structure: {'id': itemId, 'name': itemName, 'price': price, 'quantity': quantity, ...}
-      String? firstSaleId;
+      // Build atomic payload for one RPC call
+      final unifiedItems = <Map<String, dynamic>>[];
       for (final saleItem in _currentSale) {
         final itemId = saleItem['id'] as String;
         final quantity = saleItem['quantity'] as int;
@@ -484,111 +499,45 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           debugPrint('Warning: Low stock for $itemName. Available: $currentStock $unit, Requested: $quantity. Sale will proceed and may result in negative stock.');
         }
 
-        // Calculate new stock (may be negative)
-        final newStock = currentStock - quantity;
-
-        // Update stock atomically (allows negative stock)
-        // Removed .gte() constraint to allow negative stock when management delays updates
-        final updateResponse = await _supabase
-            .from('mini_mart_items')
-            .update({'stock_quantity': newStock})
-            .eq('id', itemId)
-            .select('id')
-            .maybeSingle();
-
-        // If update returned null, item may have been deleted
-        if (updateResponse == null) {
-          throw Exception(
-            'Item $itemName not found or was deleted. Please refresh and try again.'
-          );
-        }
-
-        // Create sale record for this item (after stock update succeeded)
-        final saleResponse = await _supabase
-            .from('mini_mart_sales')
-            .insert({
-              'item_id': itemId,
-              'quantity': quantity,
-              'unit_price': priceInKobo, // In kobo
-              'total_amount': totalAmountInKobo, // In kobo
-              'sale_date': saleDate,
-              'payment_method': _paymentMethod.toLowerCase(),
-              'customer_name': customerName,
-              'sold_by': userId,
-            })
-            .select('id')
-            .maybeSingle();
-        if (firstSaleId == null && saleResponse != null) {
-          firstSaleId = saleResponse['id'] as String?;
-        }
+        unifiedItems.add({
+          'item_id': itemId,
+          'quantity': quantity,
+          'unit_price_kobo': priceInKobo,
+          'line_total_kobo': totalAmountInKobo,
+          'notes': 'Mini mart sale',
+        });
       }
 
       // Calculate total sale amount in kobo for debt/income records
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
-      // Create or update department_sales record (paid sales only)
-      if (_paymentMethod.toLowerCase() != 'credit') {
-        final today = DateTime.now().toIso8601String().split('T')[0];
-        try {
-          final existingSales = await _supabase
-              .from('department_sales')
-              .select()
-              .eq('department', 'mini_mart')
-              .eq('date', today)
-              .maybeSingle();
-
-          final paymentBreakdown = <String, int>{_paymentMethod.toLowerCase(): saleTotalInKobo};
-
-          if (existingSales != null) {
-            // Update existing record (only if same staff_id or NULL)
-            final existingStaffId = existingSales['staff_id'] as String?;
-            // Only update if it's the same staff member or aggregate (NULL)
-            if (existingStaffId == null || existingStaffId == userId) {
-              final currentBreakdown = (existingSales['payment_method_breakdown'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-              final updatedBreakdown = Map<String, dynamic>.from(currentBreakdown);
-              final currentMethodTotal = (updatedBreakdown[_paymentMethod.toLowerCase()] as int? ?? 0);
-              updatedBreakdown[_paymentMethod.toLowerCase()] = currentMethodTotal + saleTotalInKobo;
-
-              await _supabase
-                  .from('department_sales')
-                  .update({
-                    'total_sales': (existingSales['total_sales'] as int) + saleTotalInKobo,
-                    'transaction_count': (existingSales['transaction_count'] as int) + 1,
-                    'payment_method_breakdown': updatedBreakdown,
-                    'staff_id': userId, // Set staff_id if it was NULL, or keep existing
-                  })
-                  .eq('id', existingSales['id']);
-            } else {
-              // Different staff member - create separate record for this staff
-              await _supabase
-                  .from('department_sales')
-                  .insert({
-                    'department': 'mini_mart',
-                    'date': today,
-                    'total_sales': saleTotalInKobo,
-                    'transaction_count': 1,
-                    'payment_method_breakdown': paymentBreakdown,
-                    'recorded_by': userId,
-                    'staff_id': userId,
-                  });
-            }
-          } else {
-            await _supabase
-                .from('department_sales')
-                .insert({
-                  'department': 'mini_mart',
-                  'date': today,
-                  'total_sales': saleTotalInKobo,
-                  'transaction_count': 1,
-                  'payment_method_breakdown': paymentBreakdown,
-                  'recorded_by': userId,
-                  'staff_id': userId, // Track which staff member made the sales
-                });
+      final unifiedRes = await _dataService.processUnifiedSale(
+        transactionId: _saleLedgerSessionId ?? const Uuid().v4(),
+        items: unifiedItems,
+        paymentData: {
+          'flow': 'mini_mart',
+          'department': 'mini_mart',
+          'payment_method': _paymentMethod.toLowerCase(),
+          'staff_id': userId,
+          'sale_date': saleDateOnly,
+          'customer_name': customerName,
+        },
+      );
+      if (unifiedRes['applied'] != true) {
+        if (unifiedRes['duplicate'] == true) {
+          if (mounted) {
+            ErrorHandler.showInfoMessage(
+              context,
+              'This sale was already recorded (duplicate request ignored).',
+            );
           }
-        } catch (e, stack) {
-          if (kDebugMode) debugPrint('DEBUG department_sales record: $e\n$stack');
+          _clearSale();
+          return;
         }
+        throw Exception('Failed to persist sale atomically.');
       }
+      _saleLedgerSessionId = null;
+      final firstSaleId = unifiedRes['first_sale_id']?.toString();
 
       // Capture receipt data before clearing
       final receiptItems = List<Map<String, dynamic>>.from(_currentSale);
@@ -620,6 +569,10 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       }
 
       if (mounted) {
+        ErrorHandler.showLedgerConfirmedSnackBar(
+          context,
+          'Mini Mart sale saved to ledger. Safe to close.',
+        );
         if (_paymentMethod == 'Credit') {
           ErrorHandler.showWarningMessage(
             context,
@@ -679,11 +632,16 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         );
       }
     }
+    } finally {
+      _isProcessingSale = false;
+      _notifyMiniMartSaleProcessingChanged();
+    }
   }
 
   void _clearSale() {
     setState(() {
       _currentSale.clear();
+      _saleLedgerSessionId = null;
       _saleTotal = 0.0;
       _customerNameController.clear();
       _customerPhoneController.clear();
@@ -1564,7 +1522,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           children: [
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: _clearSale,
+                                onPressed: (_currentSale.isEmpty || _isProcessingSale) ? null : _clearSale,
                                 child: const Text('Clear'),
                               ),
                             ),
@@ -1572,12 +1530,18 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                             Expanded(
                               flex: 2,
                               child: ElevatedButton(
-                                onPressed: _processSale,
+                                onPressed: (_currentSale.isEmpty || _isProcessingSale) ? null : _processSale,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green[800],
                                   foregroundColor: Colors.white,
                                 ),
-                                child: const Text('Process Sale'),
+                                child: _isProcessingSale
+                                    ? const SizedBox(
+                                        height: 22,
+                                        width: 22,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Text('Process Sale'),
                               ),
                             ),
                           ],
@@ -1642,6 +1606,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
+          _miniMartSaleModalSetState = setModalState;
           return SafeArea(
             child: Container(
               height: MediaQuery.of(context).size.height * 0.7,
@@ -1663,7 +1628,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: _isProcessingSale ? null : () => Navigator.pop(context),
                         ),
                       ],
                     ),
@@ -1733,7 +1698,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           );
         },
       ),
-    );
+    ).whenComplete(() => _miniMartSaleModalSetState = null);
   }
 
   Widget _buildMiniMartMobileSaleSheetActions({
@@ -1797,11 +1762,13 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () {
-                  _clearSale();
-                  onUpdate?.call();
-                  onClose?.call();
-                },
+                onPressed: (_currentSale.isEmpty || _isProcessingSale)
+                    ? null
+                    : () {
+                        _clearSale();
+                        onUpdate?.call();
+                        onClose?.call();
+                      },
                 child: const Text('Clear'),
               ),
             ),
@@ -1809,15 +1776,23 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             Expanded(
               flex: 2,
               child: ElevatedButton(
-                onPressed: () {
-                  _processSale();
-                  onClose?.call();
-                },
+                onPressed: (_currentSale.isEmpty || _isProcessingSale)
+                    ? null
+                    : () async {
+                        await _processSale();
+                        if (context.mounted && _currentSale.isEmpty) onClose?.call();
+                      },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green[800],
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Process Sale'),
+                child: _isProcessingSale
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Process Sale'),
               ),
             ),
           ],

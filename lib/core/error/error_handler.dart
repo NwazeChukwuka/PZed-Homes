@@ -193,6 +193,31 @@ class ErrorHandler {
     );
   }
 
+  /// Shown after ledger writes complete so staff know it is safe to dismiss the sheet/dialog.
+  static void showLedgerConfirmedSnackBar(
+    BuildContext context,
+    String message, {
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.verified_outlined, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.teal.shade700,
+        duration: duration,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+
   static void showSuccessMessage(
     BuildContext context,
     String message, {

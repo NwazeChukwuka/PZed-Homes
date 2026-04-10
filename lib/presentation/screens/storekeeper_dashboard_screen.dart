@@ -8,6 +8,7 @@ import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
+import 'package:uuid/uuid.dart';
 
 class StorekeeperDashboardScreen extends StatefulWidget {
   const StorekeeperDashboardScreen({super.key});
@@ -183,7 +184,8 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
 
   String? _selectedStockItemId;
   String? _selectedLocationId;
-  bool _isLoading = false;
+  bool _isProcessingDirectEntry = false;
+  String? _pendingDirectEntryRequestId;
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _locations = [];
 
@@ -254,6 +256,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   }
 
   Future<void> _recordDirectEntry() async {
+    if (_isProcessingDirectEntry) return;
     if (!_formKey.currentState!.validate()) return;
     if (_selectedStockItemId == null || _selectedLocationId == null) {
       if (mounted) {
@@ -273,26 +276,46 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
     );
     if (staffId == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _isProcessingDirectEntry = true);
     try {
       final quantity = int.parse(_quantityController.text);
       final stockItemId = _selectedStockItemId!;
+      final notes = _notesController.text.trim().isNotEmpty
+          ? 'Direct entry: ${_notesController.text.trim()}'
+          : 'Direct stock entry';
 
-      // Record stock transaction using stock_item_id
-      await _dataService.recordStockTransaction({
-        'stock_item_id': stockItemId,
-        'location_id': _selectedLocationId!, // Required
-        'staff_profile_id': staffId, // Required
-        'transaction_type': 'Purchase', // Use standard transaction type
-        'quantity': quantity,
-        'notes': _notesController.text.trim().isNotEmpty 
-            ? 'Direct entry: ${_notesController.text.trim()}' 
-            : 'Direct stock entry',
-      });
+      _pendingDirectEntryRequestId ??= const Uuid().v4();
+      final applied = await _dataService.recordDirectStockEntry(
+        clientRequestId: _pendingDirectEntryRequestId!,
+        stockItemId: stockItemId,
+        locationId: _selectedLocationId!,
+        staffProfileId: staffId,
+        quantity: quantity,
+        notes: notes,
+      );
 
-      // Stock ledger is the source of truth; no direct inventory_items update
-      
+      if (!applied) {
+        if (mounted) {
+          ErrorHandler.showInfoMessage(
+            context,
+            'This delivery was already saved to the ledger (duplicate ignored).',
+          );
+          ErrorHandler.showLedgerConfirmedSnackBar(
+            context,
+            'Ledger already had this entry — no duplicate.',
+          );
+        }
+        _pendingDirectEntryRequestId = null;
+        return;
+      }
+
+      _pendingDirectEntryRequestId = null;
+
       if (mounted) {
+        ErrorHandler.showLedgerConfirmedSnackBar(
+          context,
+          'Stock ledger saved. Safe to leave this screen.',
+        );
         ErrorHandler.showSuccessMessage(
           context,
           'Stock recorded successfully!',
@@ -304,7 +327,6 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _selectedStockItemId = null;
           _selectedLocationId = null;
         });
-        // Reload data to reflect changes
         await _loadData();
       }
     } catch (e, stackTrace) {
@@ -318,7 +340,7 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isProcessingDirectEntry = false);
     }
   }
 
@@ -341,7 +363,10 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
                     value: item['id']?.toString(),
                     child: Text(item['name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _selectedStockItemId = val),
+                  onChanged: (val) => setState(() {
+                    _selectedStockItemId = val;
+                    _pendingDirectEntryRequestId = null;
+                  }),
                   validator: (val) => val == null ? 'Please select an item' : null,
                 ),
           const SizedBox(height: 16),
@@ -355,7 +380,10 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
                     value: loc['id']?.toString(),
                     child: Text(loc['name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _selectedLocationId = val),
+                  onChanged: (val) => setState(() {
+                    _selectedLocationId = val;
+                    _pendingDirectEntryRequestId = null;
+                  }),
                   validator: (val) => val == null ? 'Please select a location' : null,
                 ),
           const SizedBox(height: 16),
@@ -371,10 +399,10 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
             decoration: const InputDecoration(labelText: 'Notes (Optional)', hintText: 'e.g., Delivered by manager', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 24),
-          _isLoading
+          _isProcessingDirectEntry
               ? const Center(child: CircularProgressIndicator())
               : ElevatedButton(
-                  onPressed: _isLoading ? null : _recordDirectEntry,
+                  onPressed: _isProcessingDirectEntry ? null : _recordDirectEntry,
                   style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: const Text('Add to Stock Ledger'),
                 ),
@@ -401,7 +429,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
   String? _sourceLocationId;
   String? _destinationLocationId;
   String? _selectedRecipientId;
-  bool _isLoading = false;
+  bool _isProcessingTransfer = false;
+  String? _pendingStockTransferRequestId;
 
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _locations = [];
@@ -492,6 +521,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
   }
 
   Future<void> _submitTransfer() async {
+    if (_isProcessingTransfer) return;
     if (!_formKey.currentState!.validate()) return;
     if (_selectedStockItemId == null ||
         _sourceLocationId == null ||
@@ -514,11 +544,12 @@ class _StockTransferFormState extends State<StockTransferForm> {
     );
     if (issuedById == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() => _isProcessingTransfer = true);
     try {
       final quantity = int.parse(_quantityController.text.trim());
 
-      await _dataService.createStockTransfer(
+      _pendingStockTransferRequestId ??= const Uuid().v4();
+      final transferRowId = await _dataService.createStockTransfer(
         stockItemId: _selectedStockItemId!,
         sourceLocationId: _sourceLocationId!,
         destinationLocationId: _destinationLocationId!,
@@ -526,9 +557,31 @@ class _StockTransferFormState extends State<StockTransferForm> {
         issuedById: issuedById,
         receivedById: _selectedRecipientId!,
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        clientRequestId: _pendingStockTransferRequestId,
       );
 
+      if (transferRowId == null) {
+        if (mounted) {
+          ErrorHandler.showInfoMessage(
+            context,
+            'This transfer was already recorded (duplicate request ignored).',
+          );
+          ErrorHandler.showLedgerConfirmedSnackBar(
+            context,
+            'Transfer already on ledger — no duplicate.',
+          );
+        }
+        _pendingStockTransferRequestId = null;
+        return;
+      }
+
+      _pendingStockTransferRequestId = null;
+
       if (mounted) {
+        ErrorHandler.showLedgerConfirmedSnackBar(
+          context,
+          'Transfer saved to ledger. Safe to continue.',
+        );
         ErrorHandler.showSuccessMessage(context, 'Stock transferred successfully!');
         _formKey.currentState?.reset();
         _quantityController.clear();
@@ -550,7 +603,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isProcessingTransfer = false);
     }
   }
 
@@ -577,7 +630,10 @@ class _StockTransferFormState extends State<StockTransferForm> {
                     value: item['id']?.toString(),
                     child: Text(item['name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _selectedStockItemId = val),
+                  onChanged: (val) => setState(() {
+                    _selectedStockItemId = val;
+                    _pendingStockTransferRequestId = null;
+                  }),
                   validator: (val) => val == null ? 'Please select an item' : null,
                 ),
           const SizedBox(height: 16),
@@ -590,7 +646,10 @@ class _StockTransferFormState extends State<StockTransferForm> {
                     value: loc['id']?.toString(),
                     child: Text(loc['name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _sourceLocationId = val),
+                  onChanged: (val) => setState(() {
+                    _sourceLocationId = val;
+                    _pendingStockTransferRequestId = null;
+                  }),
                   validator: (val) => val == null ? 'Please select a source location' : null,
                 ),
           const SizedBox(height: 16),
@@ -609,6 +668,7 @@ class _StockTransferFormState extends State<StockTransferForm> {
                   onChanged: (val) => setState(() {
                     _destinationLocationId = val;
                     _selectedRecipientId = null;
+                    _pendingStockTransferRequestId = null;
                   }),
                   validator: (val) => val == null ? 'Please select a destination location' : null,
                 ),
@@ -622,7 +682,10 @@ class _StockTransferFormState extends State<StockTransferForm> {
                     value: staff['id']?.toString(),
                     child: Text(staff['full_name']?.toString() ?? 'Unknown'),
                   )).toList(),
-                  onChanged: (val) => setState(() => _selectedRecipientId = val),
+                  onChanged: (val) => setState(() {
+                    _selectedRecipientId = val;
+                    _pendingStockTransferRequestId = null;
+                  }),
                   validator: (val) => val == null ? 'Please select a recipient' : null,
                 ),
           const SizedBox(height: 16),
@@ -644,12 +707,12 @@ class _StockTransferFormState extends State<StockTransferForm> {
             maxLines: 2,
           ),
           const SizedBox(height: 24),
-          _isLoading
+          _isProcessingTransfer
               ? const Center(child: CircularProgressIndicator())
               : SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _submitTransfer,
+                    onPressed: _isProcessingTransfer ? null : _submitTransfer,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
                       padding: const EdgeInsets.symmetric(vertical: 14),

@@ -1906,6 +1906,46 @@ CREATE POLICY "Storekeeper can create stock transfers" ON public.stock_transfers
   AND (user_has_role(auth.uid(), 'storekeeper') OR user_has_role(auth.uid(), 'manager') OR user_has_role(auth.uid(), 'owner'))
 );
 
+-- Idempotency: first successful claim per UUID wins (retries / duplicate devices with same id)
+CREATE TABLE IF NOT EXISTS public.client_mutation_requests (
+  id UUID PRIMARY KEY,
+  kind TEXT NOT NULL,
+  staff_profile_id UUID NOT NULL REFERENCES public.profiles(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_mutation_requests_staff_created
+  ON public.client_mutation_requests (staff_profile_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.claim_client_mutation_request(
+  p_id uuid,
+  p_kind text,
+  p_staff_id uuid
+) RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count int;
+BEGIN
+  IF NOT is_user_active(auth.uid()) THEN
+    RAISE EXCEPTION 'User not active';
+  END IF;
+  IF p_staff_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'Not authorized for this staff id';
+  END IF;
+
+  INSERT INTO public.client_mutation_requests (id, kind, staff_profile_id)
+  VALUES (p_id, p_kind, p_staff_id)
+  ON CONFLICT (id) DO NOTHING;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count > 0;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.claim_client_mutation_request(uuid, text, uuid) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.create_stock_transfer(
     p_stock_item_id uuid,
     p_source_location_id uuid,
@@ -1913,7 +1953,8 @@ CREATE OR REPLACE FUNCTION public.create_stock_transfer(
     p_quantity int,
     p_issued_by_id uuid,
     p_received_by_id uuid,
-    p_notes text DEFAULT NULL
+    p_notes text DEFAULT NULL,
+    p_client_request_id uuid DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -1928,6 +1969,12 @@ DECLARE
 BEGIN
     IF NOT is_user_active(auth.uid()) THEN
         RAISE EXCEPTION 'User not active';
+    END IF;
+
+    IF p_client_request_id IS NOT NULL THEN
+        IF NOT public.claim_client_mutation_request(p_client_request_id, 'stock_transfer', p_issued_by_id) THEN
+            RETURN NULL;
+        END IF;
     END IF;
 
     v_is_management := user_has_role(auth.uid(), 'storekeeper')
@@ -1988,6 +2035,319 @@ BEGIN
     RETURN v_transfer_id;
 END;
 $$;
+
+-- Atomic kitchen dispatch: claim + single row (duplicate client UUID returns NULL)
+CREATE OR REPLACE FUNCTION public.create_department_transfer(
+    p_source_department text,
+    p_destination_department text,
+    p_menu_item_id uuid,
+    p_quantity int,
+    p_dispatched_by_id uuid,
+    p_status text,
+    p_unit_price bigint,
+    p_total_amount bigint,
+    p_payment_method text,
+    p_payment_status text,
+    p_booking_id uuid,
+    p_notes text,
+    p_client_request_id uuid DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_id uuid;
+BEGIN
+    IF NOT is_user_active(auth.uid()) THEN
+        RAISE EXCEPTION 'User not active';
+    END IF;
+    IF p_dispatched_by_id IS DISTINCT FROM auth.uid() THEN
+        RAISE EXCEPTION 'Not authorized for this staff id';
+    END IF;
+
+    IF p_client_request_id IS NOT NULL THEN
+        IF NOT public.claim_client_mutation_request(p_client_request_id, 'kitchen_dispatch', p_dispatched_by_id) THEN
+            RETURN NULL;
+        END IF;
+    END IF;
+
+    INSERT INTO public.department_transfers (
+        source_department,
+        destination_department,
+        menu_item_id,
+        quantity,
+        dispatched_by_id,
+        status,
+        unit_price,
+        total_amount,
+        payment_method,
+        payment_status,
+        booking_id,
+        notes
+    ) VALUES (
+        p_source_department,
+        p_destination_department,
+        p_menu_item_id,
+        p_quantity,
+        p_dispatched_by_id,
+        COALESCE(NULLIF(trim(p_status), ''), 'Pending'),
+        p_unit_price,
+        p_total_amount,
+        p_payment_method,
+        p_payment_status,
+        p_booking_id,
+        p_notes
+    ) RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.create_department_transfer(text, text, uuid, int, uuid, text, bigint, bigint, text, text, uuid, text, uuid) TO authenticated;
+
+-- Atomic storekeeper direct Purchase line (one claim per client UUID)
+CREATE OR REPLACE FUNCTION public.record_direct_stock_entry(
+    p_client_request_id uuid,
+    p_staff_profile_id uuid,
+    p_stock_item_id uuid,
+    p_location_id uuid,
+    p_quantity int,
+    p_notes text
+) RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF NOT is_user_active(auth.uid()) THEN
+        RAISE EXCEPTION 'User not active';
+    END IF;
+    IF p_staff_profile_id IS DISTINCT FROM auth.uid() THEN
+        RAISE EXCEPTION 'Not authorized for this staff id';
+    END IF;
+
+    IF p_client_request_id IS NOT NULL THEN
+        IF NOT public.claim_client_mutation_request(p_client_request_id, 'direct_stock_entry', p_staff_profile_id) THEN
+            RETURN false;
+        END IF;
+    END IF;
+
+    INSERT INTO public.stock_transactions (
+        stock_item_id,
+        location_id,
+        staff_profile_id,
+        transaction_type,
+        quantity,
+        notes
+    ) VALUES (
+        p_stock_item_id,
+        p_location_id,
+        p_staff_profile_id,
+        'Purchase',
+        p_quantity,
+        p_notes
+    );
+
+    RETURN true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.record_direct_stock_entry(uuid, uuid, uuid, uuid, int, text) TO authenticated;
+
+-- Atomic + idempotent sale processor (bar/inventory, mini_mart, kitchen)
+-- p_items: JSON array of line items
+-- p_payment_data: metadata object (flow, department, payment_method, staff_id, etc.)
+CREATE OR REPLACE FUNCTION public.process_unified_sale(
+    p_items jsonb,
+    p_payment_data jsonb,
+    p_transaction_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_staff_id uuid;
+    v_flow text;
+    v_department text;
+    v_payment_method text;
+    v_booking_id uuid;
+    v_sale_date date;
+    v_total_amount bigint := 0;
+    v_tx_count int := 0;
+    v_item jsonb;
+    v_item_id uuid;
+    v_menu_item_id uuid;
+    v_stock_item_id uuid;
+    v_location_id uuid;
+    v_quantity int;
+    v_unit_price bigint;
+    v_line_total bigint;
+    v_customer_name text;
+    v_item_name text;
+    v_first_sale_id uuid;
+    v_existing_sales record;
+    v_updated_breakdown jsonb;
+BEGIN
+    IF NOT is_user_active(auth.uid()) THEN
+        RAISE EXCEPTION 'User not active';
+    END IF;
+
+    IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'No sale items provided';
+    END IF;
+
+    IF p_payment_data IS NULL OR jsonb_typeof(p_payment_data) <> 'object' THEN
+        RAISE EXCEPTION 'Payment data is required';
+    END IF;
+
+    v_staff_id := NULLIF(trim(COALESCE(p_payment_data->>'staff_id', '')), '')::uuid;
+    IF v_staff_id IS NULL THEN
+        RAISE EXCEPTION 'staff_id is required';
+    END IF;
+    IF v_staff_id IS DISTINCT FROM auth.uid() THEN
+        RAISE EXCEPTION 'Not authorized for this staff id';
+    END IF;
+
+    IF NOT public.claim_client_mutation_request(p_transaction_id, 'unified_sale', v_staff_id) THEN
+        RETURN jsonb_build_object('applied', false, 'duplicate', true);
+    END IF;
+
+    v_flow := lower(COALESCE(p_payment_data->>'flow', ''));
+    v_department := COALESCE(NULLIF(trim(p_payment_data->>'department'), ''), v_flow);
+    v_payment_method := lower(COALESCE(p_payment_data->>'payment_method', 'cash'));
+    v_booking_id := NULLIF(trim(COALESCE(p_payment_data->>'booking_id', '')), '')::uuid;
+    v_sale_date := COALESCE(NULLIF(p_payment_data->>'sale_date', '')::date, CURRENT_DATE);
+    v_customer_name := NULLIF(trim(COALESCE(p_payment_data->>'customer_name', '')), '');
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(p_items)
+    LOOP
+        v_quantity := COALESCE((v_item->>'quantity')::int, 0);
+        IF v_quantity <= 0 THEN
+            RAISE EXCEPTION 'Invalid quantity in sale item';
+        END IF;
+
+        v_unit_price := COALESCE((v_item->>'unit_price_kobo')::bigint, 0);
+        IF v_unit_price < 0 THEN
+            RAISE EXCEPTION 'Invalid unit price in sale item';
+        END IF;
+
+        v_line_total := COALESCE((v_item->>'line_total_kobo')::bigint, v_unit_price * v_quantity);
+        IF v_line_total < 0 THEN
+            RAISE EXCEPTION 'Invalid line total in sale item';
+        END IF;
+        v_total_amount := v_total_amount + v_line_total;
+        v_tx_count := v_tx_count + 1;
+
+        IF v_flow = 'mini_mart' THEN
+            v_item_id := NULLIF(trim(COALESCE(v_item->>'item_id', '')), '')::uuid;
+            IF v_item_id IS NULL THEN
+                RAISE EXCEPTION 'mini_mart item_id is required';
+            END IF;
+
+            UPDATE public.mini_mart_items
+            SET stock_quantity = COALESCE(stock_quantity, 0) - v_quantity,
+                updated_at = now()
+            WHERE id = v_item_id;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'Mini Mart item not found';
+            END IF;
+
+            INSERT INTO public.mini_mart_sales (
+                item_id, quantity, unit_price, total_amount, sale_date,
+                payment_method, customer_name, booking_id, sold_by, notes
+            ) VALUES (
+                v_item_id, v_quantity, v_unit_price, v_line_total, now(),
+                v_payment_method, COALESCE(v_customer_name, 'Walk-in Customer'), v_booking_id, v_staff_id, v_item->>'notes'
+            ) RETURNING id INTO v_first_sale_id;
+        ELSIF v_flow = 'kitchen' THEN
+            v_menu_item_id := NULLIF(trim(COALESCE(v_item->>'menu_item_id', '')), '')::uuid;
+            v_item_name := NULLIF(trim(COALESCE(v_item->>'item_name', '')), '');
+            v_stock_item_id := NULLIF(trim(COALESCE(v_item->>'stock_item_id', '')), '')::uuid;
+            v_location_id := NULLIF(trim(COALESCE(v_item->>'location_id', '')), '')::uuid;
+
+            INSERT INTO public.kitchen_sales (
+                menu_item_id, item_name, quantity, unit_price, total_amount,
+                payment_method, booking_id, sold_by, notes
+            ) VALUES (
+                v_menu_item_id, v_item_name, v_quantity, v_unit_price, v_line_total,
+                v_payment_method, v_booking_id, v_staff_id, v_item->>'notes'
+            ) RETURNING id INTO v_first_sale_id;
+
+            IF v_stock_item_id IS NOT NULL AND v_location_id IS NOT NULL THEN
+                INSERT INTO public.stock_transactions (
+                    stock_item_id, location_id, staff_profile_id, transaction_type, quantity, notes
+                ) VALUES (
+                    v_stock_item_id, v_location_id, v_staff_id, 'Sale', -v_quantity, 'Kitchen sale'
+                );
+            END IF;
+        ELSIF v_flow = 'inventory_bar' THEN
+            v_stock_item_id := NULLIF(trim(COALESCE(v_item->>'stock_item_id', '')), '')::uuid;
+            v_location_id := NULLIF(trim(COALESCE(v_item->>'location_id', '')), '')::uuid;
+            IF v_stock_item_id IS NULL OR v_location_id IS NULL THEN
+                RAISE EXCEPTION 'inventory_bar requires stock_item_id and location_id';
+            END IF;
+            INSERT INTO public.stock_transactions (
+                stock_item_id, location_id, staff_profile_id, transaction_type, quantity, notes
+            ) VALUES (
+                v_stock_item_id, v_location_id, v_staff_id, 'Sale', -v_quantity, COALESCE(v_item->>'notes', 'Bar sale')
+            );
+        ELSE
+            RAISE EXCEPTION 'Unsupported flow: %', v_flow;
+        END IF;
+    END LOOP;
+
+    IF COALESCE(v_department, '') <> '' AND v_total_amount > 0 THEN
+        SELECT * INTO v_existing_sales
+        FROM public.department_sales
+        WHERE department = v_department
+          AND date = v_sale_date
+        LIMIT 1;
+
+        IF v_existing_sales IS NOT NULL THEN
+            v_updated_breakdown := COALESCE(v_existing_sales.payment_method_breakdown, '{}'::jsonb);
+            v_updated_breakdown := jsonb_set(
+                v_updated_breakdown,
+                ARRAY[v_payment_method],
+                to_jsonb(COALESCE((v_updated_breakdown->>v_payment_method)::int, 0) + v_total_amount),
+                true
+            );
+
+            UPDATE public.department_sales
+            SET total_sales = COALESCE(total_sales, 0) + v_total_amount,
+                transaction_count = COALESCE(transaction_count, 0) + 1,
+                payment_method_breakdown = v_updated_breakdown,
+                staff_id = COALESCE(staff_id, v_staff_id),
+                updated_at = now()
+            WHERE id = v_existing_sales.id;
+        ELSE
+            INSERT INTO public.department_sales(
+                department, date, total_sales, transaction_count, payment_method_breakdown, recorded_by, staff_id
+            ) VALUES (
+                v_department,
+                v_sale_date,
+                v_total_amount,
+                1,
+                jsonb_build_object(v_payment_method, v_total_amount),
+                v_staff_id,
+                v_staff_id
+            );
+        END IF;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'applied', true,
+        'duplicate', false,
+        'total_amount_kobo', v_total_amount,
+        'transaction_count', v_tx_count,
+        'first_sale_id', v_first_sale_id
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.process_unified_sale(jsonb, jsonb, uuid) TO authenticated;
 
 CREATE INDEX IF NOT EXISTS idx_stock_transfers_source ON public.stock_transfers(source_location_id);
 CREATE INDEX IF NOT EXISTS idx_stock_transfers_destination ON public.stock_transfers(destination_location_id);
