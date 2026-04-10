@@ -651,16 +651,41 @@ USING (
 -- Public availability should be served via RPC only (no direct bookings access)
 
 CREATE POLICY "Guests view own bookings" ON public.bookings FOR SELECT 
-USING (auth.uid() = guest_profile_id);
+USING (
+  auth.uid() = guest_profile_id
+  AND user_has_role(auth.uid(), 'guest')
+);
 
 CREATE POLICY "Active staff can insert bookings" ON public.bookings FOR INSERT WITH CHECK (
   is_user_active(auth.uid())
-  AND (user_has_role(auth.uid(), 'receptionist') OR user_has_role(auth.uid(), 'guest'))
+  AND user_has_role(auth.uid(), 'receptionist')
 );
 
 CREATE POLICY "Active staff can update bookings" ON public.bookings FOR UPDATE USING (
   is_user_active(auth.uid())
   AND user_has_role(auth.uid(), 'receptionist')
+);
+
+CREATE POLICY "Guests can insert own bookings" ON public.bookings FOR INSERT
+WITH CHECK (
+  (
+    auth.uid() IS NULL
+    AND guest_profile_id IS NULL
+  ) OR (
+    is_user_active(auth.uid())
+    AND user_has_role(auth.uid(), 'guest')
+    AND guest_profile_id = auth.uid()
+  )
+);
+
+CREATE POLICY "Guests can update own bookings" ON public.bookings FOR UPDATE
+USING (
+  auth.uid() = guest_profile_id
+  AND user_has_role(auth.uid(), 'guest')
+)
+WITH CHECK (
+  auth.uid() = guest_profile_id
+  AND user_has_role(auth.uid(), 'guest')
 );
 
 -- Booking Charges Table (Alternative to JSONB for complex charges)
@@ -2967,7 +2992,48 @@ DECLARE
     v_assigned_rooms INTEGER;
     v_bookings_by_type INTEGER;
     v_available_count INTEGER;
+    v_price_per_night INT8;
+    v_nights INTEGER;
+    v_server_total INT8;
+    v_effective_guest_profile_id UUID;
 BEGIN
+    IF p_check_out_date <= p_check_in_date THEN
+        RAISE EXCEPTION 'Check-out date must be after check-in date';
+    END IF;
+
+    v_nights := (p_check_out_date - p_check_in_date);
+    IF v_nights <= 0 THEN
+        RAISE EXCEPTION 'Invalid booking duration';
+    END IF;
+
+    -- Ownership guard: logged-in guests can only create bookings for themselves.
+    -- An anonymous booking is allowed only when guest_profile_id is null.
+    IF auth.uid() IS NULL THEN
+        IF p_guest_profile_id IS NOT NULL THEN
+            RAISE EXCEPTION 'Anonymous booking cannot set guest_profile_id';
+        END IF;
+        v_effective_guest_profile_id := NULL;
+    ELSIF user_has_role(auth.uid(), 'guest') THEN
+        IF p_guest_profile_id IS DISTINCT FROM auth.uid() THEN
+            RAISE EXCEPTION 'Guests can only book with their own profile id';
+        END IF;
+        v_effective_guest_profile_id := auth.uid();
+    ELSE
+        v_effective_guest_profile_id := p_guest_profile_id;
+    END IF;
+
+    -- Server-side price integrity: never trust client-submitted total.
+    SELECT price INTO v_price_per_night
+    FROM public.room_types
+    WHERE type = p_requested_room_type
+    LIMIT 1;
+
+    IF v_price_per_night IS NULL OR v_price_per_night <= 0 THEN
+        RAISE EXCEPTION 'Room type % has no valid price configured', p_requested_room_type;
+    END IF;
+
+    v_server_total := v_price_per_night * v_nights;
+
     -- Calculate available rooms of requested type
     -- Get total rooms of this type
     SELECT COUNT(*) INTO v_total_rooms
@@ -3021,11 +3087,11 @@ BEGIN
         terms_accepted,
         terms_version
     ) VALUES (
-        p_guest_profile_id,
+        v_effective_guest_profile_id,
         p_requested_room_type,
         p_check_in_date,
         p_check_out_date,
-        p_total_amount,
+        v_server_total,
         p_paid_amount,
         p_payment_method,
         p_payment_reference,

@@ -124,6 +124,9 @@ class _AuthFormState extends State<AuthForm> {
           }
         } else {
           Navigator.pop(context);
+          if (context.mounted) {
+            context.go('/guest/home');
+          }
           ErrorHandler.showSuccessMessage(
             context,
             widget.isSignUp ? 

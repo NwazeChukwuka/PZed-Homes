@@ -34,6 +34,7 @@ import 'package:pzed_homes/presentation/screens/guest/guest_booking_lookup_scree
 import 'package:pzed_homes/presentation/screens/guest/about_us_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/services_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/contact_us_screen.dart';
+import 'package:pzed_homes/presentation/screens/guest/guest_scaffold.dart';
 import 'package:pzed_homes/presentation/screens/scanner_screen.dart';
 import 'package:pzed_homes/presentation/screens/add_expense_screen.dart';
 import 'package:pzed_homes/presentation/screens/purchaser_dashboard_screen.dart';
@@ -139,57 +140,62 @@ class AppRouter {
         builder: (context, state) => const RootDecider(),
       ),
       
-      // Guest routes
-      GoRoute(
-        path: '/guest',
-        name: 'guest',
-        builder: (context, state) => const GuestLandingPage(),
-      ),
-      GoRoute(
-        path: '/guest/home',
-        name: 'guest-home',
-        builder: (context, state) => const GuestHomeScreen(),
-      ),
-      GoRoute(
-        path: '/guest/booking',
-        name: 'guest-booking',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          if (extra == null) {
-            return const GuestLandingPage();
-          }
-          return const GuestBookingScreen();
-        },
-      ),
-      GoRoute(
-        path: '/guest/rooms',
-        name: 'guest-rooms',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          final checkIn = extra?['checkInDate'] as DateTime? ?? DateTime.now();
-          final checkOut = extra?['checkOutDate'] as DateTime? ?? DateTime.now().add(const Duration(days: 1));
-          return const AvailableRoomsScreen();
-        },
-      ),
-      GoRoute(
-        path: '/guest/booking-lookup',
-        name: 'guest-booking-lookup',
-        builder: (context, state) => const GuestBookingLookupScreen(),
-      ),
-      GoRoute(
-        path: '/guest/about',
-        name: 'guest-about',
-        builder: (context, state) => const AboutUsScreen(),
-      ),
-      GoRoute(
-        path: '/guest/services',
-        name: 'guest-services',
-        builder: (context, state) => const ServicesScreen(),
-      ),
-      GoRoute(
-        path: '/guest/contact',
-        name: 'guest-contact',
-        builder: (context, state) => const ContactUsScreen(),
+      // Guest routes (separate shell from staff chrome)
+      ShellRoute(
+        builder: (context, state, child) => GuestScaffold(child: child),
+        routes: [
+          GoRoute(
+            path: '/guest',
+            name: 'guest',
+            builder: (context, state) => const GuestLandingPage(),
+          ),
+          GoRoute(
+            path: '/guest/home',
+            name: 'guest-home',
+            builder: (context, state) => const GuestHomeScreen(),
+          ),
+          GoRoute(
+            path: '/guest/booking',
+            name: 'guest-booking',
+            builder: (context, state) {
+              final extra = state.extra as Map<String, dynamic>?;
+              if (extra == null) {
+                return const GuestLandingPage();
+              }
+              return const GuestBookingScreen();
+            },
+          ),
+          GoRoute(
+            path: '/guest/rooms',
+            name: 'guest-rooms',
+            builder: (context, state) {
+              final extra = state.extra as Map<String, dynamic>?;
+              final checkIn = extra?['checkInDate'] as DateTime? ?? DateTime.now();
+              final checkOut = extra?['checkOutDate'] as DateTime? ?? DateTime.now().add(const Duration(days: 1));
+              return const AvailableRoomsScreen();
+            },
+          ),
+          GoRoute(
+            path: '/guest/booking-lookup',
+            name: 'guest-booking-lookup',
+            builder: (context, state) => const GuestBookingLookupScreen(),
+          ),
+          GoRoute(
+            path: '/guest/about',
+            name: 'guest-about',
+            builder: (context, state) => const AboutUsScreen(),
+          ),
+          GoRoute(
+            path: '/guest/services',
+            name: 'guest-services',
+            builder: (context, state) => const ServicesScreen(),
+          ),
+          GoRoute(
+            path: '/guest/contact',
+            name: 'guest-contact',
+            builder: (context, state) => const ContactUsScreen(),
+          ),
+        ],
       ),
 
       // Authentication routes
@@ -440,8 +446,18 @@ class AppRouter {
         final isLoggedIn = authService.isLoggedIn;
         final currentUser = authService.currentUser;
         final location = state.uri.path.isEmpty ? '/' : state.uri.path;
+        final isGuestUser = currentUser != null &&
+            currentUser.roles.any((role) => role == AppRole.guest);
 
-        // Guest routes - allow access
+        // Guest role hardening: guest users are restricted to guest area only.
+        if (isGuestUser) {
+          if (location == '/guest/booking-lookup') return '/guest/home';
+          if (location.startsWith('/guest')) return null;
+          if (location == '/') return '/guest/home';
+          return '/guest/home';
+        }
+
+        // Public guest routes
         if (location.startsWith('/guest') || location == '/') {
           return null;
         }
@@ -723,10 +739,13 @@ class _RootDeciderState extends State<RootDecider> {
             Future.delayed(const Duration(milliseconds: 100), () {
               if (context.mounted && authService.isLoggedIn && authService.currentUser != null) {
                 try {
-                  context.go('/dashboard');
+                  final user = authService.currentUser;
+                  final isGuestUser = user != null &&
+                      user.roles.any((role) => role == AppRole.guest);
+                  context.go(isGuestUser ? '/guest/home' : '/dashboard');
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
-                  if (context.mounted) context.go('/guest');
+                  if (context.mounted) context.go('/guest/home');
                 }
               }
             });
@@ -855,17 +874,12 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
           if (mounted) {
             try {
               final user = Provider.of<AuthService>(context, listen: false).currentUser;
-              final primaryRole = user?.role;
-              final isManagement = primaryRole == AppRole.owner ||
-                  primaryRole == AppRole.manager ||
-                  primaryRole == AppRole.supervisor ||
-                  primaryRole == AppRole.accountant ||
-                  primaryRole == AppRole.hr;
-
-              context.go(isManagement ? '/dashboard' : '/dashboard');
+              final isGuestUser = user != null &&
+                  user.roles.any((role) => role == AppRole.guest);
+              context.go(isGuestUser ? '/guest/home' : '/dashboard');
             } catch (e, stackTrace) {
               if (kDebugMode) debugPrint('DEBUG RootDecider navigation: $e\n$stackTrace');
-              context.go('/guest');
+              context.go('/guest/home');
             }
           }
         });
@@ -891,7 +905,7 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
               ElevatedButton(
                 onPressed: () {
                   // Force show guest page
-                  context.go('/guest');
+                  context.go('/guest/home');
                 },
                 child: const Text('Continue as Guest'),
               ),
