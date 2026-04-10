@@ -129,6 +129,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   bool _showPendingExpenses = false;
   /// Payroll tab list filter: all | pending | approved | rejected (client-side on loaded rows).
   String _payrollListFilter = 'all';
+  bool _dismissPayrollConfigWarning = false;
   bool _showOverdueDebtsOnly = false;
   String? _auditFilterTable;
   String? _auditFilterAction;
@@ -1798,7 +1799,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                if (canSetMonthlyGross && staffNeedingConfig.isNotEmpty)
+                if (canSetMonthlyGross &&
+                    staffNeedingConfig.isNotEmpty &&
+                    !_dismissPayrollConfigWarning)
                   Card(
                     color: Colors.orange[50],
                     margin: const EdgeInsets.only(bottom: 12),
@@ -1811,12 +1814,24 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                             children: [
                               Icon(Icons.warning_amber, color: Colors.orange[700], size: 18),
                               const SizedBox(width: 6),
-                              Text(
-                                'Configuration warning',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange[800],
+                              Expanded(
+                                child: Text(
+                                  'Configuration warning',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange[800],
+                                  ),
                                 ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 18),
+                                color: Colors.orange[800],
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Dismiss',
+                                onPressed: () {
+                                  setState(() => _dismissPayrollConfigWarning = true);
+                                },
                               ),
                             ],
                           ),

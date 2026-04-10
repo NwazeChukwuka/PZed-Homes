@@ -53,6 +53,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   bool _isProcessingSale = false;
   String? _saleLedgerSessionId;
   StateSetter? _miniMartSaleModalSetState;
+  bool _dismissCreditSalesWarning = false;
   
   // Customer info
   final _customerNameController = TextEditingController();
@@ -1457,6 +1458,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           onChanged: (value) {
                             setState(() {
                               _paymentMethod = value!;
+                              if (_paymentMethod != 'Credit') {
+                                _dismissCreditSalesWarning = false;
+                              }
                             });
                           },
                         ),
@@ -1467,27 +1471,39 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const SizedBox(height: 16),
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.orange[50],
-                                  border: Border.all(color: Colors.orange[300]!),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'Customer name and phone are required for credit sales. This will be recorded as a debt.',
-                                        style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                              if (!_dismissCreditSalesWarning)
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange[50],
+                                    border: Border.all(color: Colors.orange[300]!),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Customer name and phone are required for credit sales. This will be recorded as a debt.',
+                                          style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      IconButton(
+                                        icon: const Icon(Icons.close, size: 18),
+                                        color: Colors.orange[800],
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        tooltip: 'Dismiss',
+                                        onPressed: () {
+                                          setState(() => _dismissCreditSalesWarning = true);
+                                        },
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
                               TextField(
                                 controller: _customerNameController,
                                 decoration: const InputDecoration(

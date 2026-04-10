@@ -44,6 +44,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
   String? _selectedRoomTypeId;
   String? _selectedRoomId;
   String _paymentMethod = 'Cash'; // Default payment method
+  bool _dismissCreditBookingWarning = false;
   List<Map<String, dynamic>> _roomTypes = [];
   List<Map<String, dynamic>> _availableRooms = [];
   bool _isLoading = false;
@@ -909,7 +910,12 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                   DropdownMenuItem(value: 'POS', child: Text('POS')),
                   DropdownMenuItem(value: 'Credit', child: Text('Credit')),
                 ],
-                onChanged: (value) => setState(() => _paymentMethod = value!),
+                onChanged: (value) => setState(() {
+                  _paymentMethod = value!;
+                  if (_paymentMethod != 'Credit') {
+                    _dismissCreditBookingWarning = false;
+                  }
+                }),
               ),
               
               // Show approved by field for credit payment
@@ -919,27 +925,39 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange[50],
-                          border: Border.all(color: Colors.orange[300]!),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'This booking will be recorded as a debt until payment is received.',
-                                style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                      if (!_dismissCreditBookingWarning)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[50],
+                            border: Border.all(color: Colors.orange[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'This booking will be recorded as a debt until payment is received.',
+                                  style: TextStyle(color: Colors.orange[900], fontSize: 12),
+                                ),
                               ),
-                            ),
-                          ],
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 18),
+                                color: Colors.orange[800],
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Dismiss',
+                                onPressed: () {
+                                  setState(() => _dismissCreditBookingWarning = true);
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                       TextFormField(
                         controller: _approvedByController,
                         decoration: const InputDecoration(
