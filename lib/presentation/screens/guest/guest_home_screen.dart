@@ -382,7 +382,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.5,
-                  fontSize: MediaQuery.sizeOf(context).width < 360 ? 15 : 17,
+                  fontSize: MediaQuery.sizeOf(context).width < 360 ? 18 : 21,
                   shadows: [
                     Shadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 8, offset: const Offset(0, 1)),
                     Shadow(color: _guestGold.withValues(alpha: 0.35), blurRadius: 12, offset: Offset.zero),
@@ -399,8 +399,8 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
           indicatorColor: _guestGold,
           indicatorWeight: 3,
           dividerColor: Colors.transparent,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11),
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
               return _guestGold.withValues(alpha: 0.14);
@@ -411,10 +411,10 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
             return null;
           }),
           tabs: const [
-            Tab(icon: Icon(Icons.home_rounded, size: 22), text: 'Overview'),
-            Tab(icon: Icon(Icons.restaurant_menu_rounded, size: 22), text: 'Restaurant'),
-            Tab(icon: Icon(Icons.wine_bar_rounded, size: 22), text: 'Bar'),
-            Tab(icon: Icon(Icons.storefront_rounded, size: 22), text: 'Mini-Mart'),
+            Tab(icon: Icon(Icons.home_rounded, size: 24), text: 'Overview'),
+            Tab(icon: Icon(Icons.restaurant_menu_rounded, size: 24), text: 'Restaurant'),
+            Tab(icon: Icon(Icons.wine_bar_rounded, size: 24), text: 'Bar'),
+            Tab(icon: Icon(Icons.storefront_rounded, size: 24), text: 'Mini-Mart'),
           ],
         ),
       ),
