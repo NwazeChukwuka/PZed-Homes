@@ -1,4 +1,53 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// Shared luxury gold + deep green styling for guest-facing routes.
+abstract final class GuestPortalTheme {
+  static const Color gold = Color(0xFFFFD54F);
+  static const Color goldBright = Color(0xFFFFE082);
+  static const Color goldDeep = Color(0xFFC9A227);
+  static const Color deepGreen = Color(0xFF0D2818);
+  static const Color forestGreen = Color(0xFF1B4332);
+  static const Color leafGreen = Color(0xFF2D6A4F);
+
+  /// App bar + tab strip background.
+  static const LinearGradient headerGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFF0A2418),
+      Color(0xFF0F3D2E),
+      Color(0xFF1B5E3A),
+      Color(0xFF2E6B45),
+      Color(0x664A3728),
+    ],
+    stops: [0.0, 0.35, 0.62, 0.88, 1.0],
+  );
+
+  static const double headerGoldBorderWidth = 2;
+
+  /// Soft gold glow used under hero / plan cards.
+  static List<BoxShadow> goldLeafShadows({double blur = 22, double dy = 8}) => [
+        BoxShadow(
+          color: gold.withValues(alpha: 0.18),
+          blurRadius: blur,
+          offset: Offset(0, dy),
+          spreadRadius: 0,
+        ),
+        BoxShadow(
+          color: goldBright.withValues(alpha: 0.08),
+          blurRadius: blur * 1.4,
+          offset: Offset(0, dy * 0.5),
+        ),
+      ];
+
+  /// Explicit getter so Dart does not parse `=>` as a parameterless method.
+  static SystemUiOverlayStyle get headerOverlayStyle => const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      );
+}
 
 /// Lightweight guest shell.
 /// It intentionally excludes staff navigation chrome and dashboard widgets.
@@ -9,8 +58,22 @@ class GuestScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Most guest pages already provide their own Scaffold.
-    if (child is Scaffold) return child;
-    return Scaffold(body: child);
+    final base = Theme.of(context);
+    // Subtle defaults for guest pages that are not GuestHomeScreen (plain Scaffold).
+    final guestChrome = base.copyWith(
+      appBarTheme: base.appBarTheme.copyWith(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: GuestPortalTheme.headerOverlayStyle,
+      ),
+    );
+
+    if (child is Scaffold) {
+      return Theme(data: guestChrome, child: child);
+    }
+    return Theme(
+      data: guestChrome,
+      child: Scaffold(body: child),
+    );
   }
 }

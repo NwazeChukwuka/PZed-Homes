@@ -6,6 +6,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/presentation/screens/guest/guest_scaffold.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -16,12 +17,13 @@ class GuestHomeScreen extends StatefulWidget {
   State<GuestHomeScreen> createState() => _GuestHomeScreenState();
 }
 
-class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProviderStateMixin {
-  /// Matches tab indicator; reads as luxury gold on dark green.
-  static const Color _guestGold = Color(0xFFFFD54F);
+class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderStateMixin {
+  /// Luxury gold (aligned with [GuestPortalTheme.gold]).
+  static const Color _guestGold = GuestPortalTheme.gold;
 
   final DateFormat _dateFormatter = DateFormat('EEE, MMM d, yyyy');
   late TabController _tabController;
+  late AnimationController _titleShimmer;
   bool _isLoading = true;
   String _barView = 'vip_bar';
   Map<String, dynamic>? _primaryBooking;
@@ -43,11 +45,16 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _titleShimmer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2800),
+    )..repeat();
     _loadPortalData();
   }
 
   @override
   void dispose() {
+    _titleShimmer.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -80,10 +87,12 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
     return diff > 0 ? diff : 0;
   }
 
+  /// Explicit ₦ (Unicode U+20A6) + formatted naira amount.
   String _money(num? amountKobo) {
     final kobo = amountKobo?.toInt() ?? 0;
     final naira = PaymentService.koboToNaira(kobo);
-    return NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(naira);
+    final formatted = NumberFormat('#,##0.00', 'en_NG').format(naira);
+    return '₦$formatted';
   }
 
   /// Catalog grid: null price → Contact Reception; zero kobo → TBD; else formatted money.
@@ -276,12 +285,27 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
               Text('Room: ${booking['requested_room_type'] ?? 'N/A'}'),
               Text('Assigned Room: ${booking['room_number']?.toString().isNotEmpty == true ? booking['room_number'] : 'Awaiting assignment'}'),
               const SizedBox(height: 10),
-              Text('Room Charges: $nights nights @ ${_money(perNight)}'),
-              Text('Extra Charges: ${_money(extra)}'),
+              Text(
+                'Room Charges: $nights nights @ ${_money(perNight)}',
+                style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.w500),
+              ),
+              Text(
+                'Extra Charges: ${_money(extra)}',
+                style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.w500),
+              ),
               const SizedBox(height: 8),
               const Divider(height: 14),
-              Text('Total Collected: ${_money(paid)}', style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text('Balance: ${_money(balance)}'),
+              Text(
+                'Total Collected: ${_money(paid)}',
+                style: TextStyle(fontWeight: FontWeight.w700, color: Colors.green.shade900),
+              ),
+              Text(
+                'Balance: ${_money(balance)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: balance > 0 ? Colors.orange.shade900 : Colors.green.shade800,
+                ),
+              ),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -313,42 +337,84 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.green[800],
-        foregroundColor: Colors.white,
-        title: Text(
-          'P-ZED Guest Portal',
-          style: TextStyle(
-            color: _guestGold,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.4,
-            shadows: const [
-              Shadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 1)),
-            ],
-          ),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: _guestGold,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: GuestPortalTheme.headerOverlayStyle,
+        flexibleSpace: Stack(
+          fit: StackFit.expand,
+      children: [
+            const DecoratedBox(decoration: BoxDecoration(gradient: GuestPortalTheme.headerGradient)),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: GuestPortalTheme.headerGoldBorderWidth,
+              child: const ColoredBox(color: GuestPortalTheme.gold),
+            ),
+          ],
+        ),
+        title: AnimatedBuilder(
+          animation: _titleShimmer,
+          builder: (context, _) {
+            return ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) {
+                final t = _titleShimmer.value * 2 - 0.5;
+                return LinearGradient(
+                  begin: Alignment(-1.2 + t, 0),
+                  end: Alignment(0.2 + t, 0.15),
+                  colors: const [
+                    GuestPortalTheme.goldBright,
+                    Color(0xFFFFF8E1),
+                    GuestPortalTheme.gold,
+                    GuestPortalTheme.goldDeep,
+                    GuestPortalTheme.gold,
+                  ],
+                  stops: const [0.0, 0.25, 0.5, 0.72, 1.0],
+                ).createShader(bounds);
+              },
+              child: Text(
+                'P-ZED Guest Portal',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  fontSize: MediaQuery.sizeOf(context).width < 360 ? 15 : 17,
+                  shadows: [
+                    Shadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 8, offset: const Offset(0, 1)),
+                    Shadow(color: _guestGold.withValues(alpha: 0.35), blurRadius: 12, offset: Offset.zero),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withValues(alpha: 0.72),
-          indicatorColor: const Color(0xFFFFD54F),
+          labelColor: _guestGold,
+          unselectedLabelColor: Colors.white.withValues(alpha: 0.78),
+          indicatorColor: _guestGold,
           indicatorWeight: 3,
-          dividerColor: Colors.white24,
+          dividerColor: Colors.transparent,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11),
           overlayColor: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.pressed)) {
-              return Colors.white.withValues(alpha: 0.12);
+              return _guestGold.withValues(alpha: 0.14);
             }
             if (states.contains(WidgetState.hovered)) {
-              return Colors.white.withValues(alpha: 0.08);
+              return _guestGold.withValues(alpha: 0.08);
             }
             return null;
           }),
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
           tabs: const [
-            Tab(icon: Icon(Icons.home_rounded), text: 'Overview'),
-            Tab(icon: Icon(Icons.restaurant_menu_rounded), text: 'Restaurant'),
-            Tab(icon: Icon(Icons.wine_bar_rounded), text: 'Bar'),
-            Tab(icon: Icon(Icons.storefront_rounded), text: 'Mini-Mart'),
+            Tab(icon: Icon(Icons.home_rounded, size: 22), text: 'Overview'),
+            Tab(icon: Icon(Icons.restaurant_menu_rounded, size: 22), text: 'Restaurant'),
+            Tab(icon: Icon(Icons.wine_bar_rounded, size: 22), text: 'Bar'),
+            Tab(icon: Icon(Icons.storefront_rounded, size: 22), text: 'Mini-Mart'),
           ],
         ),
       ),
@@ -373,20 +439,67 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
         children: [
           Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.green.shade800, Colors.green.shade600]),
-              borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _guestGold.withValues(alpha: 0.88), width: 1.5),
+              boxShadow: GuestPortalTheme.goldLeafShadows(),
             ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('My Stay', style: TextStyle(color: Colors.white70)),
-                const SizedBox(height: 4),
-                Text(
-                  'Welcome${user != null && user.name.trim().isNotEmpty ? ', ${user.name}' : ''}',
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ],
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14.5),
+              child: Stack(
+                    children: [
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.green.shade900,
+                            Colors.green.shade800,
+                            Colors.green.shade700,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _GoldLeafPatternPainter(
+                        color: _guestGold,
+                        opacity: 0.09,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'My Stay',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Welcome${user != null && user.name.trim().isNotEmpty ? ', ${user.name}' : ''}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 1)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -609,13 +722,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
                 Colors.green.shade700,
               ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: _guestGold.withValues(alpha: 0.12),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            boxShadow: GuestPortalTheme.goldLeafShadows(),
           ),
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
           child: Column(
@@ -729,7 +836,10 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Paid'),
-                  Text(_money(booking['paid_amount'] as num?)),
+                  Text(
+                    _money(booking['paid_amount'] as num?),
+                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.green.shade900),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -739,9 +849,9 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
                   const Text('Outstanding'),
                   Text(
                     _money(outstanding),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: outstanding > 0 ? Colors.orange[800] : Colors.green[700],
+          style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: outstanding > 0 ? Colors.orange.shade900 : Colors.green.shade800,
                     ),
                   ),
                 ],
@@ -778,7 +888,13 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
                     '${inDate != null ? _dateFormatter.format(inDate) : 'N/A'} - ${outDate != null ? _dateFormatter.format(outDate) : 'N/A'}',
                   ),
                   subtitle: Text('Room: $room'),
-                  trailing: Text(_money(stay['paid_amount'] as num?)),
+                  trailing: Text(
+                    _money(stay['paid_amount'] as num?),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green.shade900,
+                    ),
+                  ),
                   onTap: () => _showStayStatement(stay),
                 );
               }),
@@ -798,5 +914,38 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with SingleTickerProv
         ErrorHandler.showInfoMessage(context, 'Login to access your account-native stay dashboard.');
       });
     }
+  }
+}
+
+/// Subtle diagonal foil-like strokes for luxury hero cards.
+class _GoldLeafPatternPainter extends CustomPainter {
+  _GoldLeafPatternPainter({required this.color, required this.opacity});
+
+  final Color color;
+  final double opacity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = color.withValues(alpha: opacity);
+
+    final w = size.width;
+    final h = size.height;
+    for (var i = -2; i < 16; i++) {
+      final x0 = i * w * 0.11;
+      canvas.drawLine(Offset(x0, 0), Offset(x0 + h * 0.55, h), stroke);
+    }
+    final soft = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: opacity * 0.45);
+    canvas.drawOval(Rect.fromLTWH(w * 0.55, -h * 0.15, w * 0.55, h * 0.45), soft);
+    canvas.drawOval(Rect.fromLTWH(-w * 0.12, h * 0.55, w * 0.5, h * 0.35), soft);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GoldLeafPatternPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.opacity != opacity;
   }
 }
