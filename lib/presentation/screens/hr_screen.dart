@@ -10,6 +10,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/config/app_config.dart';
+import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -1946,13 +1947,90 @@ class _HrScreenState extends State<HrScreen>
     final fullNameController = TextEditingController();
     final emailController = TextEditingController();
     final phoneController = TextEditingController();
+    final guestSearchController = TextEditingController();
     String? selectedRole;
+    String? selectedDepartment;
     bool isLoading = false;
+    var hireFromGuest = false;
+    var guestProfiles = <Map<String, dynamic>>[];
+    var guestsLoaded = false;
+    var guestsLoading = false;
+    Map<String, dynamic>? selectedGuest;
+    int? outstandingKobo;
+    var outstandingLoading = false;
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx2, setDialogState) {
+          Future<void> loadGuestList() async {
+            setDialogState(() => guestsLoading = true);
+            try {
+              guestProfiles = await _dataService.getGuestProfilesForHiring();
+              guestsLoaded = true;
+            } catch (e) {
+              guestProfiles = [];
+              if (dialogCtx2.mounted) {
+                ErrorHandler.handleError(
+                  dialogCtx2,
+                  e,
+                  customMessage: 'Could not load guest accounts',
+                );
+              }
+            } finally {
+              setDialogState(() => guestsLoading = false);
+            }
+          }
+
+          Future<void> loadOutstanding(String profileId) async {
+            setDialogState(() {
+              outstandingLoading = true;
+              outstandingKobo = null;
+            });
+            try {
+              outstandingKobo = await _dataService.getGuestOutstandingBalanceKobo(profileId);
+            } catch (_) {
+              outstandingKobo = null;
+            } finally {
+              setDialogState(() => outstandingLoading = false);
+            }
+          }
+
+          String formatOutstanding(int kobo) {
+            final naira = PaymentService.koboToNaira(kobo);
+            final formatted = NumberFormat('#,##0.00', 'en_NG').format(naira);
+            return '₦$formatted';
+          }
+
+          List<Map<String, dynamic>> filteredGuests() {
+            final q = guestSearchController.text.trim().toLowerCase();
+            if (q.isEmpty) {
+              return guestProfiles.length <= 80
+                  ? List<Map<String, dynamic>>.from(guestProfiles)
+                  : guestProfiles.take(80).toList();
+            }
+            return guestProfiles
+                .where((g) {
+                  final n = (g['full_name'] ?? '').toString().toLowerCase();
+                  final e = (g['email'] ?? '').toString().toLowerCase();
+                  final p = (g['phone'] ?? '').toString().toLowerCase();
+                  return n.contains(q) || e.contains(q) || p.contains(q);
+                })
+                .take(100)
+                .toList();
+          }
+
+          void disposeHireControllers() {
+            fullNameController.dispose();
+            emailController.dispose();
+            phoneController.dispose();
+            guestSearchController.dispose();
+          }
+
+          String deptLabel(String? d) =>
+              (d == null || d.isEmpty) ? 'Unassigned' : d.replaceAll('_', ' ');
+
+          return AlertDialog(
           title: Row(
             children: [
               Icon(Icons.person_add, color: Colors.green[700]),
@@ -1967,66 +2045,238 @@ class _HrScreenState extends State<HrScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue[200]!),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Existing guest?'),
+                    subtitle: const Text(
+                      'Convert a guest account to staff — same login, no duplicate identity.',
+                      style: TextStyle(fontSize: 12),
                     ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.blue[700],
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'Default password will be: Password123',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                    value: hireFromGuest,
+                    onChanged: (v) {
+                      setDialogState(() {
+                        hireFromGuest = v;
+                        if (v) {
+                          selectedGuest = null;
+                          outstandingKobo = null;
+                          if (!guestsLoaded && !guestsLoading) {
+                            loadGuestList();
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  const Divider(height: 24),
+                  if (!hireFromGuest)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue[700],
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'A new account is created. A temporary password is generated to share with the new hire.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+                  if (hireFromGuest) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.verified_user, color: Colors.amber.shade800, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Selected guest keeps their current password and email login. Staff access applies after their next session refresh.',
+                              style: TextStyle(fontSize: 12, color: Colors.brown.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (guestsLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else ...[
+                      TextField(
+                        controller: guestSearchController,
+                        decoration: InputDecoration(
+                          labelText: 'Search guests (name, email, phone)',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.search),
+                          suffixText: '${filteredGuests().length} match(es)',
                         ),
+                        onChanged: (_) => setDialogState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: selectedGuest?['id']?.toString(),
+                        decoration: const InputDecoration(
+                          labelText: 'Select guest *',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person_search),
+                        ),
+                        items: filteredGuests()
+                            .map(
+                              (g) => DropdownMenuItem<String>(
+                                value: g['id']?.toString(),
+                                child: Text(
+                                  '${g['full_name'] ?? 'Guest'} — ${g['email'] ?? ''}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (id) {
+                          if (id == null) {
+                            setDialogState(() {
+                              selectedGuest = null;
+                              outstandingKobo = null;
+                            });
+                            return;
+                          }
+                          final found =
+                              guestProfiles.where((e) => e['id']?.toString() == id).toList();
+                          final g = found.isEmpty ? null : found.first;
+                          setDialogState(() => selectedGuest = g);
+                          if (g != null) {
+                            loadOutstanding(g['id'].toString());
+                          }
+                        },
+                      ),
+                      if (selectedGuest != null) ...[
+                        const SizedBox(height: 16),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Name',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Color(0xFFF5F5F5),
+                          ),
+                          child: Text(
+                            selectedGuest!['full_name']?.toString() ?? '—',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Color(0xFFF5F5F5),
+                          ),
+                          child: Text(selectedGuest!['email']?.toString() ?? '—'),
+                        ),
+                        const SizedBox(height: 12),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Phone',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Color(0xFFF5F5F5),
+                          ),
+                          child: Text(selectedGuest!['phone']?.toString().trim().isNotEmpty == true
+                              ? selectedGuest!['phone'].toString()
+                              : '—'),
+                        ),
+                        if (outstandingLoading)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 12),
+                            child: LinearProgressIndicator(),
+                          )
+                        else if (outstandingKobo != null && outstandingKobo! > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Material(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Note: This guest has an outstanding balance of ${formatOutstanding(outstandingKobo!)}.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.orange.shade900,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
+                    ],
+                  ],
+                  if (!hireFromGuest) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: fullNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name *',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: fullNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name *',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'Email *',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.email),
+                        hintText: 'staff@pzed.home',
+                      ),
+                      keyboardType: TextInputType.emailAddress,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: emailController,
-                    decoration: const InputDecoration(
-                      labelText: 'Email *',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.email),
-                      hintText: 'staff@pzed.home',
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: phoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                      keyboardType: TextInputType.phone,
                     ),
-                    keyboardType: TextInputType.emailAddress,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: phoneController,
-                    decoration: const InputDecoration(
-                      labelText: 'Phone Number',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.phone),
-                    ),
-                    keyboardType: TextInputType.phone,
-                  ),
+                  ],
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    initialValue: selectedRole,
+                    value: selectedRole,
                     decoration: const InputDecoration(
                       labelText: 'Assign Role *',
                       border: OutlineInputBorder(),
@@ -2096,93 +2346,231 @@ class _HrScreenState extends State<HrScreen>
                     },
                   ),
                   const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
+                  DropdownButtonFormField<String?>(
+                    value: selectedDepartment,
+                    decoration: const InputDecoration(
+                      labelText: 'Department (optional)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.business),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Staff will receive:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildStaffBenefit('Login credentials via email'),
-                        _buildStaffBenefit('Access to assigned role features'),
-                        _buildStaffBenefit('Default password: Password123'),
-                        _buildStaffBenefit(
-                          'Must change password on first login',
-                        ),
-                      ],
-                    ),
+                    items: const [
+                      DropdownMenuItem<String?>(value: null, child: Text('None')),
+                      DropdownMenuItem<String?>(value: 'reception', child: Text('Reception')),
+                      DropdownMenuItem<String?>(value: 'kitchen', child: Text('Kitchen')),
+                      DropdownMenuItem<String?>(value: 'housekeeping', child: Text('Housekeeping')),
+                      DropdownMenuItem<String?>(value: 'finance', child: Text('Finance')),
+                      DropdownMenuItem<String?>(value: 'hr', child: Text('HR')),
+                      DropdownMenuItem<String?>(value: 'security', child: Text('Security')),
+                      DropdownMenuItem<String?>(value: 'maintenance', child: Text('Maintenance')),
+                      DropdownMenuItem<String?>(value: 'laundry', child: Text('Laundry')),
+                      DropdownMenuItem<String?>(value: 'purchasing', child: Text('Purchasing')),
+                      DropdownMenuItem<String?>(value: 'storeroom', child: Text('Storeroom')),
+                    ],
+                    onChanged: (val) => setDialogState(() => selectedDepartment = val),
                   ),
+                  if (!hireFromGuest) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Staff will receive:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildStaffBenefit('Access to assigned role features'),
+                          _buildStaffBenefit('A secure temporary password to share'),
+                          _buildStaffBenefit(
+                            'Must change password on first login',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      disposeHireControllers();
+                      Navigator.pop(dialogCtx2);
+                    },
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: isLoading ? null : () async {
-                // Validation
-                if (fullNameController.text.trim().isEmpty) {
-                  if (mounted) {
-                    ErrorHandler.showWarningMessage(
-                      context,
-                      'Please enter full name',
-                    );
-                  }
-                  return;
-                }
-                if (emailController.text.trim().isEmpty) {
-                  if (mounted) {
-                    ErrorHandler.showWarningMessage(
-                      context,
-                      'Please enter email',
-                    );
-                  }
-                  return;
-                }
                 if (selectedRole == null) {
-                  if (mounted) {
+                  if (dialogCtx2.mounted) {
                     ErrorHandler.showWarningMessage(
-                      context,
+                      dialogCtx2,
                       'Please select a role',
                     );
                   }
                   return;
                 }
+                if (hireFromGuest) {
+                  if (selectedGuest == null) {
+                    if (dialogCtx2.mounted) {
+                      ErrorHandler.showWarningMessage(
+                        dialogCtx2,
+                        'Please select a guest to convert',
+                      );
+                    }
+                    return;
+                  }
+                } else {
+                  if (fullNameController.text.trim().isEmpty) {
+                    if (dialogCtx2.mounted) {
+                      ErrorHandler.showWarningMessage(
+                        dialogCtx2,
+                        'Please enter full name',
+                      );
+                    }
+                    return;
+                  }
+                  if (emailController.text.trim().isEmpty) {
+                    if (dialogCtx2.mounted) {
+                      ErrorHandler.showWarningMessage(
+                        dialogCtx2,
+                        'Please enter email',
+                      );
+                    }
+                    return;
+                  }
+                }
 
-                // Create staff profile
+                final staffRole = selectedRole!;
+                final dept = selectedDepartment?.trim();
+                final deptStr = dept != null && dept.isNotEmpty ? dept : null;
+
+                final guestName = hireFromGuest
+                    ? (selectedGuest!['full_name'] ?? 'Guest').toString()
+                    : fullNameController.text.trim();
+
+                final confirmed = await showDialog<bool>(
+                  context: dialogCtx2,
+                  builder: (confirmCtx) => AlertDialog(
+                    title: const Text('Confirm hire'),
+                    content: Text(
+                      hireFromGuest
+                          ? 'You are converting $guestName to ${staffRole.replaceAll('_', ' ')} in ${deptLabel(deptStr)}. They will keep their existing login credentials.'
+                          : 'You are creating a new staff account for $guestName as ${staffRole.replaceAll('_', ' ')} in ${deptLabel(deptStr)}. A temporary password will be shown after success.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(confirmCtx, false),
+                        child: const Text('Back'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(confirmCtx, true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[700],
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Confirm'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+
                 setDialogState(() => isLoading = true);
                 try {
-                  final authService = Provider.of<AuthService>(context, listen: false);
+                  final authService = Provider.of<AuthService>(parentContext, listen: false);
                   final currentUser = authService.currentUser;
-                  
-                  // Allow owner, HR manager, and manager to create staff profiles
-                  if (currentUser?.role != AppRole.owner && 
-                      currentUser?.role != AppRole.hr && 
+
+                  if (currentUser?.role != AppRole.owner &&
+                      currentUser?.role != AppRole.hr &&
                       currentUser?.role != AppRole.manager) {
                     throw Exception('Only owner, HR manager, or manager can create staff profiles');
                   }
 
-                  // Save and sanitize values before disposing controllers
+                  if (hireFromGuest) {
+                    final g = selectedGuest!;
+                    final staffEmail = InputSanitizer.sanitizeEmail(
+                      (g['email'] ?? '').toString().trim(),
+                    );
+                    final staffName = InputSanitizer.sanitizeText(
+                      (g['full_name'] ?? '').toString().trim(),
+                    );
+                    final staffPhone = (g['phone'] ?? '').toString().trim().isEmpty
+                        ? null
+                        : InputSanitizer.sanitizePhone(g['phone'].toString().trim());
+                    final profileId = g['id'] as String?;
+
+                    if (staffEmail.isEmpty || !staffEmail.contains('@')) {
+                      throw Exception('Guest profile has no valid email');
+                    }
+                    if (staffName.isEmpty) {
+                      throw Exception('Guest profile has no name');
+                    }
+                    if (profileId == null || profileId.isEmpty) {
+                      throw Exception('Invalid guest profile');
+                    }
+
+                    await _dataService.createStaffProfile(
+                      email: staffEmail,
+                      password: '-',
+                      fullName: staffName,
+                      role: staffRole,
+                      phone: staffPhone,
+                      department: deptStr,
+                      userId: profileId,
+                    );
+
+                    disposeHireControllers();
+                    if (dialogCtx2.mounted) Navigator.pop(dialogCtx2);
+
+                    if (parentContext.mounted) {
+                      showDialog<void>(
+                        context: parentContext,
+                        builder: (ctx) => AlertDialog(
+                          title: Row(
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.green[700], size: 28),
+                              const SizedBox(width: 8),
+                              const Expanded(child: Text('Guest converted to staff')),
+                            ],
+                          ),
+                          content: Text(
+                            '$guestName is now ${staffRole.replaceAll('_', ' ')} (${deptLabel(deptStr)}). They keep the same login; staff menus apply after they refresh or sign in again.',
+                          ),
+                          actions: [
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green[700],
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('OK'),
+                            ),
+                          ],
+                        ),
+                      );
+                      _loadStaff();
+                    }
+                    return;
+                  }
+
                   final staffName = InputSanitizer.sanitizeText(fullNameController.text.trim());
                   final staffEmail = InputSanitizer.sanitizeEmail(emailController.text.trim());
-                  final staffPhone = phoneController.text.trim().isEmpty 
-                      ? null 
+                  final staffPhone = phoneController.text.trim().isEmpty
+                      ? null
                       : InputSanitizer.sanitizePhone(phoneController.text.trim());
-                  final staffRole = selectedRole!; // This is already a String from the dropdown
-                  
+
                   if (staffName.isEmpty) {
                     throw Exception('Staff name cannot be empty');
                   }
@@ -2190,30 +2578,21 @@ class _HrScreenState extends State<HrScreen>
                     throw Exception('Please enter a valid email address');
                   }
 
-                  // Generate secure random password with "Pzed" prefix
                   final securePassword = _generateSecurePassword();
-                  
-                  // CRITICAL: Save current user's session token before creating staff account
-                  // This allows us to restore the current user's session after creating the staff account
-                  // Works for owner, HR manager, or manager
+
                   final supabase = Supabase.instance.client;
                   final currentUserSession = supabase.auth.currentSession;
                   final currentUserRefreshToken = currentUserSession?.refreshToken;
-                  
+
                   if (currentUserRefreshToken == null) {
                     throw Exception('Unable to save current session. Please log in again.');
                   }
-                  
-                  // Set flag to ignore auth state changes during staff creation
+
                   authService.setCreatingStaffAccount(true);
-                  
-                  // Declare userId outside try block so it's accessible later
+
                   String? userId;
-                  
+
                   try {
-                    // Create auth user (this will create guest profile via trigger)
-                    // NOTE: This will temporarily switch the session to the new user,
-                    // but the auth state listener will be ignored due to the flag above
                     final signUpResponse = await supabase.auth.signUp(
                       email: staffEmail,
                       password: securePassword,
@@ -2227,75 +2606,57 @@ class _HrScreenState extends State<HrScreen>
                     }
 
                     userId = signUpResponse.user!.id;
-                    
-                    // Wait a moment for trigger to create profile
+
                     await Future.delayed(const Duration(milliseconds: 1000));
-                    
-                    // CRITICAL: Restore creator's session BEFORE calling createStaffProfile
-                    // The RPC function checks auth.uid() to verify permissions, so we need
-                    // the creator's session active when calling it
+
                     await supabase.auth.setSession(currentUserRefreshToken);
-                    
-                    // Wait a moment for session restoration
+
                     await Future.delayed(const Duration(milliseconds: 500));
-                    
-                    // Now update profile to staff role - creator's session is active
+
                     await _dataService.createStaffProfile(
                       email: staffEmail,
-                      password: securePassword, // Not used in function but kept for consistency
+                      password: securePassword,
                       fullName: staffName,
-                      role: staffRole, // staffRole is already a String
+                      role: staffRole,
                       phone: staffPhone,
-                      department: null,
-                      userId: userId, // Pass the user ID directly
+                      department: deptStr,
+                      userId: userId,
                     );
-                    
-                    // Sign out the new user (they should not be logged in)
-                    // We need to use admin API or sign them out without affecting our session
-                    // Since we can't use admin API from client, we'll just ensure our session is restored
-                    // The new user won't be logged in because we restored our session above
-                    
                   } catch (profileError) {
-                    // If profile update fails, try to restore session and retry
                     try {
-                      // Ensure creator's session is restored
                       await supabase.auth.setSession(currentUserRefreshToken);
                       await Future.delayed(const Duration(milliseconds: 1000));
-                      
+
                       await _dataService.createStaffProfile(
                         email: staffEmail,
                         password: securePassword,
                         fullName: staffName,
                         role: staffRole,
                         phone: staffPhone,
-                        department: null,
+                        department: deptStr,
                         userId: userId!,
                       );
                     } catch (retryError) {
-                      // If it still fails, restore session and rethrow
                       try {
                         await supabase.auth.setSession(currentUserRefreshToken);
-                      } catch (_) {
-                        // Ignore session restore error in error handler
+                      } catch (_) {}
+                      if (kDebugMode) {
+                        debugPrint('DEBUG createStaffProfile retry failed: $profileError\n$retryError');
                       }
-                      if (kDebugMode) debugPrint('DEBUG createStaffProfile retry failed: $profileError\n$retryError');
                       rethrow;
                     }
                   } finally {
-                    // Always clear the flag, even if there was an error
                     authService.setCreatingStaffAccount(false);
-                    
-                    // Ensure creator's session is still active
+
                     final finalSession = supabase.auth.currentSession;
                     if (finalSession == null || finalSession.user.id != currentUserSession?.user.id) {
-                      // Session was lost - try to restore it
                       try {
                         await supabase.auth.setSession(currentUserRefreshToken);
                       } catch (e, stack) {
                         if (kDebugMode) debugPrint('DEBUG session restore: $e\n$stack');
-                        if (mounted) {
+                        if (parentContext.mounted) {
                           ErrorHandler.showWarningMessage(
-                            context,
+                            parentContext,
                             'Please log in again to continue. Your session was reset during staff creation.',
                           );
                         }
@@ -2303,17 +2664,13 @@ class _HrScreenState extends State<HrScreen>
                     }
                   }
 
-                  fullNameController.dispose();
-                  emailController.dispose();
-                  phoneController.dispose();
+                  disposeHireControllers();
 
-                  if (mounted) {
-                    Navigator.pop(context);
-                    // Show password dialog - creator stays logged in
-                    // They can copy/screenshot the password and send it to the staff member
+                  if (parentContext.mounted) {
+                    Navigator.pop(dialogCtx2);
                     showDialog(
                       context: parentContext,
-                      barrierDismissible: false, // Prevent dismissing by tapping outside
+                      barrierDismissible: false,
                       builder: (context) => AlertDialog(
                         title: Row(
                           children: [
@@ -2400,12 +2757,10 @@ class _HrScreenState extends State<HrScreen>
                           ),
                         ),
                         actions: [
-                          // Copy button
                           TextButton.icon(
                             onPressed: () async {
-                              // Copy password to clipboard
                               await Clipboard.setData(ClipboardData(text: securePassword));
-                              if (mounted) {
+                              if (parentContext.mounted) {
                                 ScaffoldMessenger.of(parentContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('Password copied to clipboard'),
@@ -2417,7 +2772,6 @@ class _HrScreenState extends State<HrScreen>
                             icon: const Icon(Icons.copy),
                             label: const Text('Copy Password'),
                           ),
-                          // OK button
                           ElevatedButton(
                             onPressed: () {
                               Navigator.pop(context);
@@ -2436,36 +2790,35 @@ class _HrScreenState extends State<HrScreen>
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG create staff account: $e\n$stackTrace');
                   setDialogState(() => isLoading = false);
-                  if (mounted) {
-                    // Provide specific error messages for common issues
+                  if (parentContext.mounted) {
                     String errorMsg = 'Failed to create staff account';
                     final errorString = e.toString().toLowerCase();
-                    
-                    if (errorString.contains('already registered') || 
+
+                    if (errorString.contains('already registered') ||
                         errorString.contains('already exists') ||
                         errorString.contains('user already registered')) {
-                      errorMsg = 'Email address is already registered. Please use a different email or reset the password for this account.';
-                    } else if (errorString.contains('invalid email') || 
-                               errorString.contains('email format')) {
+                      errorMsg = 'Email address is already registered. Use hire from guest, or another email.';
+                    } else if (errorString.contains('invalid email') ||
+                        errorString.contains('email format')) {
                       errorMsg = 'Invalid email format. Please enter a valid email address.';
-                    } else if (errorString.contains('network') || 
-                               errorString.contains('connection') ||
-                               errorString.contains('timeout')) {
+                    } else if (errorString.contains('network') ||
+                        errorString.contains('connection') ||
+                        errorString.contains('timeout')) {
                       errorMsg = 'Network connection error. Please check your internet connection and try again.';
-                    } else if (errorString.contains('database') || 
-                               errorString.contains('supabase')) {
+                    } else if (errorString.contains('database') ||
+                        errorString.contains('supabase')) {
                       errorMsg = 'Something went wrong. Please try again.';
-                    } else if (errorString.contains('profile') || 
-                               errorString.contains('createstaffprofile')) {
-                      errorMsg = 'Failed to create staff profile. Please verify all information is correct and try again.';
+                    } else if (errorString.contains('profile') ||
+                        errorString.contains('createstaffprofile')) {
+                      errorMsg = 'Failed to update staff profile. Please verify all information and try again.';
                     } else if (errorString.contains('only owner') || errorString.contains('Only owner')) {
-                      errorMsg = 'Only owner or manager can create staff profiles';
+                      errorMsg = 'Only owner, HR, or manager can create staff profiles';
                     } else {
                       errorMsg = ErrorHandler.getFriendlyErrorMessage(e);
                     }
-                    
+
                     ErrorHandler.handleError(
-                      context,
+                      parentContext,
                       e,
                       customMessage: errorMsg,
                       stackTrace: stackTrace,
@@ -2489,7 +2842,8 @@ class _HrScreenState extends State<HrScreen>
                   : const Text('Hire Staff'),
             ),
           ],
-        ),
+        );
+      },
       ),
     );
   }

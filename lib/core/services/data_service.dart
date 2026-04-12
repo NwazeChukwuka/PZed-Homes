@@ -639,6 +639,48 @@ class DataService {
     });
   }
 
+  /// Guest-only profiles (single role `guest`) for hire-from-guest conversion.
+  Future<List<Map<String, dynamic>>> getGuestProfilesForHiring() async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('profiles')
+          .select('id, full_name, email, phone, roles, status')
+          .eq('status', 'Active')
+          .contains('roles', ['guest'])
+          .order('full_name')
+          .limit(500);
+      final list = List<Map<String, dynamic>>.from(response);
+      return list.where(_profileIsGuestOnly).toList();
+    });
+  }
+
+  static bool _profileIsGuestOnly(Map<String, dynamic> p) {
+    final roles = (p['roles'] as List<dynamic>? ?? [])
+        .map((e) => e.toString().toLowerCase().trim())
+        .where((r) => r.isNotEmpty)
+        .toList();
+    return roles.length == 1 && roles.first == 'guest';
+  }
+
+  /// Sum of positive (total_amount - paid_amount) across all bookings for this guest (kobo).
+  Future<int> getGuestOutstandingBalanceKobo(String guestProfileId) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('bookings')
+          .select('total_amount, paid_amount')
+          .eq('guest_profile_id', guestProfileId);
+      final rows = List<Map<String, dynamic>>.from(response as List);
+      var sum = 0;
+      for (final b in rows) {
+        final total = (b['total_amount'] as num?)?.toInt() ?? 0;
+        final paid = (b['paid_amount'] as num?)?.toInt() ?? 0;
+        final diff = total - paid;
+        if (diff > 0) sum += diff;
+      }
+      return sum;
+    });
+  }
+
   // Inventory & Stock
   Future<List<Map<String, dynamic>>> getInventoryItems() async {
     return await _retryOperation(() async {

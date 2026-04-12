@@ -382,7 +382,7 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.5,
-                  fontSize: MediaQuery.sizeOf(context).width < 360 ? 18 : 21,
+                  fontSize: MediaQuery.sizeOf(context).width < 360 ? 19 : 23,
                   shadows: [
                     Shadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 8, offset: const Offset(0, 1)),
                     Shadow(color: _guestGold.withValues(alpha: 0.35), blurRadius: 12, offset: Offset.zero),
