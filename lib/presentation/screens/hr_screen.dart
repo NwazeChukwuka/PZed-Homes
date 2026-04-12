@@ -2085,7 +2085,7 @@ class _HrScreenState extends State<HrScreen>
                           const SizedBox(width: 8),
                           const Expanded(
                             child: Text(
-                              'A new account is created. A temporary password is generated to share with the new hire.',
+                              'A new account would be created, and a temporary password is generated to share with the new staff.',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
