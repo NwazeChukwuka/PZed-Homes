@@ -449,6 +449,11 @@ class AppRouter {
         final isGuestUser = currentUser != null &&
             currentUser.roles.any((role) => role == AppRole.guest);
 
+        // Guest portal is for signed-in guests only — anonymous users go to public landing.
+        if (!isLoggedIn && location == '/guest/home') {
+          return '/guest';
+        }
+
         // Guest role hardening: guest users are restricted to guest area only.
         // Allowed funnel: /guest/home → /guest/rooms → /guest/booking (repeat bookings).
         if (isGuestUser) {
@@ -489,6 +494,8 @@ class AppRouter {
             location.startsWith('/booking/') ||
             location.startsWith('/profile')) {
           
+          // Session loss / refresh: staff should sign in again. Intentional logout uses
+          // MainScreen (etc.) to navigate to /guest after AuthService.logout().
           if (!isLoggedIn) {
             return '/login';
           }

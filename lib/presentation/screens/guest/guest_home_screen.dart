@@ -59,6 +59,40 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     super.dispose();
   }
 
+  /// Same confirm + logout + landing navigation as [MainScreen] staff flow.
+  void _showGuestLogoutDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => ctx.pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                ctx.pop();
+                final authService = Provider.of<AuthService>(context, listen: false);
+                await authService.logout();
+                if (mounted) context.go('/guest');
+              } catch (e, stackTrace) {
+                if (kDebugMode) debugPrint('DEBUG guest logout: $e\n$stackTrace');
+                if (mounted) {
+                  ErrorHandler.showWarningMessage(context, ErrorHandler.getFriendlyErrorMessage(e));
+                  context.go('/guest');
+                }
+              }
+            },
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+  }
+
   DateTime? _safeDate(dynamic value) {
     if (value == null) return null;
     try {
@@ -392,6 +426,33 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
             );
           },
         ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More options',
+            offset: const Offset(0, kToolbarHeight),
+            color: Colors.green.shade900,
+            surfaceTintColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Icon(Icons.more_vert, color: Colors.white.withValues(alpha: 0.92)),
+            ),
+            onSelected: (value) {
+              if (value == 'logout') _showGuestLogoutDialog();
+            },
+            itemBuilder: (_) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.redAccent, size: 22),
+                    SizedBox(width: 12),
+                    Text('Logout', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: _guestGold,
