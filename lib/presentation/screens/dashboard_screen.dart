@@ -70,9 +70,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
-  // View focus state: 'financial' or 'performance'
-  String _focus = 'performance';
-
   // Presentation: checked-in guests and department sales
   List<Map<String, dynamic>> _checkedInGuests = [];
   List<Map<String, dynamic>> _pendingDirectSupplies = [];
@@ -149,11 +146,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final auth = Provider.of<AuthService>(context, listen: false);
-      final role = auth.userRole;
-      final newFocus = (role == AppRole.owner || role == AppRole.accountant) ? 'financial' : 'performance';
       setState(() {
         _isClockedIn = auth.isClockedIn;
-        _focus = newFocus;
       });
     });
   }
@@ -1181,7 +1175,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(context, isMobile),
           const SizedBox(height: 12),
@@ -1206,7 +1200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       physics: const AlwaysScrollableScrollPhysics(), // Required for RefreshIndicator
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildHeader(context, isMobile),
           const SizedBox(height: 16),
@@ -1626,7 +1620,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           welcomeSection,
           const SizedBox(height: 16),
-          if (isManagement) _buildFocusToggle(),
           if (!isManagement) _buildAttendanceCard(),
         ],
       );
@@ -1636,41 +1629,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: welcomeSection),
-        if (isManagement) _buildFocusToggle(),
         if (!isManagement) ...[
           const SizedBox(width: 12),
           _buildAttendanceCard(),
         ],
       ],
-    );
-  }
-
-  Widget _buildFocusToggle() {
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ChoiceChip(
-            label: const Text('Performance'),
-            selected: _focus == 'performance',
-            onSelected: (v) { if (v) setState(() { _focus = 'performance'; }); },
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: const Text('Financial'),
-            selected: _focus == 'financial',
-            onSelected: (v) { if (v) setState(() { _focus = 'financial'; }); },
-          ),
-        ],
-      ),
     );
   }
 
@@ -2627,9 +2590,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Toolbar to select time range filters
   Widget _buildTimeRangeToolbar(BuildContext context, bool isMobile) {
-    final chipSpacing = isMobile ? 4.0 : 8.0;
-    final chipPadding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : null;
-    final labelStyle = isMobile ? const TextStyle(fontSize: 11) : null;
+    final chipPadding = isMobile ? const EdgeInsets.symmetric(horizontal: 4, vertical: 4) : const EdgeInsets.symmetric(horizontal: 6, vertical: 6);
+    final labelStyle = TextStyle(fontSize: isMobile ? 10.5 : 12);
 
     String labelFor(TimeRange r) {
       switch (r) {
@@ -2644,83 +2606,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    return Wrap(
-      spacing: chipSpacing,
-      runSpacing: chipSpacing,
-      children: TimeRange.values.map((r) {
-        final selected = _timeRange == r;
-        return ChoiceChip(
-          label: Text(labelFor(r), style: labelStyle),
-          padding: chipPadding,
-          selected: selected,
-          onSelected: (_) async {
-            if (r == TimeRange.custom) {
-              final now = DateTime.now();
-              final picked = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(now.year - 2),
-                lastDate: DateTime(now.year + 2),
-              );
-              if (picked != null) {
-                setState(() {
-                  _timeRange = r;
-                  _customRange = picked;
-                  _isLoading = true;
-                });
-                _loadData();
-              }
-            } else {
-              setState(() {
-                _timeRange = r;
-                _customRange = null;
-                _isLoading = true;
-              });
-              _loadData();
-            }
-          },
-          selectedColor: Colors.green[700],
+    Future<void> onSelect(TimeRange r) async {
+      if (r == TimeRange.custom) {
+        final now = DateTime.now();
+        final picked = await showDateRangePicker(
+          context: context,
+          firstDate: DateTime(now.year - 2),
+          lastDate: DateTime(now.year + 2),
         );
-      }).toList(),
-    );
-  }
-
-  // Role-specific metrics section
-  Widget _buildRoleSpecificSection(BuildContext context, double screenWidth) {
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final effectiveRole = auth.userRole;
-
-    switch (effectiveRole) {
-      case AppRole.owner:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
-      case AppRole.accountant:
-        return _buildManagementAggregate(context);
-      case AppRole.manager:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
-      case AppRole.receptionist:
-        return _buildReceptionistPanel(context, screenWidth);
-      case AppRole.vip_bartender:
-        return _buildBartenderPanel(context, screenWidth);
-      case AppRole.outside_bartender:
-        return _buildBartenderPanel(context, screenWidth);
-      case AppRole.kitchen_staff:
-        return _buildKitchenPanel(context, screenWidth);
-      case AppRole.storekeeper:
-        return _buildStorekeeperPanel(context, screenWidth);
-      case AppRole.purchaser:
-        return _buildPurchaserPanel(context, screenWidth);
-      case AppRole.security:
-      case AppRole.laundry_attendant:
-      case AppRole.cleaner:
-      case AppRole.housekeeper:
-      case AppRole.guest:
-      default:
-        return const SizedBox.shrink();
+        if (picked != null) {
+          setState(() {
+            _timeRange = r;
+            _customRange = picked;
+            _isLoading = true;
+          });
+          _loadData();
+        }
+      } else {
+        setState(() {
+          _timeRange = r;
+          _customRange = null;
+          _isLoading = true;
+        });
+        _loadData();
+      }
     }
-  }
 
-  // Performance-focused aggregate for management (non-financial emphasis)
-  Widget _buildPerformanceAggregate(BuildContext context, double screenWidth) {
-    return _buildReceptionistPanel(context, screenWidth); // reuse a performance-like panel as placeholder
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < TimeRange.values.length; i++) ...[
+          if (i > 0) SizedBox(width: isMobile ? 4 : 8),
+          Expanded(
+            child: ChoiceChip(
+              label: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.center,
+                  child: Text(labelFor(TimeRange.values[i]), style: labelStyle, textAlign: TextAlign.center, maxLines: 1),
+                ),
+              ),
+              padding: chipPadding,
+              selected: _timeRange == TimeRange.values[i],
+              onSelected: (selected) {
+                if (selected) onSelect(TimeRange.values[i]);
+              },
+              selectedColor: Colors.green[700],
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   // Quick navigation for department and key areas
@@ -2734,71 +2670,125 @@ class _DashboardScreenState extends State<DashboardScreen> {
         spacing: isMobile ? 6 : 8,
         runSpacing: isMobile ? 8 : 8,
         children: [
-          _quickButton(context, 'My Department', Icons.domain, () {
-            if (role == AppRole.storekeeper) {
-              context.go('/storekeeping');
-            } else if (role == AppRole.purchaser) context.go('/purchasing');
-            else if (role == AppRole.kitchen_staff) context.go('/kitchen');
-            else if (role == AppRole.vip_bartender || role == AppRole.outside_bartender) context.go('/inventory');
-            else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
-            else context.go('/dashboard');
-          }, isMobile),
-          _quickButton(context, 'My Profile', Icons.person, () { context.push('/profile'); }, isMobile),
+          _quickButton(
+            context,
+            'My Department',
+            Icons.domain,
+            () {
+              if (role == AppRole.storekeeper) {
+                context.go('/storekeeping');
+              } else if (role == AppRole.purchaser) {
+                context.go('/purchasing');
+              } else if (role == AppRole.kitchen_staff) {
+                context.go('/kitchen');
+              } else if (role == AppRole.vip_bartender || role == AppRole.outside_bartender) {
+                context.go('/inventory');
+              } else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) {
+                context.go('/housekeeping');
+              } else {
+                context.go('/dashboard');
+              }
+            },
+            isMobile: isMobile,
+          ),
+          _quickButton(context, 'My Profile', Icons.person, () {
+            context.push('/profile');
+          }, isMobile: isMobile),
         ],
       );
     }
 
-    final managementButtons = <Widget>[
-      if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr)
-        _quickButton(context, 'HR', Icons.people_alt, () { context.go('/hr'); }, isMobile),
-      _quickButton(context, 'Finance', Icons.account_balance, () { context.go('/finance'); }, isMobile),
-      _quickButton(context, 'Reporting', Icons.insights, () { context.go('/reporting'); }, isMobile),
-    ];
-
-    if (isMobile) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < managementButtons.length; i++) ...[
-              if (i > 0) SizedBox(width: isMobile ? 6 : 8),
-              managementButtons[i],
-            ],
-          ],
-        ),
-      );
+    final rowChildren = <Widget>[];
+    void addExpandedNav(Widget child) {
+      if (rowChildren.isNotEmpty) {
+        rowChildren.add(SizedBox(width: isMobile ? 6 : 8));
+      }
+      rowChildren.add(Expanded(child: child));
     }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: managementButtons,
+
+    if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr) {
+      addExpandedNav(_quickButton(
+        context,
+        'HR',
+        Icons.people_alt,
+        () {
+          context.go('/hr');
+        },
+        isMobile: isMobile,
+        expandInRow: true,
+      ));
+    }
+    addExpandedNav(_quickButton(
+      context,
+      'Finance',
+      Icons.account_balance,
+      () {
+        context.go('/finance');
+      },
+      isMobile: isMobile,
+      expandInRow: true,
+    ));
+    addExpandedNav(_quickButton(
+      context,
+      'Reporting',
+      Icons.insights,
+      () {
+        context.go('/reporting');
+      },
+      isMobile: isMobile,
+      expandInRow: true,
+    ));
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rowChildren,
     );
   }
 
-  Widget _quickButton(BuildContext context, String label, IconData icon, VoidCallback onTap, [bool isMobile = false]) {
-    final padding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 8) : const EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+  Widget _quickButton(
+    BuildContext context,
+    String label,
+    IconData icon,
+    VoidCallback onTap, {
+    bool isMobile = false,
+    bool expandInRow = false,
+  }) {
+    final padding = isMobile
+        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 10)
+        : const EdgeInsets.symmetric(horizontal: 12, vertical: 12);
     final iconSpacing = isMobile ? 6.0 : 8.0;
     final fontSize = isMobile ? 12.0 : null;
+    final labelWidget = Text(
+      label,
+      style: TextStyle(color: Colors.grey[800], fontSize: fontSize, fontWeight: FontWeight.w600),
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+      textAlign: TextAlign.center,
+    );
+    final row = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: expandInRow ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Icon(icon, color: Colors.green[700], size: isMobile ? 18 : 22),
+        SizedBox(width: iconSpacing),
+        if (expandInRow) Flexible(child: labelWidget) else labelWidget,
+      ],
+    );
+
     return InkWell(
       onTap: onTap,
       child: Container(
+        width: expandInRow ? double.infinity : null,
         padding: padding,
+        alignment: expandInRow ? Alignment.center : null,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
           ],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.green[700], size: isMobile ? 18 : null),
-            SizedBox(width: iconSpacing),
-            Text(label, style: TextStyle(color: Colors.grey[800], fontSize: fontSize)),
-          ],
-        ),
+        child: row,
       ),
     );
   }
@@ -2893,12 +2883,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
       return null;
     }
-  }
-
-  // Aggregate for owner/manager
-  Widget _buildManagementAggregate(BuildContext context) {
-    // Removed - no longer needed as we only show department sales cards
-    return const SizedBox.shrink();
   }
 
   Widget _buildPendingDirectSuppliesCard() {
@@ -3115,169 +3099,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  // Accountant extra insights
-  Widget _buildAccountantInsights(BuildContext context) {
-    final r = _currentRange();
-    int countInRange(List<Map<String, dynamic>> list, String dateKey) {
-      return list.where((e) {
-        final d = _parseTimestamp(e[dateKey]);
-        return d != null && _isInRange(d);
-      }).length;
-    }
-
-    final depositsInRange = countInRange(_cashDeposits, 'date');
-    final monthPrefix = '${r.start.year}-${r.start.month.toString().padLeft(2, '0')}';
-    final approvedPayrollInMonth = _payrollRecords.where((p) {
-      final month = p['month']?.toString() ?? '';
-      return month.startsWith(monthPrefix);
-    }).length;
-    final allPayrollRowsInMonth = _payrollRecordsAllStatuses.where((p) {
-      final month = p['month']?.toString() ?? '';
-      return month.startsWith(monthPrefix);
-    }).length;
-
-    return _inlineCards(context, MediaQuery.sizeOf(context).width, [
-      ('Cash Deposits', '$depositsInRange', Icons.savings),
-      ('Approved payroll', '$approvedPayrollInMonth', Icons.payments),
-      ('Payroll rows (all)', '$allPayrollRowsInMonth', Icons.pending_actions),
-    ]);
-  }
-
-  // Receptionist personal metrics
-  Widget _buildReceptionistPanel(BuildContext context, double screenWidth) {
-    // Using bookings as proxy for processed rooms in range
-    final processed = _bookings.where((b) {
-      final ci = _parseTimestamp(b['check_in'] ?? b['check_in_date']);
-      return ci != null && _isInRange(ci);
-    }).length;
-    return _inlineCards(context, screenWidth, [
-      ('Rooms Processed', '$processed', Icons.meeting_room),
-    ]);
-  }
-
-  // Bartender metrics (sales from stock transactions; schema: transaction_type, created_at, quantity)
-  Widget _buildBartenderPanel(BuildContext context, double screenWidth) {
-    final sales = _stockTransactions.where((t) {
-      final ts = _parseTimestamp(t['created_at'] ?? t['timestamp']);
-      return (t['transaction_type']?.toString() == 'Sale') && ts != null && _isInRange(ts);
-    }).toList();
-    final qty = sales.fold<int>(0, (s, e) => s + ((e['quantity'] as num?)?.abs().toInt() ?? 0));
-    return _inlineCards(context, screenWidth, [
-      ('Sales', '${sales.length}', Icons.local_bar),
-      ('Units Sold', '$qty', Icons.point_of_sale),
-    ]);
-  }
-
-  // Kitchen metrics
-  Widget _buildKitchenPanel(BuildContext context, double screenWidth) {
-    // Proxy using income records from vip/outside bar as dispatched
-    final inRange = _incomeRecords.where((e) {
-      final d = _parseTimestamp(e['date']);
-      final dept = e['department']?.toString() ?? '';
-      final isBar = dept == 'vip_bar' || dept == 'outside_bar';
-      return d != null && _isInRange(d) && isBar;
-    }).toList();
-    final total = inRange.fold<num>(0, (s, e) => s + (e['amount'] as num));
-    return _inlineCards(context, screenWidth, [
-      ('Food Dispatched', '${inRange.length}', Icons.restaurant),
-      ('Value', '₦${_formatKobo(total)}', Icons.attach_money),
-    ]);
-  }
-
-  // Storekeeper metrics (schema: created_at)
-  Widget _buildStorekeeperPanel(BuildContext context, double screenWidth) {
-    final movements = _stockTransactions.where((t) {
-      final ts = _parseTimestamp(t['created_at'] ?? t['timestamp']);
-      return ts != null && _isInRange(ts);
-    }).length;
-    return _inlineCards(context, screenWidth, [
-      ('Stock Movements', '$movements', Icons.inventory_2),
-    ]);
-  }
-
-  // Purchaser metrics
-  Widget _buildPurchaserPanel(BuildContext context, double screenWidth) {
-    final kitchenExpenses = _expenseRecords.where((e) {
-      final d = _parseTimestamp(e['date']);
-      return d != null && _isInRange(d) && (e['department'] == 'kitchen');
-    }).toList();
-    final total = kitchenExpenses.fold<num>(0, (s, e) => s + (e['amount'] as num));
-    return _inlineCards(context, screenWidth, [
-      ('Kitchen Purchases', '₦${_formatKobo(total)}', Icons.shopping_cart),
-    ]);
-  }
-
-  Widget _inlineCards(BuildContext context, double screenWidth, List<(String, String, IconData)> items) {
-    final crossAxisCount = _getCrossAxisCount(screenWidth);
-    final padding = screenWidth < 600 ? 16.0 : 24.0;
-    final spacing = 12.0;
-    final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
-    
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: cardWidth / 120, // Adjust height based on card width
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final (title, value, icon) = items[index];
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green[700]!.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(icon, color: Colors.green[700], size: 18),
-                  ),
-                  const Spacer(),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: Text(
-                  value,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0A0A0A)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF666666)),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
