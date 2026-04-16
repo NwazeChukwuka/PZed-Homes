@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,7 +13,6 @@ import 'package:pzed_homes/presentation/widgets/animated_wrapper.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/performance/optimization_helpers.dart';
-import 'package:pzed_homes/presentation/screens/guest/available_rooms_screen.dart';
 import 'package:pzed_homes/presentation/screens/guest/gallery_viewer_screen.dart';
 import 'package:pzed_homes/data/models/gallery_item.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -30,21 +29,10 @@ class GuestLandingPage extends StatefulWidget {
 
 class _GuestLandingPageState extends State<GuestLandingPage> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  DateTime? _checkInDate;
-  DateTime? _checkOutDate;
-  final int _guestCount = 1;
-  final Map<String, dynamic> _bookingData = {
-    'checkIn': null,
-    'checkOut': null,
-    'adults': 1,
-    'children': 0,
-  };
 
-  // Image paths - loaded from assets only
   List<String> _heroImages = [];
-  Map<String, List<String>> _roomImages = {}; // roomType -> list of image URLs
-  List<Map<String, dynamic>> _roomTypes = []; // Room types loaded from database
-  bool _isLoadingRoomTypes = false;
+  Map<String, List<String>> _roomImages = {};
+  List<Map<String, dynamic>> _roomTypes = [];
   bool _hasPrecached = false;
 
   @override
@@ -116,27 +104,21 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
 
   }
 
-  /// Load room types from database to get accurate prices
   Future<void> _loadRoomTypes() async {
-    setState(() => _isLoadingRoomTypes = true);
     try {
       final supabase = Supabase.instance.client;
       final response = await supabase
           .from('room_types')
           .select('type, price')
           .timeout(const Duration(seconds: 5));
-      
+
       if (mounted) {
         setState(() {
           _roomTypes = List<Map<String, dynamic>>.from(response);
-          _isLoadingRoomTypes = false;
         });
       }
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG load room types: $e\n$stack');
-      if (mounted) {
-        setState(() => _isLoadingRoomTypes = false);
-      }
     }
   }
 
@@ -243,7 +225,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     } else if (route == 'gallery') {
       if (!mounted) return;
       
-      // Navigate to the new folder-based gallery
       await Navigator.push(
         context,
         MaterialPageRoute(
@@ -251,7 +232,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         ),
       );
     } else if (route == 'contact') {
-      // Show contact options
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -301,7 +281,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         ),
       );
     } else if (route == 'directions') {
-      // Show directions dialog with map option
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -331,7 +310,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         ),
       );
     } else if (route == 'contact') {
-      // Show contact dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -346,8 +324,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: () {
-                  // Implement call functionality
-                  // For example: _makePhoneCall('+2348157505978');
                 },
                 icon: const Icon(Icons.phone),
                 label: const Text('Call Us'),
@@ -447,7 +423,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               title: 'Login / Sign Up',
               onTap: () {
                 Navigator.pop(context);
-                _showAuthDialog(context, isLogin: true);
+                _showAuthDialog(context);
               },
             ),
             Consumer<AppState>(
@@ -730,7 +706,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        Colors.black.withOpacity(0.7),
+                        Colors.black.withValues(alpha: 0.7),
                         Colors.transparent,
                       ],
                     ),
@@ -773,8 +749,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   Widget _buildHeroSection(BuildContext context) {
     return _HeroSectionWidget(heroImages: _heroImages);
   }
-
-  // Removed booking card methods - no longer needed since booking card was removed from hero section
 
   Widget _buildSectionHeader(BuildContext context, String title) {
     return Container(
@@ -834,7 +808,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 15,
               offset: const Offset(0, 5),
               spreadRadius: 1,
@@ -878,13 +852,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                                 height: 60,
                                 width: 60,
                                 fit: BoxFit.contain,
-                                color: Colors.white.withOpacity(0.8),
+                                color: Colors.white.withValues(alpha: 0.8),
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 name,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   fontSize: 18,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -919,13 +893,13 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                                   height: 60,
                                   width: 60,
                                   fit: BoxFit.contain,
-                                  color: Colors.white.withOpacity(0.8),
+                                  color: Colors.white.withValues(alpha: 0.8),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
                                   name,
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.9),
+                                    color: Colors.white.withValues(alpha: 0.9),
                                     fontSize: 18,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -1016,7 +990,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.amber[600]!.withOpacity(0.3),
+                              color: Colors.amber[600]!.withValues(alpha: 0.3),
                               blurRadius: 6,
                               offset: const Offset(0, 3),
                             ),
@@ -1064,7 +1038,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 15,
               offset: const Offset(0, 5),
               spreadRadius: 1,
@@ -1117,14 +1091,14 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       Icon(
                         name.toLowerCase().contains('bar') ? Icons.local_bar :
                         name.toLowerCase().contains('restaurant') ? Icons.restaurant : Icons.hotel,
-                        color: Colors.white.withOpacity(0.8),
+                        color: Colors.white.withValues(alpha: 0.8),
                         size: 60,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         name,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1165,7 +1139,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     );
   }
 
-  // Helper method to build drawer items
   Widget _buildDrawerItem({
     required IconData icon,
     required String title,
@@ -1260,7 +1233,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         const Text('+234 815 750 5978', style: TextStyle(color: Colors.white70)),
-                                        Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                        Text(' | ', style: TextStyle(color: Colors.white70.withValues(alpha: 0.6))),
                                         const Text('pzedglobal@gmail.com', style: TextStyle(color: Colors.white70)),
                                       ],
                                     ),
@@ -1313,12 +1286,12 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                                       onTap: () => context.push('/guest/about'),
                                       child: const Text('About Us', style: TextStyle(color: Colors.white70)),
                                     ),
-                                    Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                    Text(' | ', style: TextStyle(color: Colors.white70.withValues(alpha: 0.6))),
                                     InkWell(
                                       onTap: () => context.push('/guest/services'),
                                       child: const Text('Services', style: TextStyle(color: Colors.white70)),
                                     ),
-                                    Text(' | ', style: TextStyle(color: Colors.white70.withOpacity(0.6))),
+                                    Text(' | ', style: TextStyle(color: Colors.white70.withValues(alpha: 0.6))),
                                     InkWell(
                                       onTap: () => context.push('/guest/contact'),
                                       child: const Text('Contact', style: TextStyle(color: Colors.white70)),
@@ -1338,7 +1311,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           Container(
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 32),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
             ),
             child: const Text(
               '© 2026 P-ZED Luxury Hotels & Suites. All rights reserved.',
@@ -1351,52 +1324,11 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     );
   }
 
-  Future<void> _selectDate(BuildContext context, Function(DateTime?) onDateSelected) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    
-    if (picked != null) {
-      onDateSelected(picked);
-    }
-  }
-
-  void _showAvailableRooms() {
-    if (_checkInDate == null || _checkOutDate == null) {
-      if (mounted) {
-        ErrorHandler.showWarningMessage(
-          context,
-          'Please select check-in and check-out dates',
-        );
-      }
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AvailableRoomsScreen(),
-        settings: RouteSettings(
-          arguments: {
-            'checkInDate': _checkInDate!,
-            'checkOutDate': _checkOutDate!,
-          },
-        ),
-      ),
-    );
-  }
-  
-  void _showAuthDialog(BuildContext context, {required bool isLogin}) {
-    showDialog(
+  void _showAuthDialog(BuildContext context) {
+    showDialog<void>(
       context: context,
       builder: (context) => const GuestAuthDialog(),
-    ).then((_) {
-      // This will be called when the dialog is closed
-      // You can add any post-dialog logic here if needed
-    });
+    );
   }
 
   void _showContactForm(BuildContext context) {
@@ -1562,7 +1494,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   }
 }
 
-// Separate StatefulWidget for hero section to manage its own state
 class _HeroSectionWidget extends StatefulWidget {
   final List<String> heroImages;
 
@@ -1730,7 +1661,7 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _currentPage == index ? Colors.white : Colors.white.withOpacity(0.5),
+                    color: _currentPage == index ? Colors.white : Colors.white.withValues(alpha: 0.5),
                   ),
                 ),
               ),
@@ -1744,9 +1675,9 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.black.withOpacity(0.5),
-                  Colors.black.withOpacity(0.7)
+                  Colors.black.withValues(alpha: 0.3),
+                  Colors.black.withValues(alpha: 0.5),
+                  Colors.black.withValues(alpha: 0.7)
                 ],
               ),
             ),
@@ -1774,7 +1705,7 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                     shadows: [
                       Shadow(
                         blurRadius: 15.0,
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withValues(alpha: 0.5),
                         offset: const Offset(0, 4),
                       )
                     ]
@@ -1791,12 +1722,12 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
                       tablet: 22,
                       desktop: 24,
                     ),
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontWeight: FontWeight.w400,
                     shadows: [
                       Shadow(
                         blurRadius: 10.0,
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.3),
                       )
                     ]
                   ),
@@ -1903,7 +1834,7 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                             height: 60,
                             width: 60,
                             fit: BoxFit.contain,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                           ),
                         ),
                       );
@@ -1928,7 +1859,7 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                               shape: BoxShape.circle,
                               color: _currentImageIndex == index
                                   ? Colors.white
-                                  : Colors.white.withOpacity(0.5),
+                                  : Colors.white.withValues(alpha: 0.5),
                             ),
                           ),
                         ),

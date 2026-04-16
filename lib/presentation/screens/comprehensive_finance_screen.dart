@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -213,15 +213,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
 
   String _formatKobo(num value) {
     return PaymentService.koboToNaira(value.toInt()).toStringAsFixed(2);
-  }
-
-  String _formatDate(String isoString) {
-    try {
-      final dt = DateTime.parse(isoString);
-      return DateFormat('MMM dd, yyyy').format(dt);
-    } catch (_) {
-      return isoString;
-    }
   }
 
   /// Non-blocking UI guard: warn if any payroll row already exists for this staff + month (any approval status).
@@ -462,8 +453,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     ]);
     if (_isStaleLoad(loadToken)) return;
     setState(() {
-      _debts = results[0] as List<Map<String, dynamic>>;
-      _debtPaymentClaims = results[1] as List<Map<String, dynamic>>;
+      _debts = results[0];
+      _debtPaymentClaims = results[1];
       _isLoadingData = false;
       _dataMatchesRange = true;
     });
@@ -507,10 +498,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     ]);
     if (_isStaleLoad(loadToken)) return;
     setState(() {
-      _payrollRecords = results[0] as List<Map<String, dynamic>>;
+      _payrollRecords = results[0];
       _staffProfiles
         ..clear()
-        ..addAll(results[1] as List<Map<String, dynamic>>);
+        ..addAll(results[1]);
       _isLoadingData = false;
       _dataMatchesRange = true;
     });
@@ -555,37 +546,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     ]);
     if (!mounted) return;
     setState(() {
-      _incomeRecords = results[0] as List<Map<String, dynamic>>;
-      _expenses = results[1] as List<Map<String, dynamic>>;
-      _debts = results[2] as List<Map<String, dynamic>>;
-      _payrollRecords = results[3] as List<Map<String, dynamic>>;
-      _cashDeposits = results[4] as List<Map<String, dynamic>>;
-      _auditLogs = results[5] as List<Map<String, dynamic>>;
+      _incomeRecords = results[0];
+      _expenses = results[1];
+      _debts = results[2];
+      _payrollRecords = results[3];
+      _cashDeposits = results[4];
+      _auditLogs = results[5];
       _dataMatchesRange = true;
     });
-  }
-
-  Future<void> _loadStaffProfiles() async {
-    try {
-      final staff = await _dataService.getStaffProfiles();
-      if (mounted) {
-        setState(() {
-          _staffProfiles
-            ..clear()
-            ..addAll(staff);
-        });
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _loadStaffProfiles: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to load staff profiles. Payroll entry will be limited.',
-          stackTrace: stackTrace,
-        );
-      }
-    }
   }
 
   @override
@@ -651,7 +619,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 2,
                 offset: const Offset(0, 1),
               ),
@@ -885,103 +853,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  Widget _buildSummaryRangeSelector() {
-    final now = DateTime.now();
-    final defaultStart = DateTime(now.year, now.month, 1);
-    final defaultEnd = DateTime(now.year, now.month + 1, 0);
-    final lastMonth = now.month == 1 ? 12 : now.month - 1;
-    final lastYear = now.month == 1 ? now.year - 1 : now.year;
-    final lastMonthStart = DateTime(lastYear, lastMonth, 1);
-    final lastMonthEnd = DateTime(lastYear, lastMonth + 1, 0);
-    final last30Start = now.subtract(const Duration(days: 30));
-    final range = _effectiveSummaryRange;
-    final label =
-        '${range.start.toIso8601String().split('T')[0]}'
-        ' → ${range.end.toIso8601String().split('T')[0]}';
-    final isThisMonth = _isSameDate(range.start, defaultStart) && _isSameDate(range.end, defaultEnd);
-    final isLastMonth = _isSameDate(range.start, lastMonthStart) && _isSameDate(range.end, lastMonthEnd);
-    final last30End = now;
-    final isLast30 = _isSameDate(range.start, last30Start) && _isSameDate(range.end, last30End);
-    final isCustom = !isThisMonth && !isLastMonth && !isLast30;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Summary Date Range',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('This Month'),
-                  selected: isThisMonth,
-                  onSelected: (_) {
-                    setState(() {
-                      _summaryRange = DateTimeRange(start: defaultStart, end: defaultEnd);
-                    });
-                    _loadCurrentTabData();
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('Last Month'),
-                  selected: isLastMonth,
-                  onSelected: (_) {
-                    setState(() {
-                      _summaryRange = DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
-                    });
-                    _loadCurrentTabData();
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('Last 30 Days'),
-                  selected: isLast30,
-                  onSelected: (_) {
-                    setState(() {
-                      _summaryRange = DateTimeRange(
-                        start: last30Start,
-                        end: now,
-                      );
-                    });
-                    _loadCurrentTabData();
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('Custom'),
-                  selected: isCustom,
-                  onSelected: (_) async {
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(2020),
-                      lastDate: now,
-                      initialDateRange: _summaryRange ?? DateTimeRange(start: defaultStart, end: defaultEnd),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _summaryRange = picked;
-                      });
-                      _loadCurrentTabData();
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('Selected: $label'),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// Compact date range strip shown below the tab row on all tabs.
   /// One row on desktop (width >= 600), two rows on mobile.
   Widget _buildSummaryRangeStrip() {
@@ -1182,12 +1053,12 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1235,7 +1106,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
     return Chip(
       label: Text(status),
-      backgroundColor: color.withOpacity(0.15),
+      backgroundColor: color.withValues(alpha: 0.15),
       labelStyle: TextStyle(color: color),
       visualDensity: VisualDensity.compact,
     );
@@ -1656,6 +1527,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = authService.currentUser?.id;
@@ -2122,7 +1994,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: (_auditFilterTable != null && tables.contains(_auditFilterTable)) ? _auditFilterTable! : 'All',
+                          initialValue: (_auditFilterTable != null && tables.contains(_auditFilterTable)) ? _auditFilterTable! : 'All',
                           decoration: const InputDecoration(
                             labelText: 'Table',
                             border: OutlineInputBorder(),
@@ -2138,7 +2010,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: (_auditFilterAction != null && actions.contains(_auditFilterAction)) ? _auditFilterAction! : 'All',
+                          initialValue: (_auditFilterAction != null && actions.contains(_auditFilterAction)) ? _auditFilterAction! : 'All',
                           decoration: const InputDecoration(
                             labelText: 'Action',
                             border: OutlineInputBorder(),
@@ -2244,7 +2116,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _debtorType,
+            initialValue: _debtorType,
             decoration: const InputDecoration(
               labelText: 'Debtor Type *',
               border: OutlineInputBorder(),
@@ -2307,7 +2179,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _debtDepartment,
+            initialValue: _debtDepartment,
             decoration: const InputDecoration(
               labelText: 'Department',
               border: OutlineInputBorder(),
@@ -2459,7 +2331,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _incomeDepartment,
+            initialValue: _incomeDepartment,
             decoration: const InputDecoration(labelText: 'Department'),
             items: const [
               DropdownMenuItem(value: 'other', child: Text('Other (Miscellaneous)')),
@@ -2478,7 +2350,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _incomePaymentMethod,
+            initialValue: _incomePaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -2519,7 +2391,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _expenseDepartment,
+            initialValue: _expenseDepartment,
             decoration: const InputDecoration(labelText: 'Department'),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('All Departments')),
@@ -2537,7 +2409,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _expensePaymentMethod,
+            initialValue: _expensePaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
@@ -2576,7 +2448,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _selectedSalaryStaffId ?? '',
+                    initialValue: _selectedSalaryStaffId ?? '',
                     decoration: const InputDecoration(labelText: 'Staff'),
                     items: [
                       const DropdownMenuItem(value: '', child: Text('Select staff')),
@@ -2629,11 +2501,9 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     return;
                   }
                   try {
-                    // Store in kobo (INT8) for consistency with payroll_records.
                     final amountKobo = PaymentService.nairaToKobo(naira);
                     await _dataService.updateStaffMonthlySalary(staffId, amountKobo);
 
-                    // Basic audit trail: log salary change to staff_activities with Manager/Owner as actor.
                     if (context.mounted) {
                       final auth = Provider.of<AuthService>(context, listen: false);
                       final actor = auth.currentUser;
@@ -2652,6 +2522,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                         details,
                       );
 
+                      if (!context.mounted) return;
                       Navigator.of(context).pop();
                       ErrorHandler.showSuccessMessage(context, 'Basic salary saved.');
                       _loadCurrentTabData();
@@ -2681,7 +2552,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _selectedPayrollStaffId ?? '',
+            initialValue: _selectedPayrollStaffId ?? '',
             decoration: const InputDecoration(labelText: 'Staff'),
             items: [
               const DropdownMenuItem(value: '', child: Text('Select staff')),
@@ -2748,7 +2619,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _payrollPaymentMethod,
+            initialValue: _payrollPaymentMethod,
             decoration: const InputDecoration(labelText: 'Payment Method'),
             items: const [
               DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
@@ -3092,11 +2963,11 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return true;
   }
 
-  // Record payment dialog
   Future<void> _showRecordPaymentDialog(Map<String, dynamic> debt) async {
+    final screenContext = context;
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: screenContext,
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Record Payment'),
         content: Builder(
           builder: (context) {
@@ -3132,7 +3003,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _paymentMethod,
+                    initialValue: _paymentMethod,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method',
                       border: OutlineInputBorder(),
@@ -3219,26 +3090,26 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                   paymentDate: _paymentDate,
                   notes: _paymentNotesController.text.trim().isEmpty ? null : _paymentNotesController.text.trim(),
                 );
-                
-                Navigator.pop(context);
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(context, 'Payment recorded successfully!');
-                }
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!screenContext.mounted) return;
+                ErrorHandler.showSuccessMessage(screenContext, 'Payment recorded successfully!');
                 try {
-                  if (mounted) await _loadCurrentTabData();
+                  if (!screenContext.mounted) return;
+                  await _loadCurrentTabData();
                 } catch (_) {
-                  if (mounted) {
+                  if (screenContext.mounted) {
                     ErrorHandler.showSuccessMessage(
-                      context,
+                      screenContext,
                       'Payment recorded! (Failed to refresh list, please refresh manually.)',
                     );
                   }
                 }
               } catch (e, stackTrace) {
                 if (kDebugMode) debugPrint('DEBUG record payment: $e\n$stackTrace');
-                if (mounted) {
+                if (screenContext.mounted) {
                   ErrorHandler.handleError(
-                    context,
+                    screenContext,
                     e,
                     customMessage: 'Failed to record payment. Please try again.',
                     stackTrace: stackTrace,
@@ -3254,7 +3125,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  // Clear form methods
   void _clearDebtForm() {
     _debtorNameController.clear();
     _debtorPhoneController.clear();
@@ -3643,7 +3513,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         pw.SizedBox(height: 8),
         pw.Text(title, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 4),
-        pw.Table.fromTextArray(headers: headers, data: rows),
+        pw.TableHelper.fromTextArray(headers: headers, data: rows),
       ],
     );
   }

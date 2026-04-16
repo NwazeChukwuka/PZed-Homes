@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
@@ -31,11 +30,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   bool _isLoading = true;
   bool _showDepartmentView = false; // Toggle between personal and department view
   
-  // Clock-in/Clock-out state
-  bool _isClockedIn = false;
-  bool _isLoadingAttendance = true;
-  Map<String, dynamic>? _lastAttendanceRecord;
-  
   // Personal stats
   Map<String, dynamic> _personalStats = {};
   Map<String, dynamic> _previousPersonalStats = {};
@@ -63,15 +57,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
-    // Sync clock-in status with AuthService
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      if (mounted) {
-        setState(() {
-          _isClockedIn = auth.isClockedIn;
-        });
-      }
-    });
   }
 
   Future<void> _loadData() async {
@@ -98,9 +83,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       ];
       await Future.wait(loadFutures);
 
-      // Attendance last (quick, updates clock-in state)
-      await _fetchLastAttendance();
-
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -109,114 +91,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _isLoadingAttendance = false;
         });
         ErrorHandler.handleError(
           context,
           e,
           customMessage: 'Failed to load dashboard data. Please check your connection and try again.',
           onRetry: _loadData,
-          stackTrace: stackTrace,
-        );
-      }
-    }
-  }
-
-  Future<Map<String, dynamic>?> _fetchLastAttendance() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      if (authService.currentUser == null) {
-        if (mounted) {
-          setState(() => _isLoadingAttendance = false);
-        }
-        return null;
-      }
-      
-      // Get current attendance from database
-      final attendance = await _dataService.getCurrentAttendance(authService.currentUser!.id);
-      
-      // Update local state to match AuthService
-      if (mounted) {
-        setState(() {
-          _isClockedIn = authService.isClockedIn;
-          _lastAttendanceRecord = attendance;
-          _isLoadingAttendance = false;
-        });
-      }
-      
-      return attendance;
-    } catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG _fetchLastAttendance: $e\n$stack');
-      final authService = Provider.of<AuthService>(context, listen: false);
-      if (mounted) {
-        setState(() {
-          _isClockedIn = authService.isClockedIn;
-          _isLoadingAttendance = false;
-        });
-      }
-      return null;
-    }
-  }
-
-  Future<void> _handleClockIn() async {
-    // #region agent log
-    debugLog({"location":"staff_dashboard_screen.dart:167","message":"Clock-in button clicked","data":{"timestamp":DateTime.now().millisecondsSinceEpoch},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"});
-    // #endregion
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      // #region agent log
-      debugLog({"location":"staff_dashboard_screen.dart:170","message":"Before clockIn call","data":{"userId":authService.currentUser?.id,"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"B"});
-      // #endregion
-      await authService.clockIn();
-      // #region agent log
-      debugLog({"location":"staff_dashboard_screen.dart:172","message":"After clockIn call - success","data":{"clockInTime":authService.clockInTime?.toIso8601String(),"isClockedIn":authService.isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"C"});
-      // #endregion
-      if (mounted) {
-        setState(() {
-          _isClockedIn = true;
-          _lastAttendanceRecord = {
-            'clock_in_time': authService.clockInTime?.toIso8601String() ?? DateTime.now().toIso8601String(),
-          };
-        });
-        ErrorHandler.showSuccessMessage(
-          context,
-          'Clocked in successfully',
-        );
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _handleClockIn: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to clock in. Please try again.',
-          stackTrace: stackTrace,
-        );
-      }
-    }
-  }
-
-  Future<void> _handleClockOut() async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.clockOut();
-      if (mounted) {
-        setState(() {
-          _isClockedIn = false;
-          _lastAttendanceRecord = null;
-        });
-        ErrorHandler.showSuccessMessage(
-          context,
-          'Clocked out successfully',
-        );
-      }
-    } catch (e, stackTrace) {
-      if (kDebugMode) debugPrint('DEBUG _handleClockOut: $e\n$stackTrace');
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to clock out. Please try again.',
           stackTrace: stackTrace,
         );
       }
@@ -290,9 +170,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       final pm = s['payment_method']?.toString().toLowerCase();
       if (pm == 'cash') {
         cashSales += amount;
-      } else if (pm == 'card') cardSales += amount;
-      else if (pm == 'transfer') transferSales += amount;
-      else if (pm == 'credit') creditSales += amount;
+      } else if (pm == 'card') {
+        cardSales += amount;
+      } else if (pm == 'transfer') {
+        transferSales += amount;
+      } else if (pm == 'credit') {
+        creditSales += amount;
+      }
     }
     for (var s in kitchenSales) {
       final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
@@ -301,9 +185,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       final pm = s['payment_method']?.toString().toLowerCase();
       if (pm == 'cash') {
         cashSales += amount;
-      } else if (pm == 'card') cardSales += amount;
-      else if (pm == 'transfer') transferSales += amount;
-      else if (pm == 'credit') creditSales += amount;
+      } else if (pm == 'card') {
+        cardSales += amount;
+      } else if (pm == 'transfer') {
+        transferSales += amount;
+      } else if (pm == 'credit') {
+        creditSales += amount;
+      }
     }
 
     final mergedDebts = [...soldDebts, ...createdDebts];
@@ -1167,7 +1055,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2)),
           ],
         ),
         child: Column(
@@ -1183,7 +1071,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   height: 40,
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: color, size: 24),
@@ -1193,7 +1081,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                       decoration: BoxDecoration(
-                        color: trendColor.withOpacity(0.1),
+                        color: trendColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Row(
@@ -1253,7 +1141,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2)),
           ],
         ),
         child: Column(
@@ -1268,14 +1156,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   width: 40,
                   height: 40,
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                   child: Icon(icon, color: color, size: 24),
                 ),
                 if (previousValue != 0 || currentValue != 0)
                   Flexible(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(color: trendColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                      decoration: BoxDecoration(color: trendColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1768,8 +1656,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
           title: const Text('Record Debt as Paid'),
           content: SingleChildScrollView(
             child: Column(
@@ -1808,19 +1696,19 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () async {
                 final amountNaira = double.tryParse(amountController.text.trim());
                 if (amountNaira == null || amountNaira <= 0) {
-                  ErrorHandler.showWarningMessage(context, 'Enter a valid amount');
+                  ErrorHandler.showWarningMessage(dialogContext, 'Enter a valid amount');
                   return;
                 }
                 final amountKobo = PaymentService.nairaToKobo(amountNaira);
                 if (amountKobo > remainingKobo) {
-                  ErrorHandler.showWarningMessage(context, 'Amount exceeds remaining balance');
+                  ErrorHandler.showWarningMessage(dialogContext, 'Amount exceeds remaining balance');
                   return;
                 }
                 try {
@@ -1833,25 +1721,31 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                     recordedBy: userId,
                     paymentDate: DateTime.now(),
                   );
-                  if (context.mounted) Navigator.pop(context);
-                  if (mounted) {
-                    ErrorHandler.showSuccessMessage(context, 'Debt payment recorded. Awaiting management approval.');
-                  }
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  if (!mounted) return;
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Debt payment recorded. Awaiting management approval.',
+                  );
                   try {
-                    if (mounted) await _loadData();
+                    await _loadData();
                   } catch (_) {
-                    if (mounted) {
-                      ErrorHandler.showSuccessMessage(
-                        context,
-                        'Payment recorded! (Failed to refresh list, please refresh manually.)',
-                      );
-                    }
+                    if (!mounted) return;
+                    ErrorHandler.showSuccessMessage(
+                      context,
+                      'Payment recorded! (Failed to refresh list, please refresh manually.)',
+                    );
                   }
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG record debt claim: $e\n$stackTrace');
-                  if (mounted) {
-                    ErrorHandler.handleError(context, e, customMessage: 'Failed to record payment. Please try again.', stackTrace: stackTrace);
-                  }
+                  if (!mounted) return;
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to record payment. Please try again.',
+                    stackTrace: stackTrace,
+                  );
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
@@ -2329,75 +2223,5 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   Widget _buildAttendanceCard() {
     // Clock-in/clock-out functionality removed - return empty widget
     return const SizedBox.shrink();
-    // #region agent log
-    debugLog({"location":"staff_dashboard_screen.dart:2024","message":"Building attendance card","data":{"isLoadingAttendance":_isLoadingAttendance,"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"P"});
-    // if (kDebugMode) debugPrint('DEBUG: Building attendance card - isLoading: $_isLoadingAttendance, isClockedIn: $_isClockedIn');
-    // #endregion
-    if (_isLoadingAttendance) return const LinearProgressIndicator();
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _isClockedIn ? Colors.green[50] : Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _isClockedIn ? Colors.green[200]! : Colors.blue[200]!,
-        ),
-      ),
-      child: Column(
-        children: [
-          Text(
-            'Attendance',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _isClockedIn ? 'You are clocked IN' : 'You are clocked OUT',
-            style: TextStyle(
-              color: _isClockedIn ? Colors.green[700] : Colors.blue[700],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (_lastAttendanceRecord != null && _lastAttendanceRecord!['clock_in_time'] != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Clocked in at: ${DateFormat('hh:mm a').format(DateTime.parse(_lastAttendanceRecord!['clock_in_time']))}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Builder(
-            builder: (context) {
-              // #region agent log
-              debugLog({"location":"staff_dashboard_screen.dart:2061","message":"Rendering clock button","data":{"isClockedIn":_isClockedIn,"handlerExists":true},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"});
-              // if (kDebugMode) debugPrint('DEBUG: Rendering clock button - isClockedIn: $_isClockedIn');
-              // #endregion
-              return ElevatedButton(
-                onPressed: () {
-                  // #region agent log
-                  debugLog({"location":"staff_dashboard_screen.dart:2062","message":"Button onPressed triggered","data":{"isClockedIn":_isClockedIn},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"R"});
-                  // if (kDebugMode) debugPrint('DEBUG: Button pressed! isClockedIn: $_isClockedIn');
-                  // #endregion
-                  if (_isClockedIn) {
-                    _handleClockOut();
-                  } else {
-                    _handleClockIn();
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isClockedIn ? Colors.red : Colors.green,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-                child: Text(_isClockedIn ? 'Clock Out' : 'Clock In'),
-              );
-            },
-          ),
-        ],
-      ),
-    );
   }
 }

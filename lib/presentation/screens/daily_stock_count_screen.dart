@@ -27,7 +27,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   String? _selectedLocationId;
   List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _stockItems = [];
-  List<String> _allowedLocationNames = [];
   bool _isLoading = false;
   bool _isLoadingData = true;
   String _countType = 'Opening';
@@ -110,7 +109,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         roles.contains(AppRole.supervisor);
 
     if (isManagement) {
-      _allowedLocationNames = [];
       return []; // Return empty - management should not see recording screen
     }
 
@@ -136,8 +134,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     if (roles.contains(AppRole.storekeeper) || roles.contains(AppRole.purchaser)) {
       allowed.add('Store');
     }
-
-    _allowedLocationNames = allowed.toList();
 
     return locations.where((loc) {
       final name = (loc['name'] ?? '').toString();

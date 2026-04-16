@@ -83,7 +83,7 @@ class BookingListItem extends StatelessWidget {
               booking.status,
               style: const TextStyle(fontSize: 12),
             ),
-            backgroundColor: _getStatusColor(booking.status).withOpacity(0.2),
+            backgroundColor: _getStatusColor(booking.status).withValues(alpha: 0.2),
           ),
         ),
       ),

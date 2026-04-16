@@ -27,7 +27,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
   bool _isLoading = true;
   String _barView = 'vip_bar';
   Map<String, dynamic>? _primaryBooking;
-  List<Map<String, dynamic>> _stays = [];
   List<Map<String, dynamic>> _pastStays = [];
   List<Map<String, dynamic>> _restaurantItems = [];
   List<Map<String, dynamic>> _barItems = [];
@@ -257,7 +256,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
 
     if (!mounted) return;
     setState(() {
-      _stays = stays;
       _primaryBooking = primaryBooking;
       _pastStays = past;
       _restaurantItems = restaurant;

@@ -404,6 +404,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     required int paidAmountKobo,
     required String paymentMethod,
   }) async {
+    final screenContext = context;
     final totalNaira = PaymentService.koboToNaira(totalAmountKobo);
     final paidNaira = PaymentService.koboToNaira(paidAmountKobo);
     final dateFormatter = DateFormat('MMM dd, yyyy');
@@ -421,9 +422,9 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
 
     await showDialog<void>(
-      context: context,
+      context: screenContext,
       barrierDismissible: true,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Booking Receipt'),
           content: SingleChildScrollView(
@@ -498,17 +499,16 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
             TextButton(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: receiptText.toString()));
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Receipt copied to clipboard',
-                  );
-                }
+                if (!screenContext.mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  screenContext,
+                  'Receipt copied to clipboard',
+                );
               },
               child: const Text('Copy'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Close'),
             ),
           ],
@@ -745,6 +745,7 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           fallbackUri,
           mode: LaunchMode.externalApplication,
         );
+        if (!mounted) return;
         if (!fallbackOpened) {
           ErrorHandler.handleError(
             context,

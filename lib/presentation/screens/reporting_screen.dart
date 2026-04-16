@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -32,7 +32,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   String? _guestLoadError;
   String? _opsLoadError;
 
-  // Paginated detail lists (10 per page); reset when tab/period changes
   List<Map<String, dynamic>> _revenueItemsDisplayed = [];
   List<Map<String, dynamic>> _expenseItemsDisplayed = [];
   List<Map<String, dynamic>> _guestRowsDisplayed = [];
@@ -63,19 +62,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         return _opsLoading;
       default:
         return false;
-    }
-  }
-
-  String? _loadErrorForTab(int index) {
-    switch (index) {
-      case 0:
-        return _financialLoadError;
-      case 1:
-        return _guestLoadError;
-      case 2:
-        return _opsLoadError;
-      default:
-        return null;
     }
   }
 
@@ -266,12 +252,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         offset: _revenueItemsDisplayed.length,
         limit: _detailPageSize,
       );
-      if (mounted) setState(() {
-        _revenueItemsDisplayed = [..._revenueItemsDisplayed, ...next];
-        _revenueLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _revenueItemsDisplayed = [..._revenueItemsDisplayed, ...next];
+          _revenueLoadingMore = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _revenueLoadingMore = false);
+      if (mounted) {
+        setState(() => _revenueLoadingMore = false);
+      }
     }
   }
 
@@ -287,12 +277,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         offset: _expenseItemsDisplayed.length,
         limit: _detailPageSize,
       );
-      if (mounted) setState(() {
-        _expenseItemsDisplayed = [..._expenseItemsDisplayed, ...next];
-        _expenseLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _expenseItemsDisplayed = [..._expenseItemsDisplayed, ...next];
+          _expenseLoadingMore = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _expenseLoadingMore = false);
+      if (mounted) {
+        setState(() => _expenseLoadingMore = false);
+      }
     }
   }
 
@@ -309,12 +303,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         offset: _guestRowsDisplayed.length,
         limit: _detailPageSize,
       );
-      if (mounted) setState(() {
-        _guestRowsDisplayed = [..._guestRowsDisplayed, ...next];
-        _guestLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _guestRowsDisplayed = [..._guestRowsDisplayed, ...next];
+          _guestLoadingMore = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _guestLoadingMore = false);
+      if (mounted) {
+        setState(() => _guestLoadingMore = false);
+      }
     }
   }
 
@@ -331,12 +329,16 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         offset: _opsActivitiesDisplayed.length,
         limit: _detailPageSize,
       );
-      if (mounted) setState(() {
-        _opsActivitiesDisplayed = [..._opsActivitiesDisplayed, ...next];
-        _opsLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _opsActivitiesDisplayed = [..._opsActivitiesDisplayed, ...next];
+          _opsLoadingMore = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _opsLoadingMore = false);
+      if (mounted) {
+        setState(() => _opsLoadingMore = false);
+      }
     }
   }
 
@@ -398,8 +400,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
 
   String _fmtNaira(int kobo) => _currency.format(PaymentService.koboToNaira(kobo));
 
-  // ────────────────────────── BUILD ──────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -437,7 +437,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -524,7 +524,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 2, offset: const Offset(0, 1))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 2, offset: const Offset(0, 1))],
       ),
       child: TabBar(
         controller: _tabController,
@@ -539,8 +539,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       ),
     );
   }
-
-  // ────────────────────── SHARED WIDGETS ──────────────────────
 
   Widget _buildPeriodSelector() {
     const chipSpacing = 8.0;
@@ -650,7 +648,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
       ),
       child: child,
     );
@@ -676,8 +674,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800])),
     );
   }
-
-  // ────────────────────── FINANCIAL TAB ──────────────────────
 
   Widget _buildFinancialTab() {
     return Padding(
@@ -1067,8 +1063,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     );
   }
 
-  // ────────────────────── GUEST TAB ──────────────────────
-
   Widget _buildGuestTab() {
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -1239,7 +1233,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                               DataColumn(label: Text('Total (₦)')),
                             ],
                             rows: rows.map<DataRow>((b) {
-                              final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+                              final guestName = b['guest_name']?.toString().trim() ?? '—';
                               final status = b['status']?.toString() ?? '';
                               String ciStr = '';
                               String coStr = '';
@@ -1296,8 +1290,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       ],
     );
   }
-
-  // ────────────────────── OPERATIONS TAB ──────────────────────
 
   Widget _buildOperationsTab() {
     return Padding(
@@ -1477,9 +1469,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                               final staffProfile = a['staff_profile'];
                               String staffName = '—';
                               if (staffProfile is Map) {
-                                staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
+                                staffName = staffProfile['full_name']?.toString().trim() ?? '—';
                               } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
-                                staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
+                                staffName = (staffProfile.first as Map)['full_name']?.toString().trim() ?? '—';
                               }
                               return DataRow(
                                 cells: [
@@ -1543,8 +1535,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       ),
     );
   }
-
-  // ────────────────────── PDF GENERATION ──────────────────────
 
   Future<void> _generatePDF() async {
     if (_plData == null) return;
@@ -1680,7 +1670,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final rows = _guestRowsDisplayed;
 
     final bookingRows = rows.map<List<String>>((b) {
-      final guestName = b['guest_name']?.toString()?.trim() ?? '—';
+      final guestName = b['guest_name']?.toString().trim() ?? '—';
       String ciStr = '', coStr = '';
       try {
         final ci = b['check_in_date']?.toString();
@@ -1760,9 +1750,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       final staffProfile = a['staff_profile'];
       String staffName = '—';
       if (staffProfile is Map) {
-        staffName = staffProfile['full_name']?.toString()?.trim() ?? '—';
+        staffName = staffProfile['full_name']?.toString().trim() ?? '—';
       } else if (staffProfile is List && staffProfile.isNotEmpty && staffProfile.first is Map) {
-        staffName = (staffProfile.first as Map)['full_name']?.toString()?.trim() ?? '—';
+        staffName = (staffProfile.first as Map)['full_name']?.toString().trim() ?? '—';
       }
       return [ts, dept.isEmpty ? 'N/A' : dept, action, staffName, detailsShort];
     }).toList();
@@ -1832,7 +1822,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         pw.SizedBox(height: 12),
         pw.Text(title, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 6),
-        pw.Table.fromTextArray(headers: headers, data: rows),
+        pw.TableHelper.fromTextArray(headers: headers, data: rows),
       ],
     );
   }

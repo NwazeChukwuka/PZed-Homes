@@ -116,17 +116,17 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
 
     setState(() => _isAssigning = true);
     try {
-      // Verify payment status before assigning room
       final booking = await _supabase
           .from('bookings')
           .select('total_amount, paid_amount, status, requested_room_type')
           .eq('id', widget.booking.id)
           .single();
 
+      if (!mounted) return;
+
       final totalAmount = booking['total_amount'] as int? ?? 0;
       final paidAmount = booking['paid_amount'] as int? ?? 0;
 
-      // Warn if booking is not fully paid, but allow assignment (receptionist can collect payment later)
       if (paidAmount < totalAmount) {
         final shouldProceed = await showDialog<bool>(
           context: context,
@@ -160,8 +160,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
         }
       }
 
-      // CRITICAL: Enforce strict room type validation - don't allow override
-      // The database function will also validate, but we should prevent invalid assignments at UI level
       final selectedRoom = _availableRooms.firstWhere(
         (r) => r['id'] == _selectedRoomId,
         orElse: () => <String, dynamic>{},
@@ -170,7 +168,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       final requestedType = booking['requested_room_type'] as String?;
 
       if (requestedType != null && roomType != null && roomType != requestedType) {
-        // Don't allow override - enforce strict validation
         if (mounted) {
           setState(() => _isAssigning = false);
           ErrorHandler.showWarningMessage(
@@ -182,7 +179,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
         return;
       }
 
-      // Use database function to assign room (includes validation)
       await _supabase.rpc('assign_room_to_booking', params: {
         'booking_id': widget.booking.id,
         'room_id': _selectedRoomId,
@@ -193,7 +189,7 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
           context,
           'Room assigned successfully!',
         );
-        Navigator.of(context).pop(true); // Return true to indicate success
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {

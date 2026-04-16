@@ -1,6 +1,3 @@
-/// Configuration for the unified product catalog (Bars, MiniMart, Kitchen, Store).
-/// Adding a new department (e.g. Spa) only requires adding an entry here and the
-/// same CRUD flows work without new screens.
 class ProductCatalogConfig {
   ProductCatalogConfig._();
 
@@ -45,7 +42,6 @@ class ProductCatalogConfig {
         'stock_items': [], // store catalog has no price column
       };
 
-  /// Whether the table has a single price (for simple forms) or multiple (e.g. bars).
   static bool hasSinglePrice(String tableName) {
     final list = priceFieldsByTable[tableName] ?? [];
     return list.length <= 1;

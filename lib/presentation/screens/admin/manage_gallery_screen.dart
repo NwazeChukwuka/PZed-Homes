@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:image_picker/image_picker.dart'; // You'll need to run: flutter pub add image_picker
+import 'package:image_picker/image_picker.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -15,21 +15,17 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
 
   Future<void> _uploadNewItem() async {
     final picker = ImagePicker();
-    // Allow picking image or video
-    final XFile? file = await picker.pickMedia(); 
+    final XFile? file = await picker.pickMedia();
     if (file == null) return;
 
     final fileBytes = await file.readAsBytes();
     final fileName = '${DateTime.now().millisecondsSinceEpoch}-${file.name}';
     
     try {
-      // 1. Upload file to Supabase Storage
       await _supabase.storage.from('gallery').uploadBinary(fileName, fileBytes);
       
-      // 2. Get the public URL
       final mediaUrl = _supabase.storage.from('gallery').getPublicUrl(fileName);
 
-      // 3. Save the record to the database table
       await _supabase.from('gallery_media').insert({
         'title': 'New Item - Edit Me',
         'media_url': mediaUrl,
@@ -38,7 +34,7 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
 
       if (mounted) {
         ErrorHandler.showSuccessMessage(context, 'Item added successfully!');
-        setState(() {}); // Refresh the list
+        setState(() {});
       }
     } catch (e) {
       if (mounted) {
@@ -49,6 +45,21 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
           onRetry: _uploadNewItem,
         );
       }
+    }
+  }
+
+  Future<void> _deleteGalleryItem(String id) async {
+    try {
+      await _supabase.from('gallery_media').delete().eq('id', id);
+      if (!mounted) return;
+      ErrorHandler.showSuccessMessage(context, 'Item deleted successfully');
+    } catch (e) {
+      if (!mounted) return;
+      ErrorHandler.handleError(
+        context,
+        e,
+        customMessage: 'Failed to delete item. Please try again.',
+      );
     }
   }
 
@@ -67,14 +78,14 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _supabase.from('gallery_media').stream(primaryKey: ['id']).order('sort_order'),
-        builder: (context, snapshot) {
+        builder: (streamContext, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           
           if (snapshot.hasError) {
             return ErrorHandler.buildErrorWidget(
-              context,
+              streamContext,
               snapshot.error,
               message: 'Error loading gallery items',
             );
@@ -82,7 +93,7 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
           
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return ErrorHandler.buildEmptyWidget(
-              context,
+              streamContext,
               message: 'No gallery items available',
             );
           }
@@ -90,7 +101,7 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
           final items = snapshot.data!;
           return ListView.builder(
             itemCount: items.length,
-            itemBuilder: (context, index) {
+            itemBuilder: (_, index) {
               final item = items[index];
               return ListTile(
                 leading: CachedNetworkImage(
@@ -117,23 +128,7 @@ class _ManageGalleryScreenState extends State<ManageGalleryScreen> {
                 subtitle: Text(item['is_video'] ? 'Video' : 'Image'),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () async {
-                    try {
-                      // This should also delete from storage
-                      await _supabase.from('gallery_media').delete().eq('id', item['id']);
-                      if (mounted) {
-                        ErrorHandler.showSuccessMessage(context, 'Item deleted successfully');
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ErrorHandler.handleError(
-                          context,
-                          e,
-                          customMessage: 'Failed to delete item. Please try again.',
-                        );
-                      }
-                    }
-                  },
+                  onPressed: () => _deleteGalleryItem(item['id'].toString()),
                 ),
               );
             },

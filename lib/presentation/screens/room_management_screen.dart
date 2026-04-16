@@ -1,6 +1,5 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
@@ -36,11 +35,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   StreamSubscription<List<Map<String, dynamic>>>? _roomsSub;
   Timer? _refreshDebounce;
 
-  // Room pagination state (UI pagination; rooms fetched in chunks)
   int _rowsPerPage = 10;
-  int _currentPage = 0;
   List<Map<String, dynamic>> _allRooms = [];
-  List<Map<String, dynamic>> _currentPageRooms = [];
   Set<String> _checkedInRoomIds = {};
 
   // Room Status tab: bulk edit
@@ -73,13 +69,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   String _bookingSearchQuery = '';
   String _bookingStatusFilter = 'all';
   late TabController _tabController;
-
-  bool get _isReceptionist {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final currentUser = authService.currentUser;
-    return currentUser?.role == AppRole.receptionist ||
-        authService.hasAssumedRole(AppRole.receptionist);
-  }
 
   bool get _isManagement {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -203,7 +192,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   Future<void> _loadRooms() async {
     setState(() => _isLoading = true);
     try {
-      // Apply booking/room lifecycle (checkout -> Dirty -> Vacant after 1h past noon) before reading rooms.
       await _dataService.updateExpiredBookings();
       _dataService.invalidateCacheForTable('rooms');
 
@@ -226,7 +214,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         _checkedInRoomIds = checkedInIds;
         _isLoading = false;
       });
-      _updatePagination();
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _loadRooms: $e\n$stackTrace');
       if (mounted) {
@@ -302,7 +289,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
           _allRooms[idx]['status'] = newStatus;
           _isLoading = false;
         });
-        _updatePagination();
       } else {
         setState(() => _isLoading = false);
       }
@@ -437,7 +423,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: selectedStatus,
+                      initialValue: selectedStatus,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -478,14 +464,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         );
       },
     );
-  }
-
-  void _updatePagination() {
-    final startIndex = _currentPage * _rowsPerPage;
-    final endIndex = (startIndex + _rowsPerPage).clamp(0, _allRooms.length);
-    setState(() {
-      _currentPageRooms = _allRooms.sublist(startIndex, endIndex);
-    });
   }
 
   List<Map<String, dynamic>> get _manageFilteredRooms {
@@ -592,7 +570,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 2),
                       ),
@@ -696,7 +674,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 ),
               ],
               source: _RoomDataSource(
-                // Feed the full list so PaginatedDataTable controls pagination correctly.
                 rooms: _allRooms,
                 checkedInRoomIds: _checkedInRoomIds,
                 onStatusUpdate: _showUpdateStatusDialog,
@@ -845,16 +822,20 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   Future<void> _loadManageRoomTypes() async {
     try {
       final types = await _dataService.getRoomTypes();
-      if (mounted) setState(() {
-        _manageRoomTypes = types;
-        _manageRoomsLoading = false;
-        if (_manageRoomTypes.isNotEmpty && _selectedTypeId == null) {
-          _selectedTypeId = _manageRoomTypes.first['id']?.toString();
-          _selectedTypeName = _manageRoomTypes.first['type']?.toString();
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _manageRoomTypes = types;
+          _manageRoomsLoading = false;
+          if (_manageRoomTypes.isNotEmpty && _selectedTypeId == null) {
+            _selectedTypeId = _manageRoomTypes.first['id']?.toString();
+            _selectedTypeName = _manageRoomTypes.first['type']?.toString();
+          }
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => _manageRoomsLoading = false);
+      if (mounted) {
+        setState(() => _manageRoomsLoading = false);
+      }
     }
   }
 
@@ -910,8 +891,11 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                             ? Checkbox(
                                 value: selected,
                                 onChanged: (v) => setState(() {
-                                  if (v == true) _manageSelectedIds.add(roomId);
-                                  else _manageSelectedIds.remove(roomId);
+                                  if (v == true) {
+                                    _manageSelectedIds.add(roomId);
+                                  } else {
+                                    _manageSelectedIds.remove(roomId);
+                                  }
                                 }),
                               )
                             : CircleAvatar(
@@ -955,7 +939,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
           Expanded(
             flex: 2,
             child: DropdownButtonFormField<String?>(
-              value: _manageFilterStatus,
+              initialValue: _manageFilterStatus,
               decoration: const InputDecoration(
                 labelText: 'Status',
                 isDense: true,
@@ -1015,6 +999,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   }
 
   void _showEditRoomTypePriceDialog(Map<String, dynamic> roomType) {
+    final screenContext = context;
     final id = roomType['id']?.toString();
     final typeName = roomType['type']?.toString() ?? 'Unknown';
     final priceKobo = int.tryParse(roomType['price']?.toString() ?? '0') ?? 0;
@@ -1022,7 +1007,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     final controller = TextEditingController(text: priceNaira.toStringAsFixed(2));
     final saving = [false];
     showDialog(
-      context: context,
+      context: screenContext,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text('Edit price: $typeName'),
@@ -1046,22 +1031,22 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                       try {
                         await _dataService.updateRoomTypePrice(id, PaymentService.nairaToKobo(naira));
                         if (ctx.mounted) Navigator.pop(ctx);
-                        if (mounted) {
-                          ErrorHandler.showSuccessMessage(context, 'Price updated.');
+                        if (screenContext.mounted) {
+                          ErrorHandler.showSuccessMessage(screenContext, 'Price updated.');
                           _loadManageRoomTypes();
                         }
                       } on PostgrestException catch (e) {
-                        if (mounted) {
+                        if (screenContext.mounted) {
                           setDialogState(() => saving[0] = false);
                           final message = e.code == '42501'
                               ? 'Permission Denied: Only Managers or Owners can update room type prices.'
                               : null;
-                          ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
+                          ErrorHandler.handleError(screenContext, e, customMessage: message, stackTrace: StackTrace.current);
                         }
                       } catch (e, stackTrace) {
-                        if (mounted) {
+                        if (screenContext.mounted) {
                           setDialogState(() => saving[0] = false);
-                          ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+                          ErrorHandler.handleError(screenContext, e, stackTrace: stackTrace);
                         }
                       }
                     },
@@ -1167,7 +1152,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: _selectedTypeId,
+                  initialValue: _selectedTypeId,
                   decoration: const InputDecoration(labelText: 'Room Type *'),
                   items: _manageRoomTypes
                       .map((rt) => DropdownMenuItem<String>(
@@ -1483,7 +1468,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                         ),
                         trailing: Chip(
                           label: Text(calculatedStatus.toUpperCase()),
-                          backgroundColor: _getBookingStatusColor(calculatedStatus).withOpacity(0.1),
+                          backgroundColor: _getBookingStatusColor(calculatedStatus).withValues(alpha: 0.1),
                           labelStyle: TextStyle(
                             color: _getBookingStatusColor(calculatedStatus),
                             fontSize: 11,
@@ -1671,8 +1656,8 @@ class _RoomDataSource extends DataTableSource {
               fontSize: 12,
             ),
           ),
-          backgroundColor: getStatusColor(effectiveStatus).withOpacity(0.1),
-          side: BorderSide(color: getStatusColor(effectiveStatus).withOpacity(0.3)),
+          backgroundColor: getStatusColor(effectiveStatus).withValues(alpha: 0.1),
+          side: BorderSide(color: getStatusColor(effectiveStatus).withValues(alpha: 0.3)),
         ),
       ),
       DataCell(

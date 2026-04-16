@@ -64,8 +64,8 @@ class ServicesScreen extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.black.withOpacity(0.7),
+                  Colors.black.withValues(alpha: 0.3),
+                  Colors.black.withValues(alpha: 0.7),
                 ],
               ),
             ),
@@ -83,7 +83,7 @@ class ServicesScreen extends StatelessWidget {
                     shadows: [
                       Shadow(
                         blurRadius: 10.0,
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withValues(alpha: 0.5),
                         offset: const Offset(0, 2),
                       )
                     ],
@@ -94,11 +94,11 @@ class ServicesScreen extends StatelessWidget {
                   'Comprehensive Hospitality Solutions',
                   style: TextStyle(
                     fontSize: 18,
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     shadows: [
                       Shadow(
                         blurRadius: 5.0,
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.3),
                       )
                     ],
                   ),
@@ -252,7 +252,7 @@ class ServicesScreen extends StatelessWidget {
             border: Border.all(color: Colors.grey[200]!),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -264,7 +264,7 @@ class ServicesScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: (service['color'] as Color).withOpacity(0.1),
+                  color: (service['color'] as Color).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -298,7 +298,7 @@ class ServicesScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 15,
             offset: const Offset(0, 5),
             spreadRadius: 1,
@@ -331,7 +331,7 @@ class ServicesScreen extends StatelessWidget {
                         height: 200,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [color.withOpacity(0.3), color.withOpacity(0.6)],
+                            colors: [color.withValues(alpha: 0.3), color.withValues(alpha: 0.6)],
                           ),
                         ),
                         child: Icon(icon, size: 60, color: Colors.white),
@@ -350,7 +350,7 @@ class ServicesScreen extends StatelessWidget {
                       height: 200,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [color.withOpacity(0.3), color.withOpacity(0.6)],
+                          colors: [color.withValues(alpha: 0.3), color.withValues(alpha: 0.6)],
                         ),
                       ),
                       child: Icon(icon, size: 60, color: Colors.white),
@@ -367,7 +367,7 @@ class ServicesScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
+                        color: color.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(icon, color: color, size: 20),
@@ -413,7 +413,7 @@ class ServicesScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.3),
+            color: Colors.green.withValues(alpha: 0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -435,7 +435,7 @@ class ServicesScreen extends StatelessWidget {
             'Contact us today to book your stay or learn more about our services.',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
             ),
             textAlign: TextAlign.center,
           ),

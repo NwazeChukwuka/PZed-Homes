@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -165,7 +165,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _addItemCategory,
+                  initialValue: _addItemCategory,
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: _miniMartCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                   onChanged: (v) => setDialogState(() => _addItemCategory = v ?? 'Snacks'),
@@ -657,6 +657,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     required String paymentMethod,
     required String customerName,
   }) async {
+    final screenContext = context;
     final receiptText = StringBuffer()
       ..writeln('P-ZED Homes Mini Mart Receipt')
       ..writeln('Customer: $customerName')
@@ -675,9 +676,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
 
     await showDialog<void>(
-      context: context,
+      context: screenContext,
       barrierDismissible: true,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Mini Mart Receipt'),
           content: SingleChildScrollView(
@@ -732,17 +733,16 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
             TextButton(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: receiptText.toString()));
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Receipt copied to clipboard',
-                  );
-                }
+                if (!screenContext.mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  screenContext,
+                  'Receipt copied to clipboard',
+                );
               },
               child: const Text('Copy'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Close'),
             ),
           ],
@@ -936,6 +936,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           fallbackUri,
           mode: LaunchMode.externalApplication,
         );
+        if (!mounted) return;
         if (!fallbackOpened) {
           ErrorHandler.handleError(
             context,
@@ -1084,7 +1085,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1151,7 +1152,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
@@ -1266,19 +1267,18 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                                           priceChangeDetails,
                                                         );
                                                       }
-                                                      if (mounted) {
-                                                        ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                      if (!context.mounted) return;
+                                                      ErrorHandler.showSuccessMessage(context, 'Product updated.');
                                                         _loadMiniMartData();
-                                                      }
                                                     } on PostgrestException catch (e) {
-                                                      if (mounted) {
-                                                        final message = e.code == '42501'
-                                                            ? 'Permission Denied: Only Managers or Owners can change prices.'
-                                                            : null;
-                                                        ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
-                                                      }
+                                                      if (!context.mounted) return;
+                                                      final message = e.code == '42501'
+                                                          ? 'Permission Denied: Only Managers or Owners can change prices.'
+                                                          : null;
+                                                      ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
                                                     } catch (e, stackTrace) {
-                                                      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+                                                      if (!context.mounted) return;
+                                                      ErrorHandler.handleError(context, e, stackTrace: stackTrace);
                                                     }
                                                   },
                                                 ),
@@ -1310,10 +1310,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                                                     department,
                                                     'Deleted $itemName from the catalog.',
                                                   );
-                                                  if (mounted) {
-                                                    ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+                                                  if (!context.mounted) return;
+                                                  ErrorHandler.showSuccessMessage(context, 'Product deleted.');
                                                     _loadMiniMartData();
-                                                  }
                                                 },
                                               );
                                             }
@@ -1340,7 +1339,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -1697,7 +1696,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 8,
                           offset: const Offset(0, -2),
                         ),
@@ -1834,7 +1833,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -1929,7 +1928,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),

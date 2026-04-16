@@ -687,6 +687,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   }
 
   void _showAddTransferDialog() {
+    final screenContext = context;
     final quantityController = TextEditingController();
     String? selectedItem;
     String source = 'general_store';
@@ -695,11 +696,11 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
     StateSetter? dialogSetState;
 
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: screenContext,
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Record Transfer'),
         content: StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (_, setDialogState) {
             dialogSetState = setDialogState;
             return Column(
             mainAxisSize: MainAxisSize.min,
@@ -740,7 +741,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
@@ -749,7 +750,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
               if (selectedItem != null && quantityController.text.isNotEmpty) {
                 try {
                   dialogSetState?.call(() => isSubmitting = true);
-                  final authService = Provider.of<AuthService>(context, listen: false);
+                  final authService = Provider.of<AuthService>(screenContext, listen: false);
                   final staffId = authService.currentUser?.id ?? 'unknown';
                   final item = _availableItems.firstWhere((i) => i['id'].toString() == selectedItem);
                   final qty = int.tryParse(quantityController.text.trim()) ?? 0;
@@ -775,7 +776,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                   if (source == 'direct_supply') {
                     await _dataService.createDirectSupplyRequest(
                       stockItemId: stockItem['id'] as String,
-                      bar: _selectedBar ?? 'vip_bar',
+                      bar: _selectedBar,
                       quantity: qty,
                       requestedBy: staffId,
                       notes: 'Direct supply request',
@@ -820,12 +821,13 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                       clientRequestId: transferRequestId,
                     );
                     if (transferId == null) {
+                      if (!screenContext.mounted) return;
                       ErrorHandler.showInfoMessage(
-                        context,
+                        screenContext,
                         'This transfer was already recorded (duplicate ignored).',
                       );
                       ErrorHandler.showLedgerConfirmedSnackBar(
-                        context,
+                        screenContext,
                         'Transfer already on ledger — no duplicate.',
                       );
                       return;
@@ -854,23 +856,23 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                     );
                   }
                   await _loadShiftData();
+                  if (!screenContext.mounted) return;
                   ErrorHandler.showLedgerConfirmedSnackBar(
-                    context,
+                    screenContext,
                     source == 'direct_supply'
                         ? 'Supply request saved.'
                         : 'Transfer saved to ledger.',
                   );
-                  Navigator.pop(context);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
                 } catch (e) {
-                  if (mounted) {
-                    ErrorHandler.handleError(
-                      context,
-                      e,
-                      customMessage: 'Failed to record transfer. Please try again.',
-                    );
-                  }
+                  if (!screenContext.mounted) return;
+                  ErrorHandler.handleError(
+                    screenContext,
+                    e,
+                    customMessage: 'Failed to record transfer. Please try again.',
+                  );
                 } finally {
-                  if (mounted) {
+                  if (dialogContext.mounted) {
                     dialogSetState?.call(() => isSubmitting = false);
                   }
                 }

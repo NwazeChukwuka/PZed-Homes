@@ -27,7 +27,7 @@ class ContextAwareRoleButton extends StatelessWidget {
     
     final isCurrentlyAssumed = authService.hasAssumedRole(suggestedRole);
     final roleName = customLabel ?? AuthService.getRoleDisplayName(suggestedRole);
-    final tooltipText = isCurrentlyAssumed ? 'Drop $roleName' : 'Assume $roleName';
+    final actionLabel = isCurrentlyAssumed ? 'Drop $roleName' : 'Assume $roleName';
     final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     void onTap() {
@@ -39,9 +39,6 @@ class ContextAwareRoleButton extends StatelessWidget {
         ErrorHandler.showSuccessMessage(context, 'Now assuming $roleName');
       }
     }
-
-    // Multi-role: tap adds or removes this role (no "return to owner")
-    final actionLabel = isCurrentlyAssumed ? 'Drop $roleName' : 'Assume $roleName';
     if (isMobile) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),

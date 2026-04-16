@@ -471,12 +471,6 @@ class ReportingService {
     }
 
     // Build result: room types first (fixed order), then department categories
-    const deptOrder = [
-      'Mini Mart',
-      'Kitchen/Restaurant',
-      'VIP Bar',
-      'Outside Bar',
-    ];
     final result = <CategoryAmount>[];
     for (final rt in _roomTypes) {
       result.add(CategoryAmount(category: rt, amount: roomRevenue[rt] ?? 0));
@@ -767,24 +761,6 @@ class ReportingService {
     )).toList();
   }
 
-  // Helper to get room price from database
-  // Fetches and caches room type prices
-  Future<int> _getRoomPrice(String roomType) async {
-    try {
-      // Check if cache is valid
-      if (_roomTypePrices == null || 
-          _roomTypeCacheTime == null ||
-          DateTime.now().difference(_roomTypeCacheTime!).inMinutes > _cacheExpiryMinutes) {
-        await _loadRoomTypePrices();
-      }
-      
-      // Return price from cache, default to 0 if not found
-      return _roomTypePrices?[roomType] ?? 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-  
   // Load room type prices from database
   Future<void> _loadRoomTypePrices() async {
     try {
@@ -832,13 +808,21 @@ class ReportingService {
     for (final b in rows) {
       total++;
       final status = _normalizeBookingStatus(b['status']?.toString());
-      if (status == 'checked-in') checkedIn++;
-      else if (status == 'checked-out') checkedOut++;
-      else if (status == 'pending') pending++;
-      else if (status == 'cancelled') cancelled++;
-      else if (status == 'rejected') rejected++;
-      else if (status == 'expired') expired++;
-      else if (status == 'confirmed') confirmed++;
+      if (status == 'checked-in') {
+        checkedIn++;
+      } else if (status == 'checked-out') {
+        checkedOut++;
+      } else if (status == 'pending') {
+        pending++;
+      } else if (status == 'cancelled') {
+        cancelled++;
+      } else if (status == 'rejected') {
+        rejected++;
+      } else if (status == 'expired') {
+        expired++;
+      } else if (status == 'confirmed') {
+        confirmed++;
+      }
 
       revenueSum += _collectedAmountKobo(
         (b['total_amount'] as num?)?.toInt(),
@@ -921,7 +905,7 @@ class ReportingService {
     int uniqueStaff = 0;
     String topDepartment = 'N/A';
     int negativeAdjustments = 0;
-    List activities = [];
+    List<dynamic> activities = [];
 
     try {
       final activitiesAll = await _supabase
@@ -932,7 +916,7 @@ class ReportingService {
           .order('created_at', ascending: false);
       activities = activitiesAll;
 
-      activityCount = (activities as List).length;
+      activityCount = activities.length;
       final staffIds = <String>{};
       final deptCounts = <String, int>{};
       for (final a in activities) {
@@ -954,21 +938,20 @@ class ReportingService {
           .gte('created_at', range.start.toIso8601String())
           .lte('created_at', range.end.toIso8601String());
 
-      for (final t in transactions as List) {
+      for (final t in transactions) {
         final qty = (t['quantity'] as num?)?.toInt() ?? 0;
         final type = t['transaction_type']?.toString() ?? '';
         if (qty < 0 || type == 'Wastage') negativeAdjustments++;
       }
     } catch (_) {}
 
-    final activitiesList = activities as List;
     return {
       'activity_count': activityCount,
       'unique_staff': uniqueStaff,
       'top_department': topDepartment,
       'negative_adjustments': negativeAdjustments,
-      'activities': activitiesList.take(detailPageSize).toList(),
-      'total_activities_count': activitiesList.length,
+      'activities': activities.take(detailPageSize).toList(),
+      'total_activities_count': activities.length,
     };
   }
 

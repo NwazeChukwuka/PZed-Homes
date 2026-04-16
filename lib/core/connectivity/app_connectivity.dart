@@ -124,7 +124,6 @@ class AppConnectivity extends ChangeNotifier {
   }
 }
 
-// Connectivity status widget
 class ConnectivityStatusWidget extends StatelessWidget {
   const ConnectivityStatusWidget({super.key});
 
@@ -136,10 +135,10 @@ class ConnectivityStatusWidget extends StatelessWidget {
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: connectivity.connectionColor.withOpacity(0.1),
+              color: connectivity.connectionColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: connectivity.connectionColor.withOpacity(0.3),
+                color: connectivity.connectionColor.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),
@@ -167,10 +166,10 @@ class ConnectivityStatusWidget extends StatelessWidget {
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.1),
+              color: Colors.red.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: Colors.red.withOpacity(0.3),
+                color: Colors.red.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),

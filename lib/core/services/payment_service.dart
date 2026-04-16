@@ -119,6 +119,8 @@ class PaymentService {
         throw Exception('Could not open payment page. Please try again.');
       }
 
+      if (!context.mounted) return false;
+
       final result = await showDialog<bool>(
         context: context,
         barrierDismissible: false,

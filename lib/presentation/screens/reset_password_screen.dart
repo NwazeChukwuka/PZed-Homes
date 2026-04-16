@@ -77,70 +77,77 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     return query['error_description'] ?? fragmentParams['error_description'] ?? query['error'] ?? fragmentParams['error'] ?? _kExpiredLinkMessage;
   }
 
-  /// Initialize recovery session. Handle Supabase error params, then PKCE code or fragment (implicit flow).
   Future<void> _initRecoverySession() async {
     if (_initChecked) return;
     final supabase = Supabase.instance.client;
     try {
       final uri = Uri.base;
 
-      // 1) If Supabase redirected with error params, show error UI (no form) and stop.
       final urlError = _getErrorMessageFromUrl(uri);
       if (urlError != null) {
         _initChecked = true;
-        if (mounted) setState(() {
-          _statusMessage = urlError;
-          _isLinkError = true;
-        });
+        if (mounted) {
+          setState(() {
+            _statusMessage = urlError;
+            _isLinkError = true;
+          });
+        }
         return;
       }
 
-      // 2) Cross-device flow: token_hash in URL (no code_verifier needed). Works when user opens link on phone after requesting reset on hotel PC.
       final tokenHash = uri.queryParameters['token_hash'];
       if (tokenHash != null && tokenHash.isNotEmpty) {
         try {
           await supabase.auth.verifyOTP(type: OtpType.recovery, tokenHash: tokenHash);
           _initChecked = true;
-          if (mounted) setState(() => _sessionReady = true);
+          if (mounted) {
+            setState(() => _sessionReady = true);
+          }
           return;
         } catch (e, stack) {
           if (kDebugMode) debugPrint('DEBUG verifyOTP(recovery): $e\n$stack');
           _initChecked = true;
-          if (mounted) setState(() {
-            _statusMessage = _kExpiredLinkMessage;
-            _isLinkError = true;
-          });
+          if (mounted) {
+            setState(() {
+              _statusMessage = _kExpiredLinkMessage;
+              _isLinkError = true;
+            });
+          }
           return;
         }
       }
 
-      // 3) Give Supabase a moment to auto-recover from URL (PKCE flow)
       await Future.delayed(const Duration(milliseconds: 100));
       if (!mounted) return;
 
       if (supabase.auth.currentUser != null) {
         _initChecked = true;
-        if (mounted) setState(() => _sessionReady = true);
+        if (mounted) {
+          setState(() => _sessionReady = true);
+        }
         return;
       }
 
-      // 4) PKCE flow: exchange ?code=xxx for a session (same browser only).
       final code = uri.queryParameters['code'];
       if (code != null && code.isNotEmpty) {
         try {
           await supabase.auth.exchangeCodeForSession(code);
           _initChecked = true;
-          if (mounted) setState(() => _sessionReady = true);
+          if (mounted) {
+            setState(() => _sessionReady = true);
+          }
           return;
         } catch (e, stack) {
           if (kDebugMode) debugPrint('DEBUG exchangeCodeForSession: $e\n$stack');
           final msg = e.toString().toLowerCase();
           if (msg.contains('verifier') || msg.contains('storage') || msg.contains('code')) {
             _initChecked = true;
-            if (mounted) setState(() {
-              _statusMessage = _kExpiredLinkMessage;
-              _isLinkError = true;
-            });
+            if (mounted) {
+              setState(() {
+                _statusMessage = _kExpiredLinkMessage;
+                _isLinkError = true;
+              });
+            }
             return;
           }
           rethrow;
@@ -149,7 +156,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
       final fragment = uri.fragment;
 
-      // 5) Implicit flow: parse fragment tokens from Supabase confirmation URLs.
       if (fragment.isNotEmpty) {
         final normalizedFragment = fragment.startsWith('/') ? fragment.substring(1) : fragment;
         try {
@@ -161,11 +167,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             if (refreshToken != null && refreshToken.isNotEmpty) {
               await supabase.auth.setSession(refreshToken);
             } else {
-              // Access token without refresh token is rare; rely on SDK auth listener/current session.
               await Future<void>.delayed(const Duration(milliseconds: 100));
             }
             _initChecked = true;
-            if (mounted) setState(() => _sessionReady = true);
+            if (mounted) {
+              setState(() => _sessionReady = true);
+            }
             return;
           }
         } catch (e, stack) {
@@ -173,25 +180,30 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         }
       }
 
-      // 6) Still no session - check again (auth listener may have established it)
       if (supabase.auth.currentUser != null) {
         _initChecked = true;
-        if (mounted) setState(() => _sessionReady = true);
+        if (mounted) {
+          setState(() => _sessionReady = true);
+        }
         return;
       }
 
       _initChecked = true;
-      if (mounted) setState(() {
-        _statusMessage = _kExpiredLinkMessage;
-        _isLinkError = true;
-      });
+      if (mounted) {
+        setState(() {
+          _statusMessage = _kExpiredLinkMessage;
+          _isLinkError = true;
+        });
+      }
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG _initRecoverySession: $e\n$stack');
       _initChecked = true;
-      if (mounted) setState(() {
-        _statusMessage = _kExpiredLinkMessage;
-        _isLinkError = true;
-      });
+      if (mounted) {
+        setState(() {
+          _statusMessage = _kExpiredLinkMessage;
+          _isLinkError = true;
+        });
+      }
     }
   }
 
@@ -232,7 +244,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

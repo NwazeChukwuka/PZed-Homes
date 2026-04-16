@@ -173,6 +173,7 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
       }
 
       final supplierName = await _resolveSupplierName();
+      if (!mounted) return;
       if (supplierName.isEmpty) {
         ErrorHandler.showWarningMessage(context, 'Please select or enter a supplier');
         setState(() => _isLoading = false);
@@ -182,11 +183,11 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
       await _dataService.createPurchaseOrder({
         'purchaser_id': purchaserId,
         'supplier_name': supplierName,
-        'total_cost': _totalCost, // Already in kobo
+        'total_cost': _totalCost,
         'items': _items.map((item) => {
           'stock_item_id': item['stock_item_id'],
           'quantity': item['quantity'],
-          'unit_cost': item['unit_cost'], // Already in kobo
+          'unit_cost': item['unit_cost'],
         }).toList(),
       });
 
@@ -336,14 +337,13 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                     ),
                   ),
 
-                  // Submit Button
                   Container(
                     padding: const EdgeInsets.all(16.0),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.black.withValues(alpha: 0.1),
                           blurRadius: 10,
                           offset: const Offset(0, -2),
                         ),
@@ -382,10 +382,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
   Widget _buildItemCard(int index) {
     final item = _items[index];
     final selectedStockItemId = item['stock_item_id'] as String?;
-    final selectedStockItem = _stockItems.firstWhere(
-      (si) => si['id'] == selectedStockItemId,
-      orElse: () => <String, dynamic>{},
-    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

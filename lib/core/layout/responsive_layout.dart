@@ -32,26 +32,38 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
       case _LayoutMode.mobile:
         if (w >= 1200 + _hysteresis) {
           next = _LayoutMode.largeDesktop;
-        } else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
-        else if (w >= 600 + _hysteresis) next = _LayoutMode.tablet;
+        } else if (w >= 800 + _hysteresis) {
+          next = _LayoutMode.desktop;
+        } else if (w >= 600 + _hysteresis) {
+          next = _LayoutMode.tablet;
+        }
         break;
       case _LayoutMode.tablet:
         if (w < 600 - _hysteresis) {
           next = _LayoutMode.mobile;
-        } else if (w >= 800 + _hysteresis) next = _LayoutMode.desktop;
-        else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
+        } else if (w >= 800 + _hysteresis) {
+          next = _LayoutMode.desktop;
+        } else if (w >= 1200 + _hysteresis) {
+          next = _LayoutMode.largeDesktop;
+        }
         break;
       case _LayoutMode.desktop:
         if (w < 600 - _hysteresis) {
           next = _LayoutMode.mobile;
-        } else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
-        else if (w >= 1200 + _hysteresis) next = _LayoutMode.largeDesktop;
+        } else if (w < 800 - _hysteresis) {
+          next = _LayoutMode.tablet;
+        } else if (w >= 1200 + _hysteresis) {
+          next = _LayoutMode.largeDesktop;
+        }
         break;
       case _LayoutMode.largeDesktop:
         if (w < 600 - _hysteresis) {
           next = _LayoutMode.mobile;
-        } else if (w < 800 - _hysteresis) next = _LayoutMode.tablet;
-        else if (w < 1200 - _hysteresis) next = _LayoutMode.desktop;
+        } else if (w < 800 - _hysteresis) {
+          next = _LayoutMode.tablet;
+        } else if (w < 1200 - _hysteresis) {
+          next = _LayoutMode.desktop;
+        }
         break;
     }
     return next;
@@ -75,11 +87,9 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        // Ignore invalid/transitional constraints to prevent Mobile flash on startup
         if (w <= 0) return _widgetForMode(_mode);
 
         final next = _computeNextMode(w);
-        // Update state in post-frame callback to keep build pure (no mutation during build)
         if (next != _mode) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) setState(() => _mode = next);
@@ -149,9 +159,13 @@ class ResponsivePadding extends StatelessWidget {
     EdgeInsets padding;
     if (w >= 1200) {
       padding = largeDesktop ?? desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
-    } else if (w >= 800) padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
-    else if (w >= 600) padding = tablet ?? mobile ?? EdgeInsets.zero;
-    else padding = mobile ?? EdgeInsets.zero;
+    } else if (w >= 800) {
+      padding = desktop ?? tablet ?? mobile ?? EdgeInsets.zero;
+    } else if (w >= 600) {
+      padding = tablet ?? mobile ?? EdgeInsets.zero;
+    } else {
+      padding = mobile ?? EdgeInsets.zero;
+    }
     return Padding(
       padding: padding,
       child: child,
@@ -185,9 +199,13 @@ class ResponsiveGrid extends StatelessWidget {
     int columns;
     if (w >= 1200) {
       columns = largeDesktopColumns ?? desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
-    } else if (w >= 800) columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
-    else if (w >= 600) columns = tabletColumns ?? mobileColumns ?? 1;
-    else columns = mobileColumns ?? 1;
+    } else if (w >= 800) {
+      columns = desktopColumns ?? tabletColumns ?? mobileColumns ?? 1;
+    } else if (w >= 600) {
+      columns = tabletColumns ?? mobileColumns ?? 1;
+    } else {
+      columns = mobileColumns ?? 1;
+    }
 
     return Wrap(
       spacing: spacing ?? 16.0,
@@ -227,9 +245,13 @@ class ResponsiveText extends StatelessWidget {
     TextStyle? style;
     if (w >= 1200) {
       style = largeDesktopStyle ?? desktopStyle ?? tabletStyle ?? mobileStyle;
-    } else if (w >= 800) style = desktopStyle ?? tabletStyle ?? mobileStyle;
-    else if (w >= 600) style = tabletStyle ?? mobileStyle;
-    else style = mobileStyle;
+    } else if (w >= 800) {
+      style = desktopStyle ?? tabletStyle ?? mobileStyle;
+    } else if (w >= 600) {
+      style = tabletStyle ?? mobileStyle;
+    } else {
+      style = mobileStyle;
+    }
 
     return Text(
       text,
@@ -263,9 +285,13 @@ class ResponsiveSpacing extends StatelessWidget {
     double spacing;
     if (w >= 1200) {
       spacing = largeDesktop ?? desktop ?? tablet ?? mobile ?? 0.0;
-    } else if (w >= 800) spacing = desktop ?? tablet ?? mobile ?? 0.0;
-    else if (w >= 600) spacing = tablet ?? mobile ?? 0.0;
-    else spacing = mobile ?? 0.0;
+    } else if (w >= 800) {
+      spacing = desktop ?? tablet ?? mobile ?? 0.0;
+    } else if (w >= 600) {
+      spacing = tablet ?? mobile ?? 0.0;
+    } else {
+      spacing = mobile ?? 0.0;
+    }
 
     if (direction == Axis.vertical) {
       return Column(

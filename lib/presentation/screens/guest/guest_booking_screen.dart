@@ -214,36 +214,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  Future<bool> _checkRoomTypeAvailability() async {
-    if (_supabase == null) {
-      throw Exception('Service is currently unavailable. Please try again later.');
-    }
-
-    try {
-      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString();
-      if (roomTypeName == null) throw Exception('Invalid room type');
-
-      final response = await _supabase!.rpc(
-        'get_available_room_types',
-        params: {
-          'start_date': checkInDate.toIso8601String(),
-          'end_date': checkOutDate.toIso8601String(),
-        },
-      );
-
-      final rows = List<Map<String, dynamic>>.from(response as List);
-      final match = rows.firstWhere(
-        (row) => (row['type'] as String?)?.toLowerCase() == roomTypeName.toLowerCase(),
-        orElse: () => <String, dynamic>{},
-      );
-
-      final available = (match['available_count'] as num?)?.toInt() ?? 0;
-      return available > 0;
-    } catch (e) {
-      rethrow;
-    }
-  }
-
   // Guest accounts are created only via explicit signup on the landing page.
 
   // NEW: Use atomic database function to prevent race conditions
@@ -763,7 +733,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 10,
                   offset: const Offset(0, -2),
                 ),

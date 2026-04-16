@@ -168,12 +168,7 @@ class AppRouter {
           GoRoute(
             path: '/guest/rooms',
             name: 'guest-rooms',
-            builder: (context, state) {
-              final extra = state.extra as Map<String, dynamic>?;
-              final checkIn = extra?['checkInDate'] as DateTime? ?? DateTime.now();
-              final checkOut = extra?['checkOutDate'] as DateTime? ?? DateTime.now().add(const Duration(days: 1));
-              return const AvailableRoomsScreen();
-            },
+            builder: (context, _) => const AvailableRoomsScreen(),
           ),
           GoRoute(
             path: '/guest/booking-lookup',
@@ -695,52 +690,35 @@ class _RootDeciderState extends State<RootDecider> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if Supabase is initialized
-    // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
     bool isSupabaseInitialized = false;
     String? initError;
-    SupabaseClient? supabase;
     try {
-      supabase = Supabase.instance.client;
+      Supabase.instance.client;
       isSupabaseInitialized = true;
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG RootDecider init: $e\n$stack');
-      supabase = null;
       isSupabaseInitialized = false;
       initError = ErrorHandler.getFriendlyErrorMessage(e);
     }
-    
-    // For guest users, allow the app to work without Supabase (images from assets)
-    // Only require Supabase for authenticated features
+
     return Consumer<AuthService>(
       builder: (context, authService, child) {
-        // PRIORITY: Show guest page immediately if not logged in
-        // Don't wait for auth check - render first, check auth in background
-        // Even if isLoading is true, show guest page (non-blocking)
         if (!authService.isLoggedIn || authService.currentUser == null) {
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is logged in but still loading user data, show loading with short timeout
-        // After 3 seconds, force show dashboard anyway
         if (authService.isLoading) {
           return _LoadingScreenWithTimeout(maxWaitSeconds: 3);
         }
 
-        // For authenticated users, Supabase is required
         if (!isSupabaseInitialized) {
           return _buildConfigErrorScreen(initError);
         }
 
-        // CRITICAL: Only navigate if user is fully loaded (has user data)
-        // This prevents showing dashboard without proper initialization
         if (authService.currentUser == null) {
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is logged in and fully loaded, navigate to dashboard route (which includes MainScreen with sidebar)
-        // This ensures the sidebar/drawer is always available
-        // Only schedule once - prevents re-navigation on every AuthService notify
         if (!_navigationScheduled) {
           _navigationScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -759,9 +737,7 @@ class _RootDeciderState extends State<RootDecider> {
             });
           });
         }
-        
-        // Show a loading screen while navigating
-        // This prevents showing the dashboard without sidebar
+
         return const Scaffold(
           body: Center(
             child: CircularProgressIndicator(),
@@ -854,7 +830,6 @@ class _RootDeciderState extends State<RootDecider> {
   }
 }
 
-// Loading screen with timeout to prevent infinite loading
 class _LoadingScreenWithTimeout extends StatefulWidget {
   final int maxWaitSeconds;
   const _LoadingScreenWithTimeout({this.maxWaitSeconds = 3});
@@ -865,19 +840,15 @@ class _LoadingScreenWithTimeout extends StatefulWidget {
 
 class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
   bool _showTimeout = false;
-  bool _forceShow = false;
 
   @override
   void initState() {
     super.initState();
-    // After maxWaitSeconds, force show dashboard anyway
     Future.delayed(Duration(seconds: widget.maxWaitSeconds), () {
       if (mounted) {
         setState(() {
           _showTimeout = true;
-          _forceShow = true;
         });
-        // Force navigation to dashboard after timeout
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             try {
@@ -912,7 +883,6 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  // Force show guest page
                   context.go('/guest/home');
                 },
                 child: const Text('Continue as Guest'),

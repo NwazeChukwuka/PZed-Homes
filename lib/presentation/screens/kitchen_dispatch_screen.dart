@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,7 +34,6 @@ class KitchenDispatchScreen extends StatefulWidget {
 
 class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final _saleFormKey = GlobalKey<FormState>();
   final _dataService = DataService();
   SupabaseClient _requireSupabase() {
     try {
@@ -52,14 +51,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   final _saleCreditCustomerPhoneController = TextEditingController();
   final _searchController = TextEditingController();
   final ScrollController _currentSaleScrollController = ScrollController();
-  final int _selectedSaleQuantity = 1; // Default quantity for kitchen sales
   Timer? _filterDebounce;
 
   List<Map<String, dynamic>> _stockItems = [];
   List<Map<String, dynamic>> _filteredItems = [];
   final List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
-  List<Map<String, dynamic>> _locations = [];
   List<Map<String, dynamic>> _departments = [];
   List<String> _missingStockLinks = [];
   final Set<String> _dismissedWarnings = {};
@@ -76,25 +73,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   bool _isProcessingSale = false;
   String? _kitchenSaleLedgerSessionId;
   StateSetter? _kitchenSaleModalSetState;
-  final bool _isCustomSale = false;
-  String? _selectedSaleItemId;
   String? _selectedBookingId;
   bool _chargeToRoom = false;
   String _dispatchPaymentMethod = 'cash';
   String _dispatchPaymentStatus = 'paid';
   String _salePaymentMethod = 'cash';
-  final String _salesFilterPaymentMethod = 'all';
-  DateTimeRange? _salesFilterRange;
-  String _dispatchFilterPaymentStatus = 'all';
-  DateTimeRange? _dispatchFilterRange;
-  String _dispatchFilterDepartment = 'all';
-  String _dispatchFilterStaffId = 'all';
   String _historyFilterType = 'all'; // 'all', 'Sale', 'Dispatch'
 
-  // Memoized: invalidate when _salesHistory/_dispatchHistory or filter params change
-  bool _filteredCachesDirty = true;
-  List<Map<String, dynamic>>? _cachedFilteredSalesHistory;
-  List<Map<String, dynamic>>? _cachedFilteredDispatchHistory;
   DateTimeRange? _historyFilterRange;
   String _historyFilterStaffId = 'all';
   bool _hasPerformedInitialLoad = false;
@@ -274,7 +259,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -390,7 +375,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -712,7 +697,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 8,
                           offset: const Offset(0, -2),
                         ),
@@ -973,7 +958,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       setState(() {
         _stockItems = List<Map<String, dynamic>>.from(stockResponse);
         _filteredItems = List<Map<String, dynamic>>.from(stockResponse);
-        _locations = List<Map<String, dynamic>>.from(locResponse);
         _departments = List<Map<String, dynamic>>.from(activeDepartments);
         _dispatchHistory = List<Map<String, dynamic>>.from(filteredDispatchHistory);
         _salesHistory = List<Map<String, dynamic>>.from(salesHistory);
@@ -981,7 +965,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _salesOffset = _historyPageSize;
         _dispatchHasMore = dispatchHistory.length >= _historyPageSize;
         _salesHasMore = salesHistory.length >= _historyPageSize;
-        _invalidateFilteredCaches();
         _bookings = List<Map<String, dynamic>>.from(checkedInBookings);
         _missingStockLinks = stockResponse
             .where((item) => item['stock_item_id'] == null)
@@ -1053,7 +1036,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _salesOffset += _historyPageSize;
         _dispatchHasMore = moreDispatch.length >= _historyPageSize;
         _salesHasMore = moreSales.length >= _historyPageSize;
-        _invalidateFilteredCaches();
       });
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _loadMoreHistory: $e\n$stackTrace');
@@ -1073,18 +1055,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final priceInKobo = _safePriceKobo(selected['price']);
     final priceInNaira = PaymentService.koboToNaira(priceInKobo);
     _dispatchUnitPriceController.text = priceInNaira.toStringAsFixed(2);
-  }
-
-  void _setSalePriceFromItem(String? itemId) {
-    if (itemId == null) return;
-    final selected = _stockItems.firstWhere(
-      (s) => s['id'] == itemId,
-      orElse: () => <String, dynamic>{},
-    );
-    if (selected.isEmpty) return;
-    final priceInKobo = _safePriceKobo(selected['price']);
-    final priceInNaira = PaymentService.koboToNaira(priceInKobo);
-    _saleUnitPriceController.text = priceInNaira.toStringAsFixed(2);
   }
 
   String _formatDepartmentName(String name) {
@@ -1339,6 +1309,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           bookingId: bookingId,
           guestName: guestName,
         );
+        if (!mounted) return;
         ErrorHandler.showLedgerConfirmedSnackBar(
           context,
           'Dispatch saved to ledger. Safe to close.',
@@ -1626,6 +1597,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     required String paymentMethod,
     String? bookingId,
   }) async {
+    final screenContext = context;
     String? guestName;
     if (bookingId != null) {
       final booking = _bookings.firstWhere(
@@ -1648,9 +1620,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
 
     await showDialog<void>(
-      context: context,
+      context: screenContext,
       barrierDismissible: true,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Kitchen Receipt'),
           content: SingleChildScrollView(
@@ -1717,14 +1689,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             TextButton(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: receiptText.toString()));
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(context, 'Receipt copied to clipboard');
-                }
+                if (!screenContext.mounted) return;
+                ErrorHandler.showSuccessMessage(screenContext, 'Receipt copied to clipboard');
               },
               child: const Text('Copy'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Close'),
             ),
           ],
@@ -1910,6 +1881,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           },
         );
         final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        if (!mounted) return;
         if (!fallbackOpened) {
           ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.', stackTrace: stackTrace);
         }
@@ -1928,6 +1900,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     String? bookingId,
     String? guestName,
   }) async {
+    final screenContext = context;
     final slipText = StringBuffer()
       ..writeln('P-ZED Homes Kitchen Dispatch Slip')
       ..writeln('Item: $itemName')
@@ -1942,9 +1915,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       ..writeln('Generated: ${DateFormat('MMM dd, yyyy HH:mm').format(DateTime.now())}');
 
     await showDialog<void>(
-      context: context,
+      context: screenContext,
       barrierDismissible: true,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Dispatch Slip'),
           content: SingleChildScrollView(
@@ -2019,14 +1992,13 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             TextButton(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: slipText.toString()));
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(context, 'Slip copied to clipboard');
-                }
+                if (!screenContext.mounted) return;
+                ErrorHandler.showSuccessMessage(screenContext, 'Slip copied to clipboard');
               },
               child: const Text('Copy'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Close'),
             ),
           ],
@@ -2232,6 +2204,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           },
         );
         final fallbackOpened = await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        if (!mounted) return;
         if (!fallbackOpened) {
           ErrorHandler.handleError(context, e, customMessage: 'Could not open email client. Please try again.', stackTrace: stackTrace);
         }
@@ -2321,7 +2294,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _addMenuCategory,
+                  initialValue: _addMenuCategory,
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: _kitchenCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                   onChanged: (v) => setDialogState(() => _addMenuCategory = v ?? 'Main Dishes'),
@@ -2414,109 +2387,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
       }
     }
-  }
-
-  String _formatDate(String dateString) {
-    try {
-      final date = DateTime.parse(dateString);
-      return '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    } catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG _formatDate: $e\n$stack');
-      return '';
-    }
-  }
-
-  void _invalidateFilteredCaches() {
-    _filteredCachesDirty = true;
-  }
-
-  void _computeFilteredCaches() {
-    final salesRange = _salesFilterRange;
-    _cachedFilteredSalesHistory = _salesHistory.where((sale) {
-      final createdAtRaw = sale['created_at']?.toString();
-      final method = sale['payment_method']?.toString() ?? '';
-      DateTime? createdAt;
-      if (createdAtRaw != null) {
-        try {
-          createdAt = DateTime.parse(createdAtRaw);
-        } catch (_) {}
-      }
-      final inRange = salesRange == null
-          ? true
-          : createdAt != null &&
-              !createdAt.isBefore(salesRange.start) &&
-              !createdAt.isAfter(
-                DateTime(salesRange.end.year, salesRange.end.month, salesRange.end.day, 23, 59, 59),
-              );
-      final methodOk = _salesFilterPaymentMethod == 'all'
-          ? true
-          : method == _salesFilterPaymentMethod;
-      return inRange && methodOk;
-    }).toList();
-    final dispatchRange = _dispatchFilterRange;
-    _cachedFilteredDispatchHistory = _dispatchHistory.where((transfer) {
-      final createdAtRaw = transfer['created_at']?.toString();
-      final status = transfer['payment_status']?.toString() ?? '';
-      final department = transfer['destination_department']?.toString() ?? '';
-      final staffId = transfer['dispatched_by_id']?.toString() ?? '';
-      DateTime? createdAt;
-      if (createdAtRaw != null) {
-        try {
-          createdAt = DateTime.parse(createdAtRaw);
-        } catch (_) {}
-      }
-      final inRange = dispatchRange == null
-          ? true
-          : createdAt != null &&
-              !createdAt.isBefore(dispatchRange.start) &&
-              !createdAt.isAfter(
-                DateTime(dispatchRange.end.year, dispatchRange.end.month, dispatchRange.end.day, 23, 59, 59),
-              );
-      final statusOk = _dispatchFilterPaymentStatus == 'all'
-          ? true
-          : status == _dispatchFilterPaymentStatus;
-      final departmentOk = _dispatchFilterDepartment == 'all'
-          ? true
-          : department == _dispatchFilterDepartment;
-      final staffOk = _dispatchFilterStaffId == 'all'
-          ? true
-          : staffId == _dispatchFilterStaffId;
-      return inRange && statusOk && departmentOk && staffOk;
-    }).toList();
-  }
-
-  List<Map<String, dynamic>> get _filteredSalesHistory {
-    if (_filteredCachesDirty) {
-      _filteredCachesDirty = false;
-      _computeFilteredCaches();
-    }
-    return _cachedFilteredSalesHistory!;
-  }
-
-  List<Map<String, dynamic>> get _filteredDispatchHistory {
-    if (_filteredCachesDirty) {
-      _filteredCachesDirty = false;
-      _computeFilteredCaches();
-    }
-    return _cachedFilteredDispatchHistory!;
-  }
-
-  List<DropdownMenuItem<String>> _uniqueDispatchStaffItems() {
-    final items = <DropdownMenuItem<String>>[];
-    final seen = <String>{};
-    for (final transfer in _dispatchHistory) {
-      final profile = _safeMap(transfer['dispatched_by_profile']);
-      final id = transfer['dispatched_by_id']?.toString();
-      if (id == null || seen.contains(id)) continue;
-      seen.add(id);
-      items.add(
-        DropdownMenuItem(
-          value: id,
-          child: Text(_safeStr(profile?['full_name']).isEmpty ? 'Staff' : _safeStr(profile?['full_name'])),
-        ),
-      );
-    }
-    return items;
   }
 
   /// Tab count: 3 for operational roles (Dispatch, Sales, History), 2 for Owner/Manager only (Menu, History).
@@ -2861,7 +2731,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -2969,19 +2839,18 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                                     priceChangeDetails,
                                                   );
                                                 }
-                                                if (mounted) {
-                                                  ErrorHandler.showSuccessMessage(context, 'Product updated.');
+                                                if (!context.mounted) return;
+                                                ErrorHandler.showSuccessMessage(context, 'Product updated.');
                                                   _loadStockAndLocations();
-                                                }
                                               } on PostgrestException catch (e) {
-                                                if (mounted) {
-                                                  final message = e.code == '42501'
-                                                      ? 'Permission Denied: Only Managers or Owners can change prices.'
-                                                      : null;
-                                                  ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
-                                                }
+                                                if (!context.mounted) return;
+                                                final message = e.code == '42501'
+                                                    ? 'Permission Denied: Only Managers or Owners can change prices.'
+                                                    : null;
+                                                ErrorHandler.handleError(context, e, customMessage: message, stackTrace: StackTrace.current);
                                               } catch (e, stackTrace) {
-                                                if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+                                                if (!context.mounted) return;
+                                                ErrorHandler.handleError(context, e, stackTrace: stackTrace);
                                               }
                                             },
                                           ),
@@ -3013,10 +2882,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                               department,
                                               'Deleted $itemName from the catalog.',
                                             );
-                                            if (mounted) {
-                                              ErrorHandler.showSuccessMessage(context, 'Product deleted.');
+                                            if (!context.mounted) return;
+                                            ErrorHandler.showSuccessMessage(context, 'Product deleted.');
                                               _loadStockAndLocations();
-                                            }
                                           },
                                         );
                                       }
@@ -3289,172 +3157,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
       return null;
     }
-  }
-
-  Widget _buildReadOnlyDispatchList() {
-    return Column(
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text(
-            'Recent Dispatches',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _dispatchFilterPaymentStatus,
-                      decoration: const InputDecoration(
-                        labelText: 'Payment Status',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('All')),
-                        DropdownMenuItem(value: 'paid', child: Text('Paid')),
-                        DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
-                      ],
-                      onChanged: (val) => setState(
-                        () {
-                          _dispatchFilterPaymentStatus = val ?? 'all';
-                          _invalidateFilteredCaches();
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final now = DateTime.now();
-                        final picked = await showDateRangePicker(
-                          context: context,
-                          firstDate: DateTime(now.year - 2),
-                          lastDate: DateTime(now.year + 1),
-                          initialDateRange: _dispatchFilterRange,
-                        );
-                        if (picked != null) {
-                          setState(() {
-                                                _dispatchFilterRange = picked;
-                                                _invalidateFilteredCaches();
-                                              });
-                        }
-                      },
-                      icon: const Icon(Icons.date_range),
-                      label: Text(
-                        _dispatchFilterRange == null
-                            ? 'Date range'
-                            : '${DateFormat('MMM dd').format(_dispatchFilterRange!.start)} - ${DateFormat('MMM dd').format(_dispatchFilterRange!.end)}',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _dispatchFilterDepartment,
-                      decoration: const InputDecoration(
-                        labelText: 'Destination Department',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(value: 'all', child: Text('All')),
-                        ..._departments.map((dept) => DropdownMenuItem(
-                              value: _safeStr(dept['name']),
-                              child: Text(_formatDepartmentName(_safeStr(dept['name']))),
-                            )),
-                      ],
-                      onChanged: (val) => setState(
-                        () {
-                          _dispatchFilterDepartment = val ?? 'all';
-                          _invalidateFilteredCaches();
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _dispatchFilterStaffId,
-                      decoration: const InputDecoration(
-                        labelText: 'Dispatched By',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(value: 'all', child: Text('All')),
-                        ..._uniqueDispatchStaffItems(),
-                      ],
-                      onChanged: (val) => setState(
-                        () {
-                          _dispatchFilterStaffId = val ?? 'all';
-                          _invalidateFilteredCaches();
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_dispatchFilterRange != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => setState(() {
-                                          _dispatchFilterRange = null;
-                                          _invalidateFilteredCaches();
-                                        }),
-                    child: const Text('Clear date filter'),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _filteredDispatchHistory.isEmpty
-              ? ErrorHandler.buildEmptyWidget(
-                  context,
-                  message: 'No recent dispatches',
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  itemCount: _filteredDispatchHistory.length,
-                  itemBuilder: (context, index) {
-                    final transfer = _filteredDispatchHistory[index];
-                    final menuItem = _safeMap(transfer['menu_items']);
-                    final itemName = menuItem?['name'] ?? 'Unknown Item';
-                    final destination = transfer['destination_department']?.toString() ?? 'Unknown';
-                    final booking = _safeMap(transfer['bookings']);
-                    final bookingGuest = _safeStr(booking?['guest_name']);
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      child: ListTile(
-                        leading: const Icon(Icons.send, color: Colors.orange),
-                        title: Text('To: ${_formatDepartmentName(destination)}'),
-                        subtitle: Text(
-                          '$itemName • Qty: ${transfer['quantity'] ?? 0} • Status: ${transfer['status'] ?? 'Unknown'}'
-                          ' • Pay: ${transfer['payment_status'] ?? 'paid'}'
-                          '${' • $bookingGuest'}',
-                        ),
-                        trailing: Text(
-                          transfer['created_at'] != null
-                              ? _formatDate(_safeStr(transfer['created_at']))
-                              : '',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                );
-              },
-            ),
-          ),
-            ],
-    );
   }
 }
 

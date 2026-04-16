@@ -209,6 +209,15 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
     }
   }
 
+  Future<void> _copyPaymentReferenceToClipboard() async {
+    if (_result == null) return;
+    final ref = _result!['payment_reference']?.toString() ?? '';
+    if (ref.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: ref));
+    if (!mounted) return;
+    ErrorHandler.showSuccessMessage(context, 'Payment reference copied');
+  }
+
   @override
   Widget build(BuildContext context) {
     final formatter = DateFormat('MMM dd, yyyy');
@@ -320,13 +329,7 @@ class _GuestBookingLookupScreenState extends State<GuestBookingLookupScreen> {
                         child: TextButton(
                           onPressed: _result!['payment_reference'] == null
                               ? null
-                              : () async {
-                                  final ref = _result!['payment_reference']?.toString() ?? '';
-                                  await Clipboard.setData(ClipboardData(text: ref));
-                                  if (mounted) {
-                                    ErrorHandler.showSuccessMessage(context, 'Payment reference copied');
-                                  }
-                                },
+                              : _copyPaymentReferenceToClipboard,
                           child: const Text('Copy reference'),
                         ),
                       ),

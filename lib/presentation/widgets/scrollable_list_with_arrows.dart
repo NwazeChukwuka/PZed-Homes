@@ -91,7 +91,7 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
   @override
   Widget build(BuildContext context) {
     final arrowColor = widget.arrowColor ?? Colors.grey[700]!;
-    final arrowBgColor = widget.arrowBackgroundColor ?? Colors.white.withOpacity(0.9);
+    final arrowBgColor = widget.arrowBackgroundColor ?? Colors.white.withValues(alpha: 0.9);
 
     return Stack(
       children: [
@@ -130,7 +130,7 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
                         height: widget.arrowSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                          border: Border.all(color: arrowColor.withValues(alpha: 0.3), width: 1),
                         ),
                         child: Icon(Icons.keyboard_arrow_up, color: arrowColor, size: widget.arrowSize * 0.6),
                       ),
@@ -158,7 +158,7 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
                         height: widget.arrowSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                          border: Border.all(color: arrowColor.withValues(alpha: 0.3), width: 1),
                         ),
                         child: Icon(Icons.keyboard_arrow_down, color: arrowColor, size: widget.arrowSize * 0.6),
                       ),
@@ -307,7 +307,7 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
   @override
   Widget build(BuildContext context) {
     final arrowColor = widget.arrowColor ?? Colors.grey[700]!;
-    final arrowBgColor = widget.arrowBackgroundColor ?? Colors.white.withOpacity(0.9);
+    final arrowBgColor = widget.arrowBackgroundColor ?? Colors.white.withValues(alpha: 0.9);
 
     return Stack(
       children: [
@@ -343,7 +343,7 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
                         height: widget.arrowSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                          border: Border.all(color: arrowColor.withValues(alpha: 0.3), width: 1),
                         ),
                         child: Icon(Icons.keyboard_arrow_up, color: arrowColor, size: widget.arrowSize * 0.6),
                       ),
@@ -371,7 +371,7 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
                         height: widget.arrowSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: arrowColor.withOpacity(0.3), width: 1),
+                          border: Border.all(color: arrowColor.withValues(alpha: 0.3), width: 1),
                         ),
                         child: Icon(Icons.keyboard_arrow_down, color: arrowColor, size: widget.arrowSize * 0.6),
                       ),

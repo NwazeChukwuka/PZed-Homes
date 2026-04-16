@@ -1,8 +1,6 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
-// Supabase removed for mock-only mode
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -32,9 +30,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   late TabController _tabController;
 
   Future<List<Map<String, dynamic>>>? _inventoryFuture;
-  bool _isLoading = true;
 
-  // Infinite scroll state for Stock Movements (performance: load pages of 30, avoid full dataset)
   static const int _transactionsPageSize = 30;
   List<Map<String, dynamic>> _allTransactions = [];
   bool _transactionsHasMore = true;
@@ -42,8 +38,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   int _transactionsOffset = 0;
   final ScrollController _transactionsScrollController = ScrollController();
   final ScrollController _currentSaleScrollController = ScrollController();
-  
-  // Controllers for add item dialog
+
   final _nameController = TextEditingController();
   final _quantityController = TextEditingController();
   final _vipPriceController = TextEditingController();
@@ -54,16 +49,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   static const _inventoryUnits = ['bottles', 'cans', 'packs', 'pieces', 'kg', 'units'];
   static const _inventoryCategories = ['Alcoholic Drinks', 'Soft Drinks', 'Snacks', 'Other'];
 
-  // Bar selection for management
   String? _selectedBar;
   String? _selectedBarForSales;
 
-  // Sales state variables
   final List<Map<String, dynamic>> _currentSale = [];
   double _saleTotal = 0.0;
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
-  final _approvedByController = TextEditingController(); // For credit sales
+  final _approvedByController = TextEditingController();
   String _paymentMethod = 'cash';
   bool _isProcessingSale = false;
   String? _saleLedgerSessionId;
@@ -83,25 +76,15 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   @override
   void initState() {
     super.initState();
-    // #region agent log
-    debugLog({"location":"inventory_screen.dart:61","message":"Inventory screen initState","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"L"});
-    // #endregion
     _updateTabController();
     _loadInventory();
     _loadTransactions();
     _searchController.addListener(_onSearchChanged);
-    // Infinite scroll: load next page when user scrolls near bottom
     _transactionsScrollController.addListener(_onTransactionsScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authService = Provider.of<AuthService>(context, listen: false);
       final user = authService.currentUser;
-      // #region agent log
-      debugLog({"location":"inventory_screen.dart:68","message":"PostFrameCallback - role check","data":{"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"M"});
-      // #endregion
       final userDepartment = _bartenderDepartment(authService, user);
-      // #region agent log
-      debugLog({"location":"inventory_screen.dart:69","message":"Department detection result","data":{"userDepartment":userDepartment,"selectedBar":_selectedBar},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"N"});
-      // #endregion
       if (userDepartment != null && _selectedBar == null) {
         setState(() {
           _selectedBar = userDepartment;
@@ -152,9 +135,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
     final isBartender = _hasBartenderRole(authService, user);
-    // #region agent log
-    debugLog({"location":"inventory_screen.dart:96","message":"Tab controller update","data":{"isBartender":isBartender,"userId":user?.id,"roles":user?.roles.map((r)=>r.name).toList(),"isRoleAssumed":authService.isRoleAssumed,"assumedRole":authService.assumedRole?.name,"tabCount":isBartender?3:2},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"O"});
-    // #endregion
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
     // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
     final initialIndex = isBartender ? 2 : 0;
@@ -186,33 +166,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   Future<void> _loadInventory() async {
-    // #region agent log
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final user = authService.currentUser;
-    debugLog({
-      'location': 'inventory_screen.dart:132',
-      'message': 'Loading inventory',
-      'data': {
-        'userId': user?.id,
-        'userRoles': user?.roles.map((r) => r.name).toList(),
-        'activeAssumedRoles': authService.activeAssumedRoles.map((r) => r.name).toList()
-      },
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'sessionId': 'debug-session',
-      'runId': 'run1',
-      'hypothesisId': 'X'
-    });
-    // if (kDebugMode) debugPrint('DEBUG InventoryScreen: Starting _loadInventory');
-    // #endregion
-    setState(() {
-      _isLoading = true;
-    });
-
     try {
-      // #region agent log
-      debugLog({"location":"inventory_screen.dart:139","message":"Calling getInventoryItems","data":{},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Y"});
-      // #endregion
-      // Run independent fetches in parallel (Phase 1: no sequential await)
       final results = await Future.wait([
         _dataService.getInventoryItems(),
         _dataService.getStockLevels(),
@@ -221,9 +175,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final inventory = results[0];
       final stockLevels = results[1];
       final stockItems = results[2];
-      // #region agent log
-      debugLog({"location":"inventory_screen.dart:141","message":"getInventoryItems success","data":{"count":inventory.length},"timestamp":DateTime.now().millisecondsSinceEpoch,"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"});
-      // #endregion
       _stockByLocation.clear();
       for (final row in stockLevels) {
         final location = (row['location_name'] as String?)?.toLowerCase();
@@ -246,13 +197,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       setState(() {
         _inventoryFuture = Future.value(inventory);
         _missingStockItems = missing;
-        _isLoading = false;
       });
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _loadInventory: $e\n$stackTrace');
-      setState(() {
-        _isLoading = false;
-      });
       if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
     }
   }
@@ -397,7 +344,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   color: Colors.white,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 2,
                       offset: const Offset(0, 1),
                     ),
@@ -849,19 +796,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }
   }
 
-  Color _getCategoryColor(String? category) {
-    switch (category?.toLowerCase()) {
-      case 'alcoholic drinks':
-        return Colors.blue[400]!;
-      case 'soft drinks':
-        return Colors.green[400]!;
-      case 'snacks':
-        return Colors.orange[400]!;
-      default:
-        return Colors.grey[400]!;
-    }
-  }
-
   Widget _buildStockMovementsTab() {
     final authService = Provider.of<AuthService>(context, listen: false);
     final isManagement = authService.currentUser?.roles
@@ -889,17 +823,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           showStaffName: isManagement,
         );
       },
-    );
-  }
-
-  Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final isManagement = authService.currentUser?.roles
-            .any((r) => r == AppRole.owner || r == AppRole.manager) ??
-        false;
-    return _InventoryTransactionItem(
-      transaction: transaction,
-      showStaffName: isManagement,
     );
   }
 
@@ -1122,7 +1045,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 8,
                           offset: const Offset(0, -2),
                         ),
@@ -1777,9 +1700,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final supabase = _dataService.supabase;
       final user = authService.currentUser;
       final isBartender = _hasBartenderRole(authService, user);
-      final isManagement = user?.roles.any((role) =>
-              role == AppRole.owner || role == AppRole.manager) ??
-          false;
       final barKey = _selectedBar ?? _selectedBarForSales ?? _bartenderDepartment(authService, user);
       if (isBartender && barKey == null) {
         throw Exception('Select a bar before making sales.');
@@ -2029,14 +1949,14 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _addItemUnit,
+                  initialValue: _addItemUnit,
                   decoration: const InputDecoration(labelText: 'Unit'),
                   items: _inventoryUnits.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
                   onChanged: (v) => setDialogState(() => _addItemUnit = v ?? 'bottles'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _addItemCategory,
+                  initialValue: _addItemCategory,
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: _inventoryCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                   onChanged: (v) => setDialogState(() => _addItemCategory = v ?? 'Alcoholic Drinks'),
@@ -2352,7 +2272,7 @@ class _InventoryTransactionItem extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           child: Icon(icon, color: color, size: 20),
         ),
         title: Text(itemName, style: const TextStyle(fontWeight: FontWeight.w500)),

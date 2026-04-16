@@ -73,7 +73,6 @@ class _LoginScreenState extends State<LoginScreen> {
             duration: const Duration(seconds: 4),
           );
           
-          // Switch to login mode
           setState(() {
             _isSigningUp = false;
             _passwordController.clear();
@@ -81,7 +80,6 @@ class _LoginScreenState extends State<LoginScreen> {
           });
         }
       } else {
-        // Login attempt
         errorMessage = await authService.login(
           email: _emailController.text.trim(),
           password: _passwordController.text,
@@ -89,14 +87,13 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         
         if (mounted && errorMessage == null) {
-          // Wait a moment for state to update after login completes
           await Future.delayed(const Duration(milliseconds: 200));
           
-          // Login successful - user data is already loaded
           final user = authService.currentUser;
           
           if (user == null) {
             await authService.logout();
+            if (!mounted) return;
             ErrorHandler.handleError(
               context,
               Exception('User data not loaded'),
@@ -105,18 +102,14 @@ class _LoginScreenState extends State<LoginScreen> {
             return;
           }
           
-          // Check if user has staff access
           final isStaff = user.roles.any((role) => role != AppRole.guest);
           
           if (isStaff) {
-            // Staff access granted
             _clearForm();
             
-            // Navigate to dashboard
             if (mounted) {
               context.go('/dashboard');
               
-              // Show success message after navigation
               Future.microtask(() {
                 if (mounted) {
                   ErrorHandler.showSuccessMessage(
@@ -128,7 +121,6 @@ class _LoginScreenState extends State<LoginScreen> {
               });
             }
           } else {
-            // Guest users denied access
             await authService.logout();
             if (mounted) {
               ErrorHandler.handleError(
@@ -141,7 +133,6 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
       
-      // Handle error message
       if (mounted && errorMessage != null) {
         ErrorHandler.handleError(
           context,

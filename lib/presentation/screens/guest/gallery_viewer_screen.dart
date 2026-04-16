@@ -46,7 +46,7 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
     _disposeVideoPlayer();
     
     _videoPlayerController = item.url.startsWith('http')
-        ? VideoPlayerController.network(item.url)
+        ? VideoPlayerController.networkUrl(Uri.parse(item.url))
         : VideoPlayerController.asset(item.url);
         
     await _videoPlayerController?.initialize();
@@ -208,7 +208,7 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
                       shape: BoxShape.circle,
                       color: _currentIndex == index 
                           ? Colors.white 
-                          : Colors.white.withOpacity(0.5),
+                          : Colors.white.withValues(alpha: 0.5),
                     ),
                   ),
                 ),
@@ -221,7 +221,6 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
   }
 
   void _onPageChanged(int index) {
-    // Pause/dispose video when navigating away to avoid background CPU use
     _disposeVideoPlayer();
     setState(() {
       _currentIndex = index;

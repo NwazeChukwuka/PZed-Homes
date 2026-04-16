@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
-import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 
 class StockCountApprovalScreen extends StatefulWidget {
@@ -15,7 +14,6 @@ class StockCountApprovalScreen extends StatefulWidget {
 }
 
 class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
-  final DataService _dataService = DataService();
   SupabaseClient get _supabase {
     try {
       return Supabase.instance.client;

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -108,18 +108,6 @@ void _showLogoutDialog(BuildContext context) {
 
 String _userInitial(String name) =>
     name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
-
-void _assumeSpecificRole(BuildContext context, AppRole role) {
-  final authService = Provider.of<AuthService>(context, listen: false);
-  authService.assumeRole(role);
-  if (context.mounted) {
-    ErrorHandler.showInfoMessage(
-      context,
-      'Now assuming ${AuthService.getRoleDisplayName(role)} role',
-      duration: const Duration(seconds: 2),
-    );
-  }
-}
 
 class MainScreen extends StatelessWidget {
   final Widget child;
@@ -256,12 +244,9 @@ class _MainScreenTablet extends StatelessWidget {
 }
 
 class _MainScreenDesktop extends StatelessWidget {
-  final String? routePath;
   final Widget child;
 
-  const _MainScreenDesktop({this.routePath, required this.child});
-
-  bool get _isReporting => routePath != null && routePath!.startsWith('/reporting');
+  const _MainScreenDesktop({required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -273,11 +258,7 @@ class _MainScreenDesktop extends StatelessWidget {
             child: Column(
               children: [
                 _DesktopAppBar(),
-                Expanded(
-                  child: _isReporting
-                      ? Container(color: Colors.white, child: child)
-                      : child,
-                ),
+                Expanded(child: child),
               ],
             ),
           ),
@@ -288,12 +269,9 @@ class _MainScreenDesktop extends StatelessWidget {
 }
 
 class _MainScreenLargeDesktop extends StatelessWidget {
-  final String? routePath;
   final Widget child;
 
-  const _MainScreenLargeDesktop({this.routePath, required this.child});
-
-  bool get _isReporting => routePath != null && routePath!.startsWith('/reporting');
+  const _MainScreenLargeDesktop({required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -305,11 +283,7 @@ class _MainScreenLargeDesktop extends StatelessWidget {
             child: Column(
               children: [
                 _LargeDesktopAppBar(),
-                Expanded(
-                  child: _isReporting
-                      ? Container(color: Colors.white, child: child)
-                      : child,
-                ),
+                Expanded(child: child),
               ],
             ),
           ),
@@ -328,7 +302,7 @@ class _DesktopSidebar extends StatelessWidget {
         color: Colors.green[800],
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(2, 0),
           ),
@@ -488,7 +462,7 @@ class _DesktopAppBar extends StatelessWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -600,7 +574,7 @@ void _showAssumeRoleSheet(BuildContext context) {
                                 ErrorHandler.showInfoMessage(context, 'Dropped ${AuthService.getRoleDisplayName(role)}');
                               }
                             },
-                            backgroundColor: base.withOpacity(0.2),
+                            backgroundColor: base.withValues(alpha: 0.2),
                           );
                         }).toList(),
                       ),
@@ -644,18 +618,18 @@ void _showAssumeRoleSheet(BuildContext context) {
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
                                 gradient: LinearGradient(
-                                  colors: [base.withOpacity(0.15), base.withOpacity(0.35)],
+                                  colors: [base.withValues(alpha: 0.15), base.withValues(alpha: 0.35)],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
-                                border: Border.all(color: selected ? base : base.withOpacity(0.3), width: selected ? 2 : 1),
+                                border: Border.all(color: selected ? base : base.withValues(alpha: 0.3), width: selected ? 2 : 1),
                               ),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   CircleAvatar(
                                     radius: 22,
-                                    backgroundColor: base.withOpacity(0.2),
+                                    backgroundColor: base.withValues(alpha: 0.2),
                                     child: Icon(r['icon'] as IconData, color: base),
                                   ),
                                   const SizedBox(height: 10),
@@ -700,7 +674,6 @@ class _AssumeRoleButtonContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeCount = context.select<AuthService, int>((a) => a.activeAssumedRoles.length);
-    final authService = Provider.of<AuthService>(context, listen: false);
     final hasRoles = activeCount > 0;
     return Badge(
       isLabelVisible: hasRoles,
@@ -1001,7 +974,7 @@ class _LargeDesktopSidebar extends StatelessWidget {
         color: Colors.green[800],
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 8,
             offset: const Offset(2, 0),
           ),
@@ -1127,7 +1100,7 @@ class _LargeDesktopAppBar extends StatelessWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

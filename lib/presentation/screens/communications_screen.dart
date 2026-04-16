@@ -109,7 +109,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Create Announcement'),
           content: SingleChildScrollView(
@@ -166,7 +166,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
               onPressed: () {
                 _titleController.clear();
                 _contentController.clear();
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
             ),
             ElevatedButton(
@@ -191,7 +191,6 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     throw Exception('User not authenticated');
                   }
 
-                  // Get user profile ID
                   final profileResponse = await _requireSupabase()
                       .from('profiles')
                       .select('id')
@@ -203,7 +202,6 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                     throw Exception('User profile not found');
                   }
 
-                  // Create post in database
                   await _dataService.createPost({
                     'author_profile_id': profileId,
                     'title': _titleController.text.trim(),
@@ -218,25 +216,23 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                   _contentController.clear();
                   _selectedRecipientId = null;
                   
-                  if (mounted) {
-                    Navigator.of(context).pop();
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      'Announcement posted successfully!',
-                    );
-                    // Reload posts
-                    await _loadPosts();
-                  }
+                  if (!dialogContext.mounted) return;
+                  Navigator.of(dialogContext).pop();
+                  if (!mounted) return;
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Announcement posted successfully!',
+                  );
+                  await _loadPosts();
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG post announcement: $e\n$stackTrace');
-                  if (mounted) {
-                    ErrorHandler.handleError(
-                      context,
-                      e,
-                      customMessage: 'Failed to post announcement. Please try again.',
-                      stackTrace: stackTrace,
-                    );
-                  }
+                  if (!mounted) return;
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to post announcement. Please try again.',
+                    stackTrace: stackTrace,
+                  );
                 }
               },
             ),

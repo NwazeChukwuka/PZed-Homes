@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
@@ -35,7 +35,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   bool _budgetExceeded = false;
   bool _budgetSet = false;
   List<Map<String, dynamic>> _purchaseHistory = [];
-  List<Map<String, dynamic>> _pendingOrders = [];
   bool _isLoading = true;
   bool _recordPurchaseLoading = false;
   List<Map<String, dynamic>> _suppliers = [];
@@ -126,8 +125,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           'purchase_date': order['created_at'] ?? DateTime.now().toIso8601String(),
         };
       }).toList();
-      
-      _pendingOrders = orders.where((o) => o['status'] == 'Pending').toList();
 
       if (mounted) {
         setState(() {
@@ -321,16 +318,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
-    final user = authService.currentUser;
-    final isPurchaser = (user?.roles.any((r) => r.name == 'purchaser') ?? false);
-    final isAssumedPurchaser = authService.hasAssumedRole(AppRole.purchaser);
-    final canRecord = isPurchaser || isAssumedPurchaser;
-    
-    // Owner/Manager can only access Record Purchase if they assume purchaser role
-    final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
-    final showRecordPurchase = canRecord && !(isOwnerOrManager && !isAssumedPurchaser);
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: Consumer<AuthService>(
@@ -446,7 +433,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -486,7 +473,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -706,7 +693,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
@@ -844,9 +831,9 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -890,7 +877,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),

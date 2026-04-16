@@ -9,7 +9,6 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
-import 'package:pzed_homes/core/config/app_config.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,7 +25,6 @@ class _HrScreenState extends State<HrScreen>
   final DataService _dataService = DataService();
   final DateFormat _dateFormat = DateFormat('MMM dd, yyyy');
 
-  // State
   List<Map<String, dynamic>> _allStaff = [];
   List<Map<String, dynamic>> _filteredStaff = [];
   DateTime _selectedDate = DateTime.now();
@@ -86,12 +84,6 @@ class _HrScreenState extends State<HrScreen>
     return '$prefix$suffix';
   }
 
-  /// Get the password reset URL for the app
-  /// Uses centralized configuration from AppConfig
-  String _getPasswordResetUrl() {
-    return AppConfig.passwordResetUrl;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -143,7 +135,7 @@ class _HrScreenState extends State<HrScreen>
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -634,7 +626,7 @@ class _HrScreenState extends State<HrScreen>
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -705,14 +697,10 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // ---------- Dialogs / Actions ----------
   Future<void> _showPromoteDemoteDialog(
     Map<String, dynamic> user, {
     required bool isPromote,
   }) async {
-    final roles = (user['roles'] as List<dynamic>? ?? [])
-        .map((e) => e.toString())
-        .toList();
     final available = AppRole.values
         .where((r) => r != AppRole.owner && r != AppRole.guest)
         .toList();
@@ -720,8 +708,8 @@ class _HrScreenState extends State<HrScreen>
     String? selectedBar;
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
           title: Text(isPromote ? 'Promote Staff' : 'Demote Staff'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -756,7 +744,7 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -764,7 +752,7 @@ class _HrScreenState extends State<HrScreen>
                 if (selected == null) return;
                 if (selected == AppRole.bartender && selectedBar == null) {
                   ErrorHandler.showWarningMessage(
-                    context,
+                    dialogContext,
                     'Please select a bar for the bartender role',
                   );
                   return;
@@ -779,15 +767,14 @@ class _HrScreenState extends State<HrScreen>
                   roleToAssign.name,
                   isTemporary: false,
                 );
-                if (!mounted) return;
-                Navigator.pop(context);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
                 _loadStaff();
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Updated role to ${roleToAssign.name} for ${user['full_name']}',
-                  );
-                }
+                if (!mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Updated role to ${roleToAssign.name} for ${user['full_name']}',
+                );
               },
               child: Text(isPromote ? 'Promote' : 'Demote'),
             ),
@@ -806,8 +793,8 @@ class _HrScreenState extends State<HrScreen>
 
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setState) => AlertDialog(
           title: const Text('Assign Role to Staff'),
           content: SingleChildScrollView(
             child: Column(
@@ -891,7 +878,7 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -899,7 +886,7 @@ class _HrScreenState extends State<HrScreen>
                 if (staffId != null && selectedRole != null) {
                   if (selectedRole == AppRole.bartender && selectedBar == null) {
                     ErrorHandler.showWarningMessage(
-                      context,
+                      dialogContext,
                       'Please select a bar for the bartender role',
                     );
                     return;
@@ -915,15 +902,14 @@ class _HrScreenState extends State<HrScreen>
                     isTemporary: isTemporary,
                     expiryDate: expiry,
                   );
-                  if (!mounted) return;
-                  Navigator.pop(context);
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
                   _loadStaff();
-                  if (mounted) {
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      'Role assigned successfully',
-                    );
-                  }
+                  if (!mounted) return;
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Role assigned successfully',
+                  );
                 }
               },
               child: const Text('Assign'),
@@ -940,8 +926,8 @@ class _HrScreenState extends State<HrScreen>
 
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
           title: const Text('Transfer Staff'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -977,7 +963,7 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -985,7 +971,7 @@ class _HrScreenState extends State<HrScreen>
                 if (selectedRole == null) return;
                 if (selectedRole == AppRole.bartender && selectedBar == null) {
                   ErrorHandler.showWarningMessage(
-                    context,
+                    dialogContext,
                     'Please select a bar for the bartender role',
                   );
                   return;
@@ -1000,15 +986,14 @@ class _HrScreenState extends State<HrScreen>
                   roleToAssign.name,
                   isTemporary: false,
                 );
-                if (!mounted) return;
-                Navigator.pop(context);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
                 _loadStaff();
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(
-                    context,
-                    'Transferred ${user['full_name']} to ${roleToAssign.name}',
-                  );
-                }
+                if (!mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Transferred ${user['full_name']} to ${roleToAssign.name}',
+                );
               },
               child: const Text('Transfer'),
             ),
@@ -1023,7 +1008,7 @@ class _HrScreenState extends State<HrScreen>
     final benefitsController = TextEditingController();
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Create New Position'),
         content: SingleChildScrollView(
           child: Column(
@@ -1045,7 +1030,7 @@ class _HrScreenState extends State<HrScreen>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
@@ -1055,9 +1040,9 @@ class _HrScreenState extends State<HrScreen>
               final benefits = InputSanitizer.sanitizeDescription(benefitsController.text.trim());
               
               if (positionName.isEmpty) {
-                if (mounted) {
+                if (dialogContext.mounted) {
                   ErrorHandler.showWarningMessage(
-                    context,
+                    dialogContext,
                     'Please enter a position name',
                   );
                 }
@@ -1075,22 +1060,21 @@ class _HrScreenState extends State<HrScreen>
                   'created_by': createdBy,
                 });
                 
-                Navigator.pop(context);
-                if (mounted) {
-                  ErrorHandler.showSuccessMessage(context, 'Position created successfully!');
-                  // Reload positions if needed
-                  setState(() {});
-                }
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ErrorHandler.showSuccessMessage(context, 'Position created successfully!');
+                // Reload positions if needed
+                setState(() {});
               } catch (e, stackTrace) {
                 if (kDebugMode) debugPrint('DEBUG create position: $e\n$stackTrace');
-                if (mounted) {
-                  ErrorHandler.handleError(
-                    context,
-                    e,
-                    customMessage: 'Failed to create position. Please try again.',
-                    stackTrace: stackTrace,
-                  );
-                }
+                if (!mounted) return;
+                ErrorHandler.handleError(
+                  context,
+                  e,
+                  customMessage: 'Failed to create position. Please try again.',
+                  stackTrace: stackTrace,
+                );
               }
             },
             child: const Text('Create'),
@@ -1598,8 +1582,8 @@ class _HrScreenState extends State<HrScreen>
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
           title: Row(
             children: [
               Icon(Icons.pause_circle, color: Colors.orange[700]),
@@ -1638,7 +1622,7 @@ class _HrScreenState extends State<HrScreen>
                       child: OutlinedButton.icon(
                         onPressed: () async {
                           final picked = await showDatePicker(
-                            context: context,
+                            context: dialogContext,
                             initialDate: DateTime.now().add(
                               const Duration(days: 7),
                             ),
@@ -1693,24 +1677,24 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () async {
                 if (reasonController.text.isEmpty) {
-                  if (mounted) {
+                  if (dialogContext.mounted) {
                     ErrorHandler.showWarningMessage(
-                      context,
+                      dialogContext,
                       'Please provide a reason for suspension',
                     );
                   }
                   return;
                 }
                 if (suspensionEndDate == null) {
-                  if (mounted) {
+                  if (dialogContext.mounted) {
                     ErrorHandler.showWarningMessage(
-                      context,
+                      dialogContext,
                       'Please select suspension end date',
                     );
                   }
@@ -1727,25 +1711,25 @@ class _HrScreenState extends State<HrScreen>
                   // Optionally: Store suspension end date (would require schema update)
                   // For now, status change is sufficient
                   
-                  Navigator.pop(context);
-                  if (mounted) {
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
-                    );
-                    _loadStaff();
-                  }
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  if (!mounted) return;
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been suspended until ${DateFormat('MMM dd, yyyy').format(suspensionEndDate!)}',
+                  );
+                  _loadStaff();
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG suspend staff: $e\n$stackTrace');
-                  Navigator.pop(context);
-                  if (mounted) {
-                    ErrorHandler.handleError(
-                      context,
-                      e,
-                      customMessage: 'Failed to suspend staff. Please try again.',
-                      stackTrace: stackTrace,
-                    );
-                  }
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  if (!mounted) return;
+                  ErrorHandler.handleError(
+                    context,
+                    e,
+                    customMessage: 'Failed to suspend staff. Please try again.',
+                    stackTrace: stackTrace,
+                  );
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -1768,8 +1752,8 @@ class _HrScreenState extends State<HrScreen>
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
           title: Row(
             children: [
               Icon(Icons.person_remove, color: Colors.red[700]),
@@ -1868,7 +1852,7 @@ class _HrScreenState extends State<HrScreen>
           ),
           actions: [
             TextButton(
-              onPressed: isTerminating ? null : () => Navigator.pop(context),
+              onPressed: isTerminating ? null : () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -1882,28 +1866,28 @@ class _HrScreenState extends State<HrScreen>
                           'Terminated',
                         );
                         
-                        Navigator.pop(context);
-                        if (mounted) {
-                          ErrorHandler.showSuccessMessage(
-                            context,
-                            '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
-                          );
-                          _loadStaff();
-                        }
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        if (!mounted) return;
+                        ErrorHandler.showSuccessMessage(
+                          context,
+                          '${staff['full_name'] ?? staff['name'] ?? 'Staff'} has been terminated',
+                        );
+                        _loadStaff();
                       } catch (e, stackTrace) {
                         if (kDebugMode) debugPrint('DEBUG terminate staff: $e\n$stackTrace');
-                        if (mounted) {
+                        if (dialogContext.mounted) {
                           setDialogState(() => isTerminating = false);
                         }
-                        Navigator.pop(context);
-                        if (mounted) {
-                          ErrorHandler.handleError(
-                            context,
-                            e,
-                            customMessage: 'Failed to terminate staff. Please try again.',
-                            stackTrace: stackTrace,
-                          );
-                        }
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        if (!mounted) return;
+                        ErrorHandler.handleError(
+                          context,
+                          e,
+                          customMessage: 'Failed to terminate staff. Please try again.',
+                          stackTrace: stackTrace,
+                        );
                       }
                     }
                   : null,
@@ -1943,7 +1927,6 @@ class _HrScreenState extends State<HrScreen>
 
   // Hire New Staff Dialog (Owner and Manager Only)
   void _showHireNewStaffDialog() {
-    final parentContext = context;
     final fullNameController = TextEditingController();
     final emailController = TextEditingController();
     final phoneController = TextEditingController();
@@ -2136,7 +2119,8 @@ class _HrScreenState extends State<HrScreen>
                       ),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: selectedGuest?['id']?.toString(),
+                        key: ValueKey<String?>(selectedGuest?['id']?.toString()),
+                        initialValue: selectedGuest?['id']?.toString(),
                         decoration: const InputDecoration(
                           labelText: 'Select guest *',
                           border: OutlineInputBorder(),
@@ -2276,7 +2260,8 @@ class _HrScreenState extends State<HrScreen>
                   ],
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: selectedRole,
+                    key: ValueKey<String?>(selectedRole),
+                    initialValue: selectedRole,
                     decoration: const InputDecoration(
                       labelText: 'Assign Role *',
                       border: OutlineInputBorder(),
@@ -2347,7 +2332,8 @@ class _HrScreenState extends State<HrScreen>
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String?>(
-                    value: selectedDepartment,
+                    key: ValueKey<String?>(selectedDepartment),
+                    initialValue: selectedDepartment,
                     decoration: const InputDecoration(
                       labelText: 'Department (optional)',
                       border: OutlineInputBorder(),
@@ -2487,9 +2473,10 @@ class _HrScreenState extends State<HrScreen>
                 );
                 if (confirmed != true) return;
 
+                if (!mounted) return;
                 setDialogState(() => isLoading = true);
                 try {
-                  final authService = Provider.of<AuthService>(parentContext, listen: false);
+                  final authService = Provider.of<AuthService>(context, listen: false);
                   final currentUser = authService.currentUser;
 
                   if (currentUser?.role != AppRole.owner &&
@@ -2534,9 +2521,9 @@ class _HrScreenState extends State<HrScreen>
                     disposeHireControllers();
                     if (dialogCtx2.mounted) Navigator.pop(dialogCtx2);
 
-                    if (parentContext.mounted) {
-                      showDialog<void>(
-                        context: parentContext,
+                    if (!mounted) return;
+                    showDialog<void>(
+                        context: context,
                         builder: (ctx) => AlertDialog(
                           title: Row(
                             children: [
@@ -2560,8 +2547,7 @@ class _HrScreenState extends State<HrScreen>
                           ],
                         ),
                       );
-                      _loadStaff();
-                    }
+                    _loadStaff();
                     return;
                   }
 
@@ -2654,9 +2640,9 @@ class _HrScreenState extends State<HrScreen>
                         await supabase.auth.setSession(currentUserRefreshToken);
                       } catch (e, stack) {
                         if (kDebugMode) debugPrint('DEBUG session restore: $e\n$stack');
-                        if (parentContext.mounted) {
+                        if (mounted) {
                           ErrorHandler.showWarningMessage(
-                            parentContext,
+                            context,
                             'Please log in again to continue. Your session was reset during staff creation.',
                           );
                         }
@@ -2666,12 +2652,13 @@ class _HrScreenState extends State<HrScreen>
 
                   disposeHireControllers();
 
-                  if (parentContext.mounted) {
-                    Navigator.pop(dialogCtx2);
-                    showDialog(
-                      context: parentContext,
+                  if (!dialogCtx2.mounted) return;
+                  Navigator.pop(dialogCtx2);
+                  if (!mounted) return;
+                  showDialog(
+                      context: context,
                       barrierDismissible: false,
-                      builder: (context) => AlertDialog(
+                      builder: (successCtx) => AlertDialog(
                         title: Row(
                           children: [
                             Icon(Icons.check_circle, color: Colors.green[700], size: 28),
@@ -2760,21 +2747,20 @@ class _HrScreenState extends State<HrScreen>
                           TextButton.icon(
                             onPressed: () async {
                               await Clipboard.setData(ClipboardData(text: securePassword));
-                              if (parentContext.mounted) {
-                                ScaffoldMessenger.of(parentContext).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Password copied to clipboard'),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                              }
+                              if (!successCtx.mounted) return;
+                              ScaffoldMessenger.of(successCtx).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Password copied to clipboard'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
                             },
                             icon: const Icon(Icons.copy),
                             label: const Text('Copy Password'),
                           ),
                           ElevatedButton(
                             onPressed: () {
-                              Navigator.pop(context);
+                              Navigator.pop(successCtx);
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green[700],
@@ -2786,11 +2772,10 @@ class _HrScreenState extends State<HrScreen>
                       ),
                     );
                     _loadStaff();
-                  }
                 } catch (e, stackTrace) {
                   if (kDebugMode) debugPrint('DEBUG create staff account: $e\n$stackTrace');
                   setDialogState(() => isLoading = false);
-                  if (parentContext.mounted) {
+                  if (mounted) {
                     String errorMsg = 'Failed to create staff account';
                     final errorString = e.toString().toLowerCase();
 
@@ -2818,7 +2803,7 @@ class _HrScreenState extends State<HrScreen>
                     }
 
                     ErrorHandler.handleError(
-                      parentContext,
+                      context,
                       e,
                       customMessage: errorMsg,
                       stackTrace: stackTrace,

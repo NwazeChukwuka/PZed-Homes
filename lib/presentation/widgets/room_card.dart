@@ -140,7 +140,7 @@ class _RoomCardState extends State<RoomCard> {
                                 shape: BoxShape.circle,
                                 color: _currentImageIndex == index 
                                     ? Colors.white 
-                                    : Colors.white.withOpacity(0.5),
+                                    : Colors.white.withValues(alpha: 0.5),
                               ),
                             ),
                           ),

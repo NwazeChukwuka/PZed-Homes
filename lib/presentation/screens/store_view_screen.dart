@@ -1,12 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
-import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/services/payment_service.dart';
-import '../../data/models/user.dart';
 
 /// Read-only store view for Owner/Manager to see what's available in the store
 /// without the ability to record or modify stock.
@@ -138,10 +135,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final user = authService.currentUser;
-    final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Store Inventory View'),
@@ -337,7 +330,7 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
+                    color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: statusColor),
                   ),

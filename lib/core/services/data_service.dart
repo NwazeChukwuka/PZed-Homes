@@ -1276,7 +1276,7 @@ class DataService {
   }) async {
     return await _retryOperation(() async {
       final effectiveEnd = endDate != null ? _endOfDay(endDate) : null;
-      final results = await Future.wait([
+      final results = await Future.wait<List<Map<String, dynamic>>>([
         getFinanceAuditLogs(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
         getMiniMartSales(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
         getKitchenSalesHistory(startDate: startDate, endDate: effectiveEnd, limit: limitPerSource),
@@ -1307,7 +1307,7 @@ class DataService {
 
       final unified = <Map<String, dynamic>>[];
 
-      final financeLogs = results[0] as List<Map<String, dynamic>>;
+      final financeLogs = results[0];
       unified.addAll(financeLogs.map((row) {
         final action = row['action']?.toString().toUpperCase() ?? '';
         final tableName = row['table_name']?.toString() ?? '';
@@ -1371,7 +1371,7 @@ class DataService {
         };
       }));
 
-      final miniMartSales = results[1] as List<Map<String, dynamic>>;
+      final miniMartSales = results[1];
       unified.addAll(miniMartSales.map((row) {
         final actor = row['sold_by_profile'] as Map<String, dynamic>?;
         final item = row['mini_mart_items'] as Map<String, dynamic>?;
@@ -1395,7 +1395,7 @@ class DataService {
         };
       }));
 
-      final kitchenSales = results[2] as List<Map<String, dynamic>>;
+      final kitchenSales = results[2];
       unified.addAll(kitchenSales.map((row) {
         final actor = row['sold_by_profile'] as Map<String, dynamic>?;
         final menuItem = row['menu_items'] as Map<String, dynamic>?;
@@ -1419,7 +1419,7 @@ class DataService {
         };
       }));
 
-      final debtClaims = results[3] as List<Map<String, dynamic>>;
+      final debtClaims = results[3];
       unified.addAll(debtClaims.map((row) {
         final actor = row['recorded_by_profile'] as Map<String, dynamic>?;
         final amount = _toIntKobo(row['amount']);
@@ -1838,13 +1838,6 @@ class DataService {
           .gte('transaction_date', startStr)
           .lte('transaction_date', endStr);
 
-      final Future<dynamic> approvedExpensesFuture = _supabase
-          .from('expenses')
-          .select('amount')
-          .gte('transaction_date', startStr)
-          .lte('transaction_date', endStr)
-          .eq('status', 'Approved');
-
       final Future<dynamic> cashApprovedExpensesFuture = _supabase
           .from('expenses')
           .select('amount')
@@ -1866,7 +1859,6 @@ class DataService {
         miniMartSalesFuture,
         bookingsFuture,
         expensesFuture,
-        approvedExpensesFuture,
         cashIncomeFuture,
         cashKitchenSalesFuture,
         cashMiniMartSalesFuture,
@@ -1882,13 +1874,12 @@ class DataService {
       final mmResp = results[3] as List;
       final bookResp = results[4] as List;
       final expensesResp = results[5] as List;
-      final expApproved = results[6] as List;
-      final cashIncomeResp = results[7] as List;
-      final cashKitchenResp = results[8] as List;
-      final cashMiniMartResp = results[9] as List;
-      final cashRoomResp = results[10] as List;
-      final cashExpApproved = results[11] as List;
-      final cashDepositsResp = results[12] as List;
+      final cashIncomeResp = results[6] as List;
+      final cashKitchenResp = results[7] as List;
+      final cashMiniMartResp = results[8] as List;
+      final cashRoomResp = results[9] as List;
+      final cashExpApproved = results[10] as List;
+      final cashDepositsResp = results[11] as List;
 
       var totalIncome = incomeResp.fold<double>(
         0,
@@ -1922,10 +1913,6 @@ class DataService {
         (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
       );
 
-      final approvedExpenses = expApproved.fold<double>(
-        0,
-        (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
-      );
       // Cash-only inflows/outflows for available cash.
       double cashSalesByDepartment = 0;
       for (final row in deptResp) {
@@ -1983,77 +1970,6 @@ class DataService {
         'cash_deposits': cashDepositedTotal,
       };
     });
-  }
-
-  /// Opening balance = sum of all inflows - outflows from beginning until (excluding) startDate.
-  Future<double> _computeOpeningCashBalance(String beforeDate) async {
-    try {
-      double inflows = 0;
-      double outflows = 0;
-      final incomeResp = await _supabase
-          .from('income_records')
-          .select('amount')
-          .lt('date', beforeDate);
-      inflows += (incomeResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-
-      int deptSales = 0;
-      try {
-        final deptResp = await _supabase
-            .from('department_sales')
-            .select('total_sales')
-            .inFilter('department', ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant'])
-            .lt('date', beforeDate);
-        for (final r in deptResp as List) {
-          deptSales += (r['total_sales'] as num?)?.toInt() ?? 0;
-        }
-      } catch (_) {}
-      if (deptSales == 0) {
-        try {
-          final kResp = await _supabase.from('kitchen_sales').select('total_amount').lt('created_at', '${beforeDate}T00:00:00');
-          for (final r in kResp as List) {
-            deptSales += (r['total_amount'] as num?)?.toInt() ?? 0;
-          }
-          final mmResp = await _supabase.from('mini_mart_sales').select('total_amount').lt('sale_date', beforeDate);
-          for (final r in mmResp as List) {
-            deptSales += (r['total_amount'] as num?)?.toInt() ?? 0;
-          }
-        } catch (_) {}
-      }
-      inflows += deptSales.toDouble();
-
-      try {
-        final bookResp = await _supabase
-            .from('bookings')
-            .select('total_amount, paid_amount')
-            .inFilter('status', ['Checked-out', 'checked_out', 'checked-out', 'Checked out', 'checked out'])
-            .lt('check_out_date', beforeDate);
-        for (final b in bookResp as List) {
-          final total = (b['total_amount'] as num?)?.toInt();
-          final paid = (b['paid_amount'] as num?)?.toInt();
-          inflows += _collectedAmountKobo(total, paid).toDouble();
-        }
-      } catch (_) {}
-
-      final expResp = await _supabase
-          .from('expenses')
-          .select('amount')
-          .lt('transaction_date', beforeDate)
-          .eq('status', 'Approved');
-      outflows += (expResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-
-      try {
-        final payResp = await _supabase
-            .from('payroll_records')
-            .select('amount')
-            .lt('month', beforeDate)
-            .eq('approval_status', 'approved');
-        outflows += (payResp as List).fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
-      } catch (_) {}
-
-      return inflows - outflows;
-    } catch (_) {
-      return 0;
-    }
   }
 
   /// Department Performance based on actual operational sales (getDepartmentSales).
@@ -2425,7 +2341,7 @@ class DataService {
       });
     } on PostgrestException catch (e) {
       if (kDebugMode) debugPrint('PostgrestException in updateProduct: code=${e.code} message=${e.message} tableName=$tableName id=$id');
-      final msg = (e.message ?? '').toLowerCase();
+      final msg = e.message.toLowerCase();
       final isColumnError = e.code == '42703' ||
           msg.contains('updated_at') ||
           (msg.contains('column') && msg.contains('does not exist'));
@@ -3115,7 +3031,7 @@ class DataService {
       // Always use the database function instead of direct UPDATE
       // The function uses SECURITY DEFINER and bypasses RLS, which is more reliable
       // especially after signOut() when the session might be lost
-      final response = await _supabase.rpc('create_staff_profile', params: {
+      await _supabase.rpc('create_staff_profile', params: {
         'p_email': email,
         'p_full_name': fullName,
         'p_phone': phone,

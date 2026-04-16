@@ -36,8 +36,6 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      
-      // Color Scheme
       colorScheme: const ColorScheme.light(
         primary: primaryColor,
         primaryContainer: Color(0xFFC8E6C9),
@@ -50,8 +48,6 @@ class AppTheme {
         onSurface: textPrimary,
         onError: Colors.white,
       ),
-      
-      // App Bar Theme
       appBarTheme: const AppBarTheme(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
@@ -64,8 +60,6 @@ class AppTheme {
         ),
         systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
-      
-      // Card Theme
       cardTheme: CardThemeData(
         color: cardColor,
         elevation: 2,
@@ -74,8 +68,6 @@ class AppTheme {
         ),
         margin: const EdgeInsets.all(8),
       ),
-      
-      // Elevated Button Theme
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryColor,
@@ -91,8 +83,6 @@ class AppTheme {
           ),
         ),
       ),
-      
-      // Text Button Theme
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
@@ -103,8 +93,6 @@ class AppTheme {
           ),
         ),
       ),
-      
-      // Outlined Button Theme
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: primaryColor,
@@ -119,8 +107,6 @@ class AppTheme {
           ),
         ),
       ),
-      
-      // Input Decoration Theme
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.grey[50],
@@ -148,8 +134,6 @@ class AppTheme {
         labelStyle: const TextStyle(color: textSecondary),
         hintStyle: const TextStyle(color: textDisabled),
       ),
-      
-      // Bottom Navigation Bar Theme
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: Colors.white,
         selectedItemColor: primaryColor,
@@ -159,18 +143,14 @@ class AppTheme {
         selectedLabelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         unselectedLabelStyle: TextStyle(fontSize: 12),
       ),
-      
-      // Floating Action Button Theme
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         elevation: 4,
       ),
-      
-      // Chip Theme
       chipTheme: ChipThemeData(
         backgroundColor: Colors.grey[100],
-        selectedColor: primaryColor.withOpacity(0.2),
+        selectedColor: primaryColor.withValues(alpha: 0.2),
         disabledColor: Colors.grey[300],
         labelStyle: const TextStyle(color: textPrimary),
         secondaryLabelStyle: const TextStyle(color: Colors.white),
@@ -179,23 +159,17 @@ class AppTheme {
           borderRadius: BorderRadius.circular(20),
         ),
       ),
-      
-      // Divider Theme
       dividerTheme: const DividerThemeData(
         color: dividerColor,
         thickness: 1,
         space: 1,
       ),
-      
-      // List Tile Theme
       listTileTheme: const ListTileThemeData(
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(8)),
         ),
       ),
-      
-      // Text Theme
       textTheme: const TextTheme(
         displayLarge: TextStyle(
           fontSize: 32,

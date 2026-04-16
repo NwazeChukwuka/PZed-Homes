@@ -5,39 +5,29 @@ import 'package:pzed_homes/data/models/user.dart';
 
 /// Global application state management
 class AppState extends ChangeNotifier {
-  // Loading states
   bool _isInitializing = true;
   bool _isLoading = false;
   String? _loadingMessage;
 
-  // Error handling
   String? _error;
-  String? _warning;
-  String? _success;
 
-  // User preferences
   bool _isDarkMode = false;
   String _language = 'en';
   double _fontScale = 1.0;
 
-  // Network state
   bool _isOnline = true;
   DateTime? _lastSyncTime;
 
-  // Getters
   bool get isInitializing => _isInitializing;
   bool get isLoading => _isLoading;
   String? get loadingMessage => _loadingMessage;
   String? get error => _error;
-  String? get warning => _warning;
-  String? get success => _success;
   bool get isDarkMode => _isDarkMode;
   String get language => _language;
   double get fontScale => _fontScale;
   bool get isOnline => _isOnline;
   DateTime? get lastSyncTime => _lastSyncTime;
 
-  // Initialize app state
   Future<void> initialize() async {
     if (!_isInitializing) {
       _isInitializing = true;
@@ -45,10 +35,7 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      // Load user preferences
       await _loadUserPreferences();
-      
-      // Check network connectivity
       await _checkNetworkStatus();
       
       if (_isInitializing) {
@@ -65,7 +52,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Loading state management
   void setLoading(bool loading, [String? message]) {
     if (_isLoading == loading && _loadingMessage == message) return;
     _isLoading = loading;
@@ -73,40 +59,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Error handling
   void _setError(String error) {
-    if (_error == error && _warning == null && _success == null) return;
+    if (_error == error) return;
     _error = error;
-    _warning = null;
-    _success = null;
-    notifyListeners();
-  }
-
-  void _setWarning(String warning) {
-    if (_warning == warning && _error == null && _success == null) return;
-    _warning = warning;
-    _error = null;
-    _success = null;
-    notifyListeners();
-  }
-
-  void _setSuccess(String success) {
-    if (_success == success && _error == null && _warning == null) return;
-    _success = success;
-    _error = null;
-    _warning = null;
     notifyListeners();
   }
 
   void clearMessages() {
-    if (_error == null && _warning == null && _success == null) return;
+    if (_error == null) return;
     _error = null;
-    _warning = null;
-    _success = null;
     notifyListeners();
   }
 
-  // Theme management
   void toggleTheme() {
     _isDarkMode = !_isDarkMode;
     _saveUserPreferences();
@@ -120,7 +84,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Language management
   void setLanguage(String language) {
     if (_language == language) return;
     _language = language;
@@ -128,7 +91,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Font scale management
   void setFontScale(double scale) {
     final clamped = scale.clamp(0.8, 1.5);
     if (_fontScale == clamped) return;
@@ -137,7 +99,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Network state management
   void setOnlineStatus(bool isOnline) {
     if (_isOnline == isOnline) return;
     _isOnline = isOnline;
@@ -147,14 +108,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // User preferences persistence
   Future<void> _loadUserPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _isDarkMode = prefs.getBool('isDarkMode') ?? false;
       _language = prefs.getString('language') ?? 'en';
       _fontScale = prefs.getDouble('fontScale') ?? 1.0;
-      // Caller (initialize) handles notifyListeners after init completes
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG _loadUserPreferences: $e\n$stack');
     }

@@ -868,8 +868,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           _performanceData = null;
           _isLoadingPerformance = false;
         });
-        // Show error to user with retry option if context is available
-        if (context != null && mounted) {
+        if (context != null && context.mounted) {
           ErrorHandler.handleError(
             context,
             e,
@@ -877,7 +876,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             onRetry: () => _loadPerformanceData(profileId, context: context),
           );
         } else {
-          // Log error if context not available
           if (kDebugMode) {
             debugPrint('Error loading performance data: $e');
           }

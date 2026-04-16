@@ -62,14 +62,11 @@ class DatabaseService {
     return response;
   }
 
-  // Update a stock item's quantity
-  // NOTE: stock_items table doesn't have current_quantity - stock is calculated from transactions
-  // This method is deprecated. Use stock_transactions instead.
-  @deprecated
+  @Deprecated('Use stock_transactions; stock_items has no stored quantity column.')
   Future<void> updateStockQuantity(String stockItemId, int newQuantity) async {
-    // Stock items don't have a current_quantity column
-    // Stock levels are calculated from stock_transactions
-    throw UnimplementedError('Stock quantity is calculated from transactions, not stored directly. Use stock_transactions table instead.');
+    throw UnimplementedError(
+      'Stock quantity is calculated from transactions, not stored directly. Use stock_transactions table instead.',
+    );
   }
 
   // Fetch all menu items

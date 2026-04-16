@@ -1,4 +1,5 @@
 /// Numeric-aware ordering for hotel room labels (e.g. 101 before 201; avoids "10" < "2" lexicographic bugs).
+library;
 
 int? roomNumberSortKey(String? raw) {
   if (raw == null) return null;

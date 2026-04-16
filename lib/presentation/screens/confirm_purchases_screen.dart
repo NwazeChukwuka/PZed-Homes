@@ -97,8 +97,8 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
     } on PostgrestException catch (e) {
       if (mounted) {
         final isPermissionDenied = e.code == '42501' ||
-            (e.message?.toLowerCase().contains('only storekeeper') == true &&
-                e.message?.toLowerCase().contains('confirm') == true);
+            (e.message.toLowerCase().contains('only storekeeper') &&
+                e.message.toLowerCase().contains('confirm'));
         final message = isPermissionDenied
             ? 'Permission Denied: Only Storekeepers or Management can confirm purchases.'
             : null;
@@ -132,17 +132,18 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
     if (orderId.isEmpty) return;
     final totalCost = (order['total_cost'] as num?)?.toInt() ?? 0;
     final items = await _fetchOrderItems(orderId);
+    if (!mounted) return;
 
     String? selectedLocationId = _defaultStoreLocationId;
     final isConfirming = [false];
 
-    final confirmed = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         final screenWidth = MediaQuery.sizeOf(dialogContext).width;
         final contentWidth = screenWidth < 420 ? screenWidth - 48 : 420.0;
         return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
+          builder: (dialogBodyContext, setDialogState) => AlertDialog(
             title: const Text('Confirm Purchase Order'),
             content: SizedBox(
               width: contentWidth,
@@ -158,7 +159,8 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
                     const Text('No locations found. Please create a Main Store location.')
                   else
                     DropdownButtonFormField<String>(
-                      value: selectedLocationId,
+                      key: ValueKey<String?>(selectedLocationId),
+                      initialValue: selectedLocationId,
                       decoration: const InputDecoration(
                         labelText: 'Receiving Location',
                         border: OutlineInputBorder(),
@@ -195,7 +197,7 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: isConfirming[0] ? null : () => Navigator.of(context).pop(false),
+                onPressed: isConfirming[0] ? null : () => Navigator.of(dialogContext).pop(false),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
@@ -203,14 +205,19 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
                     ? null
                     : () async {
                         if (_locations.isNotEmpty && selectedLocationId == null) {
-                          ErrorHandler.showWarningMessage(context, 'Select a receiving location.');
+                          ErrorHandler.showWarningMessage(
+                            dialogBodyContext,
+                            'Select a receiving location.',
+                          );
                           return;
                         }
                         setDialogState(() => isConfirming[0] = true);
                         final ok = await _confirmOrder(orderId, locationId: selectedLocationId);
-                        if (dialogContext.mounted) {
-                          if (ok) Navigator.of(context).pop(true);
-                          else setDialogState(() => isConfirming[0] = false);
+                        if (!dialogContext.mounted) return;
+                        if (ok) {
+                          Navigator.of(dialogContext).pop(true);
+                        } else {
+                          setDialogState(() => isConfirming[0] = false);
                         }
                       },
                 child: Text(isConfirming[0] ? 'Confirming...' : 'Confirm'),
@@ -220,10 +227,6 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
         );
       },
     );
-
-    if (confirmed == true) {
-      // Already confirmed and dialog closed
-    }
   }
 
   @override

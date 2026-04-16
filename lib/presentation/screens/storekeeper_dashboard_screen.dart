@@ -357,7 +357,8 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  value: _selectedStockItemId,
+                  key: ValueKey<String?>(_selectedStockItemId),
+                  initialValue: _selectedStockItemId,
                   decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
                   items: _stockItems.map((item) => DropdownMenuItem<String>(
                     value: item['id']?.toString(),
@@ -374,7 +375,8 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
           _locations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  value: _selectedLocationId,
+                  key: ValueKey<String?>(_selectedLocationId),
+                  initialValue: _selectedLocationId,
                   decoration: const InputDecoration(labelText: 'Receiving Location', border: OutlineInputBorder()),
                   items: _locations.map((loc) => DropdownMenuItem<String>(
                     value: loc['id']?.toString(),
@@ -624,7 +626,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  value: _selectedStockItemId,
+                  key: ValueKey<String?>(_selectedStockItemId),
+                  initialValue: _selectedStockItemId,
                   decoration: const InputDecoration(labelText: 'Stock Item', border: OutlineInputBorder()),
                   items: _stockItems.map((item) => DropdownMenuItem<String>(
                     value: item['id']?.toString(),
@@ -640,7 +643,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _locations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
-                  value: _sourceLocationId,
+                  key: ValueKey<String?>(_sourceLocationId),
+                  initialValue: _sourceLocationId,
                   decoration: const InputDecoration(labelText: 'Source Location', border: OutlineInputBorder()),
                   items: _locations.map((loc) => DropdownMenuItem<String>(
                     value: loc['id']?.toString(),
@@ -656,7 +660,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
           _locations.isEmpty
               ? const SizedBox.shrink()
               : DropdownButtonFormField<String>(
-                  value: _destinationLocationId,
+                  key: ValueKey<String>('${_sourceLocationId}_$_destinationLocationId'),
+                  initialValue: _destinationLocationId,
                   decoration: const InputDecoration(labelText: 'Destination Location', border: OutlineInputBorder()),
                   items: _locations
                       .where((loc) => loc['id']?.toString() != _sourceLocationId)
@@ -676,7 +681,8 @@ class _StockTransferFormState extends State<StockTransferForm> {
           recipients.isEmpty
               ? const Text('No eligible staff found for selected location.')
               : DropdownButtonFormField<String>(
-                  value: _selectedRecipientId,
+                  key: ValueKey<String?>(_selectedRecipientId),
+                  initialValue: _selectedRecipientId,
                   decoration: const InputDecoration(labelText: 'Recipient Staff', border: OutlineInputBorder()),
                   items: recipients.map((staff) => DropdownMenuItem<String>(
                     value: staff['id']?.toString(),

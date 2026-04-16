@@ -25,7 +25,6 @@ class AuthService with ChangeNotifier {
   bool _isLoggedIn = false;
   bool _isClockedIn = false;
   DateTime? _clockInTime;
-  String? _currentAttendanceId;
   /// Session-only list of assumed roles. Never persisted; cleared on logout/refresh.
   final List<AppRole> _activeAssumedRoles = [];
   StreamSubscription<AuthState>? _authStateSubscription;
@@ -205,7 +204,6 @@ class AuthService with ChangeNotifier {
               _isLoggedIn = false;
               _isClockedIn = false;
               _clockInTime = null;
-              _currentAttendanceId = null;
               _isLoading = false;
               clearAssumedRoles();
               notifyListeners();
@@ -238,7 +236,6 @@ class AuthService with ChangeNotifier {
           _isLoggedIn = false;
           _isClockedIn = false;
           _clockInTime = null;
-          _currentAttendanceId = null;
           _isLoading = false;
           clearAssumedRoles();
           notifyListeners();
@@ -298,47 +295,43 @@ class AuthService with ChangeNotifier {
           ? rolesRaw.map((r) => r.toString()).toList()
           : (rolesRaw != null ? [rolesRaw.toString()] : ['guest']);
       
-      // Helper function to safely parse a role name without throwing
-      // NEVER uses byName() - only safe iteration
       AppRole? safeParseRole(String roleName) {
         try {
           final trimmed = roleName.trim();
           if (trimmed.isEmpty) return null;
-          
-          // Debug: Print all available enum values
+
           if (kDebugMode && trimmed == 'outside_bartender') {
-            print('DEBUG: Looking for outside_bartender');
-            print('DEBUG: Available roles: ${AppRole.values.map((r) => r.name).join(', ')}');
+            debugPrint('DEBUG: Looking for outside_bartender');
+            debugPrint(
+              'DEBUG: Available roles: ${AppRole.values.map((r) => r.name).join(', ')}',
+            );
           }
-          
-          // Try exact match first - iterate manually, NEVER use byName()
+
           for (final role in AppRole.values) {
             if (role.name == trimmed) {
               if (kDebugMode && trimmed == 'outside_bartender') {
-                print('DEBUG: Found exact match: ${role.name}');
+                debugPrint('DEBUG: Found exact match: ${role.name}');
               }
               return role;
             }
           }
-          
-          // Try case-insensitive match
+
           for (final role in AppRole.values) {
             if (role.name.toLowerCase() == trimmed.toLowerCase()) {
               if (kDebugMode && trimmed == 'outside_bartender') {
-                print('DEBUG: Found case-insensitive match: ${role.name}');
+                debugPrint('DEBUG: Found case-insensitive match: ${role.name}');
               }
               return role;
             }
           }
-          
+
           if (kDebugMode && trimmed == 'outside_bartender') {
-            print('DEBUG: No match found for: $trimmed');
+            debugPrint('DEBUG: No match found for: $trimmed');
           }
           return null;
         } catch (e) {
-          // Never throw - return null on any error
           if (kDebugMode) {
-            print('ERROR in _safeParseRole for "$roleName": $e');
+            debugPrint('ERROR in _safeParseRole for "$roleName": $e');
           }
           return null;
         }
@@ -640,22 +633,12 @@ class AuthService with ChangeNotifier {
     _isLoggedIn = false;
     _isClockedIn = false;
     _clockInTime = null;
-    _currentAttendanceId = null;
     _isLoadingUserData = false;
     _isLoggingIn = false;
     _isLoading = false;
     _isRecovering = false;
     clearAssumedRoles();
     notifyListeners();
-  }
-
-  // Clock-in/clock-out functionality removed - no longer required
-  // Transactions can be made without clocking in
-  Future<void> _checkClockInStatus() async {
-    // No-op - clock-in is disabled
-    _isClockedIn = false;
-    _currentAttendanceId = null;
-    _clockInTime = null;
   }
 
   Future<void> clockIn() async {

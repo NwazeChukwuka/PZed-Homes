@@ -836,13 +836,13 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                       createdBy: staffId,
                     );
                   }
-                  if (mounted) {
-                    Navigator.of(ctx).pop();
-                    ErrorHandler.showSuccessMessage(
-                      context,
-                      'Debt payments recorded. Proceeding to checkout.',
-                    );
-                  }
+                  if (!ctx.mounted) return;
+                  Navigator.of(ctx).pop();
+                  if (!mounted) return;
+                  ErrorHandler.showSuccessMessage(
+                    context,
+                    'Debt payments recorded. Proceeding to checkout.',
+                  );
                   try {
                     await _loadBookingDebts();
                     await _performCheckOut();
