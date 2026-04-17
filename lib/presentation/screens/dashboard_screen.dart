@@ -2656,11 +2656,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     switch (effectiveRole) {
       case AppRole.owner:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
+        return _buildManagementAggregate(context);
       case AppRole.accountant:
         return _buildManagementAggregate(context);
       case AppRole.manager:
-        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
+        return _buildManagementAggregate(context);
       case AppRole.receptionist:
         return _buildReceptionistPanel(context, screenWidth);
       case AppRole.vip_bartender:
