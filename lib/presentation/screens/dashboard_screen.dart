@@ -1625,8 +1625,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           welcomeSection,
-          const SizedBox(height: 16),
-          if (isManagement) _buildFocusToggle(),
           if (!isManagement) _buildAttendanceCard(),
         ],
       );
@@ -1636,7 +1634,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: welcomeSection),
-        if (isManagement) _buildFocusToggle(),
         if (!isManagement) ...[
           const SizedBox(width: 12),
           _buildAttendanceCard(),
