@@ -1596,6 +1596,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
  
 
   Widget _buildHeader(BuildContext context, bool isMobile) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final role = auth.userRole;
+    final isManagement = role == AppRole.owner || role == AppRole.manager || role == AppRole.accountant || role == AppRole.hr || role == AppRole.supervisor;
+
     final welcomeSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1621,11 +1625,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           welcomeSection,
+          const SizedBox(height: 16),
+          if (isManagement) _buildFocusToggle(),
+          if (!isManagement) _buildAttendanceCard(),
         ],
       );
     }
 
-    return welcomeSection;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: welcomeSection),
+        if (isManagement) _buildFocusToggle(),
+        if (!isManagement) ...[
+          const SizedBox(width: 12),
+          _buildAttendanceCard(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFocusToggle() {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0,2)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ChoiceChip(
+            label: const Text('Performance'),
+            selected: _focus == 'performance',
+            onSelected: (v) { if (v) setState(() { _focus = 'performance'; }); },
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('Financial'),
+            selected: _focus == 'financial',
+            onSelected: (v) { if (v) setState(() { _focus = 'financial'; }); },
+          ),
+        ],
+      ),
+    );
   }
 
   int _getCrossAxisCount(double screenWidth) {
@@ -2656,11 +2702,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     switch (effectiveRole) {
       case AppRole.owner:
-        return _buildManagementAggregate(context);
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
       case AppRole.accountant:
         return _buildManagementAggregate(context);
       case AppRole.manager:
-        return _buildManagementAggregate(context);
+        return _focus == 'financial' ? _buildManagementAggregate(context) : _buildPerformanceAggregate(context, screenWidth);
       case AppRole.receptionist:
         return _buildReceptionistPanel(context, screenWidth);
       case AppRole.vip_bartender:
@@ -2727,7 +2773,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           context,
           'HR',
           Icons.people_alt,
-          () { context.go('/hr'); },
+          () {
+            context.go('/hr');
+          },
           isMobile: isMobile,
           expandInRow: true,
         ),
@@ -2735,7 +2783,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context,
         'Finance',
         Icons.account_balance,
-        () { context.go('/finance'); },
+        () {
+          context.go('/finance');
+        },
         isMobile: isMobile,
         expandInRow: true,
       ),
@@ -2743,7 +2793,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context,
         'Reporting',
         Icons.insights,
-        () { context.go('/reporting'); },
+        () {
+          context.go('/reporting');
+        },
         isMobile: isMobile,
         expandInRow: true,
       ),
