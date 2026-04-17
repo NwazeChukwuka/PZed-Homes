@@ -625,13 +625,15 @@ class AppRouter {
         return true; // IT Admin has full access to all routes
       
       case AppRole.accountant:
-        return location.startsWith('/finance') ||
+        return location.startsWith('/dashboard') ||
+               location.startsWith('/finance') ||
                location.startsWith('/reporting') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
       case AppRole.hr:
-        return location.startsWith('/hr') ||
+        return location.startsWith('/dashboard') ||
+               location.startsWith('/hr') ||
                location.startsWith('/communications') ||
                location.startsWith('/profile');
       
