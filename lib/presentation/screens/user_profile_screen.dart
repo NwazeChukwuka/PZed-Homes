@@ -787,16 +787,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
       
-      // Load attendance records
-      final attendanceResponse = await _supabase
-          .from('attendance_records')
-          .select('*')
-          .eq('profile_id', profileId)
-          .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0])
-          .timeout(const Duration(seconds: 5));
-      
-      final attendanceRecords = attendanceResponse as List;
-      
       // Load department sales (for sales attributed to this staff member)
       final salesResponse = await _supabase
           .from('department_sales')
@@ -816,11 +806,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           .timeout(const Duration(seconds: 5));
       
       final payrollRecords = payrollResponse as List;
-      
-      // Calculate metrics
-      final totalDays = 30;
-      final attendanceDays = attendanceRecords.length;
-      final attendanceRate = totalDays > 0 ? (attendanceDays / totalDays * 100).toStringAsFixed(0) : '0';
       
       // Calculate total sales (sum of all department sales)
       final totalSales = salesRecords.fold<int>(0, (sum, record) {
@@ -852,8 +837,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (mounted) {
         setState(() {
           _performanceData = {
-            'attendance_rate': attendanceRate,
-            'attendance_days': attendanceDays,
             'total_sales': totalSales,
             'avg_ticket_value': avgTicketValue,
             'overtime_cost': overtimeCost,
@@ -902,10 +885,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     
     if (_isLoadingPerformance) {
       standardKpis = [
-        {'label': 'Attendance Rate', 'value': 'Loading...'},
-        {'label': 'Tasks Completed (30d)', 'value': 'Loading...'},
-        {'label': 'Customer Ratings', 'value': 'N/A'},
-        {'label': 'Shift Punctuality', 'value': 'Loading...'},
+        {'label': 'Sales attributed (30d)', 'value': 'Loading...'},
+        {'label': 'Avg. ticket value', 'value': 'Loading...'},
+        {'label': 'Customer ratings', 'value': 'N/A'},
+        {'label': 'Payroll status', 'value': 'Loading...'},
       ];
       financialKpis = [
         {'label': 'Sales Attributed (30d)', 'value': 'Loading...'},
@@ -922,10 +905,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final overtime = PaymentService.koboToNaira(data['overtime_cost'] as int? ?? 0);
       
       standardKpis = [
-        {'label': 'Attendance Rate', 'value': '${data['attendance_rate']}%'},
-        {'label': 'Days Present (30d)', 'value': '${data['attendance_days']}'},
-        {'label': 'Customer Ratings', 'value': 'N/A'}, // Not tracked in database yet
-        {'label': 'Shift Punctuality', 'value': 'N/A'}, // Not tracked in database yet
+        {
+          'label': 'Sales attributed (30d)',
+          'value': '₦${NumberFormat('#,##0.00').format(salesAmount)}',
+        },
+        {'label': 'Avg. ticket value', 'value': '₦${NumberFormat('#,##0.00').format(avgTicket)}'},
+        {'label': 'Customer ratings', 'value': 'N/A'},
+        {'label': 'Payroll status', 'value': data['payroll_status'] as String? ?? 'N/A'},
       ];
       
       financialKpis = [
@@ -939,10 +925,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     } else {
       // Fallback if data failed to load
       standardKpis = [
-        {'label': 'Attendance Rate', 'value': 'N/A'},
-        {'label': 'Days Present (30d)', 'value': 'N/A'},
-        {'label': 'Customer Ratings', 'value': 'N/A'},
-        {'label': 'Shift Punctuality', 'value': 'N/A'},
+        {'label': 'Sales attributed (30d)', 'value': 'N/A'},
+        {'label': 'Avg. ticket value', 'value': 'N/A'},
+        {'label': 'Customer ratings', 'value': 'N/A'},
+        {'label': 'Payroll status', 'value': 'N/A'},
       ];
       financialKpis = [
         {'label': 'Sales Attributed (30d)', 'value': 'N/A'},

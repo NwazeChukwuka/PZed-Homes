@@ -168,12 +168,7 @@ class AppRouter {
           GoRoute(
             path: '/guest/rooms',
             name: 'guest-rooms',
-            builder: (context, state) {
-              final extra = state.extra as Map<String, dynamic>?;
-              final checkIn = extra?['checkInDate'] as DateTime? ?? DateTime.now();
-              final checkOut = extra?['checkOutDate'] as DateTime? ?? DateTime.now().add(const Duration(days: 1));
-              return const AvailableRoomsScreen();
-            },
+            builder: (context, _) => const AvailableRoomsScreen(),
           ),
           GoRoute(
             path: '/guest/booking-lookup',
@@ -699,13 +694,11 @@ class _RootDeciderState extends State<RootDecider> {
     // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
     bool isSupabaseInitialized = false;
     String? initError;
-    SupabaseClient? supabase;
     try {
-      supabase = Supabase.instance.client;
+      Supabase.instance.client;
       isSupabaseInitialized = true;
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG RootDecider init: $e\n$stack');
-      supabase = null;
       isSupabaseInitialized = false;
       initError = ErrorHandler.getFriendlyErrorMessage(e);
     }
@@ -865,7 +858,6 @@ class _LoadingScreenWithTimeout extends StatefulWidget {
 
 class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
   bool _showTimeout = false;
-  bool _forceShow = false;
 
   @override
   void initState() {
@@ -875,7 +867,6 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
       if (mounted) {
         setState(() {
           _showTimeout = true;
-          _forceShow = true;
         });
         // Force navigation to dashboard after timeout
         WidgetsBinding.instance.addPostFrameCallback((_) {

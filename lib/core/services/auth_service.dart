@@ -23,8 +23,6 @@ class AuthService with ChangeNotifier {
   bool _isLoading = true;
   bool _initializationComplete = false; // Track if initialization is done
   bool _isLoggedIn = false;
-  bool _isClockedIn = false;
-  DateTime? _clockInTime;
   /// Session-only list of assumed roles. Never persisted; cleared on logout/refresh.
   final List<AppRole> _activeAssumedRoles = [];
   StreamSubscription<AuthState>? _authStateSubscription;
@@ -48,8 +46,6 @@ class AuthService with ChangeNotifier {
 
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _isLoggedIn;
-  bool get isClockedIn => _isClockedIn;
-  DateTime? get clockInTime => _clockInTime;
   /// True if any roles are currently assumed (for backward compatibility).
   bool get isRoleAssumed => _activeAssumedRoles.isNotEmpty;
   /// First assumed role, or null. Kept for backward compat during migration.
@@ -202,8 +198,6 @@ class AuthService with ChangeNotifier {
               await _supabase!.auth.signOut();
               _currentUser = null;
               _isLoggedIn = false;
-              _isClockedIn = false;
-              _clockInTime = null;
               _isLoading = false;
               clearAssumedRoles();
               notifyListeners();
@@ -234,8 +228,6 @@ class AuthService with ChangeNotifier {
           // User logged out
           _currentUser = null;
           _isLoggedIn = false;
-          _isClockedIn = false;
-          _clockInTime = null;
           _isLoading = false;
           clearAssumedRoles();
           notifyListeners();
@@ -426,9 +418,6 @@ class AuthService with ChangeNotifier {
       _isLoading = false;
       _isLoadingUserData = false;
       notifyListeners();
-      
-      // Clock-in check removed - no longer required
-      
     } catch (e) {
       // On any error, clear user and fail
       _currentUser = null;
@@ -631,25 +620,12 @@ class AuthService with ChangeNotifier {
     
     _currentUser = null;
     _isLoggedIn = false;
-    _isClockedIn = false;
-    _clockInTime = null;
     _isLoadingUserData = false;
     _isLoggingIn = false;
     _isLoading = false;
     _isRecovering = false;
     clearAssumedRoles();
     notifyListeners();
-  }
-
-  Future<void> clockIn() async {
-    // Clock-in functionality removed - do nothing
-    // Transactions work without clock-in
-    return;
-  }
-
-  Future<void> clockOut() async {
-    // Clock-out functionality removed - do nothing
-    return;
   }
 
   bool isManagementRole() {
@@ -666,8 +642,6 @@ class AuthService with ChangeNotifier {
   }
 
   bool canMakeTransactions() {
-    // All active staff can make transactions - clock-in is no longer required
-    // Clock-in/clock-out is now only for attendance tracking purposes
     return _currentUser != null;
   }
 

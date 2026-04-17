@@ -2966,55 +2966,6 @@ class DataService {
     });
   }
 
-  // Attendance Records
-  Future<Map<String, dynamic>?> getCurrentAttendance(String profileId) async {
-    return await _retryOperation(() async {
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
-      
-      final response = await _supabase
-          .from('attendance_records')
-          .select('*, profiles!profile_id(full_name, roles)')
-          .eq('profile_id', profileId)
-          .gte('clock_in_time', startOfDay.toIso8601String())
-          .isFilter('clock_out_time', null)
-          .order('clock_in_time', ascending: false)
-          .limit(1)
-          .maybeSingle();
-      
-      return response != null ? Map<String, dynamic>.from(response) : null;
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> getAttendanceRecords({
-    String? profileId,
-    DateTime? startDate,
-    DateTime? endDate,
-  }) async {
-    return await _retryOperation(() async {
-      var query = _supabase
-          .from('attendance_records')
-          .select('*, profiles!profile_id(full_name, roles)');
-      
-      if (profileId != null) {
-        query = query.eq('profile_id', profileId);
-      }
-      
-      if (startDate != null) {
-        query = query.gte('date', startDate.toIso8601String().split('T')[0]);
-      }
-      
-      if (endDate != null) {
-        query = query.lte('date', endDate.toIso8601String().split('T')[0]);
-      }
-      
-      final response = await query
-          .order('clock_in_time', ascending: false)
-          .limit(500); // Limit for performance
-      return List<Map<String, dynamic>>.from(response);
-    });
-  }
-
   // Create staff profile (Owner only - requires Admin API)
   // Note: This requires Supabase Admin API access
   // The auth user must be created first via Admin API, then this updates the profile

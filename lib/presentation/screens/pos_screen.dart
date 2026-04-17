@@ -151,7 +151,7 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       return;
     }
 
-    // Verify user is logged in (clock-in no longer required for transactions)
+    // Verify user is logged in
     final authService = Provider.of<AuthService>(context, listen: false);
     if (authService.currentUser == null) {
       if (mounted) {

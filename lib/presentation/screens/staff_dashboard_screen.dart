@@ -710,8 +710,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 children: [
                   _buildHeader(user),
                   const SizedBox(height: 16),
-                  _buildAttendanceCard(),
-                  const SizedBox(height: 16),
                   _buildTimeFilter(),
                   const SizedBox(height: 16),
                   _showDepartmentView
@@ -2218,10 +2216,5 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ],
       ),
     );
-  }
-
-  Widget _buildAttendanceCard() {
-    // Clock-in/clock-out functionality removed - return empty widget
-    return const SizedBox.shrink();
   }
 }
