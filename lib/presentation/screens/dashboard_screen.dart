@@ -2644,7 +2644,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    final chips = Wrap(
+    return Wrap(
       spacing: chipSpacing,
       runSpacing: chipSpacing,
       children: TimeRange.values.map((r) {
@@ -2681,17 +2681,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           selectedColor: Colors.green[700],
         );
       }).toList(),
-    );
-
-    if (isMobile) {
-      return chips;
-    }
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: chips,
-      ),
     );
   }
 
@@ -2753,99 +2742,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
             else if (role == AppRole.vip_bartender || role == AppRole.outside_bartender) context.go('/inventory');
             else if (role == AppRole.housekeeper || role == AppRole.cleaner || role == AppRole.laundry_attendant) context.go('/housekeeping');
             else context.go('/dashboard');
-          }, isMobile: isMobile),
-          _quickButton(
-            context,
-            'My Profile',
-            Icons.person,
-            () {
-              context.push('/profile');
-            },
-            isMobile: isMobile,
-          ),
+          }, isMobile),
+          _quickButton(context, 'My Profile', Icons.person, () { context.push('/profile'); }, isMobile),
         ],
       );
     }
 
     final managementButtons = <Widget>[
       if (role == AppRole.owner || role == AppRole.manager || role == AppRole.hr)
-        _quickButton(
-          context,
-          'HR',
-          Icons.people_alt,
-          () {
-            context.go('/hr');
-          },
-          isMobile: isMobile,
-          expandInRow: true,
-        ),
-      _quickButton(
-        context,
-        'Finance',
-        Icons.account_balance,
-        () {
-          context.go('/finance');
-        },
-        isMobile: isMobile,
-        expandInRow: true,
-      ),
-      _quickButton(
-        context,
-        'Reporting',
-        Icons.insights,
-        () {
-          context.go('/reporting');
-        },
-        isMobile: isMobile,
-        expandInRow: true,
-      ),
+        _quickButton(context, 'HR', Icons.people_alt, () { context.go('/hr'); }, isMobile),
+      _quickButton(context, 'Finance', Icons.account_balance, () { context.go('/finance'); }, isMobile),
+      _quickButton(context, 'Reporting', Icons.insights, () { context.go('/reporting'); }, isMobile),
     ];
 
     if (isMobile) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < managementButtons.length; i++) ...[
-            if (i > 0) const SizedBox(height: 8),
-            managementButtons[i],
-          ],
-        ],
-      );
-    }
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
             for (var i = 0; i < managementButtons.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              Expanded(child: managementButtons[i]),
+              if (i > 0) SizedBox(width: isMobile ? 6 : 8),
+              managementButtons[i],
             ],
           ],
         ),
-      ),
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: managementButtons,
     );
   }
 
-  Widget _quickButton(
-    BuildContext context,
-    String label,
-    IconData icon,
-    VoidCallback onTap, {
-    bool isMobile = false,
-    bool expandInRow = false,
-  }) {
+  Widget _quickButton(BuildContext context, String label, IconData icon, VoidCallback onTap, [bool isMobile = false]) {
     final padding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 8) : const EdgeInsets.symmetric(horizontal: 12, vertical: 10);
     final iconSpacing = isMobile ? 6.0 : 8.0;
     final fontSize = isMobile ? 12.0 : null;
     return InkWell(
       onTap: onTap,
       child: Container(
-        width: expandInRow ? double.infinity : null,
         padding: padding,
-        alignment: expandInRow ? Alignment.center : null,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -2854,19 +2792,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         child: Row(
-          mainAxisSize: expandInRow ? MainAxisSize.max : MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: Colors.green[700], size: isMobile ? 18 : null),
             SizedBox(width: iconSpacing),
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(color: Colors.grey[800], fontSize: fontSize),
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-            ),
+            Text(label, style: TextStyle(color: Colors.grey[800], fontSize: fontSize)),
           ],
         ),
       ),
