@@ -219,14 +219,18 @@ class AppRouter {
             path: '/dashboard',
             name: 'dashboard',
             builder: (context, state) {
-              final user = Provider.of<AuthService>(context, listen: false).currentUser;
-              // Persistent identity: dashboard type is ALWAYS based on primary role, never assumed roles
-              final primaryRole = user?.role;
-              final isManagement = primaryRole == AppRole.owner ||
-                  primaryRole == AppRole.manager ||
-                  primaryRole == AppRole.supervisor ||
-                  primaryRole == AppRole.accountant ||
-                  primaryRole == AppRole.hr;
+              final authService = Provider.of<AuthService>(context, listen: false);
+              final user = authService.currentUser;
+              final effectiveRoles = <AppRole>{
+                if (user != null) user.role,
+                ...?user?.roles,
+                ...authService.activeAssumedRoles,
+              };
+              final isManagement = effectiveRoles.contains(AppRole.owner) ||
+                  effectiveRoles.contains(AppRole.manager) ||
+                  effectiveRoles.contains(AppRole.supervisor) ||
+                  effectiveRoles.contains(AppRole.accountant) ||
+                  effectiveRoles.contains(AppRole.hr);
 
               return isManagement
                   ? const DashboardScreen()
@@ -358,13 +362,18 @@ class AppRouter {
         builder: (context, state) {
           final booking = state.extra as Booking?;
           if (booking == null) {
-            final user = Provider.of<AuthService>(context, listen: false).currentUser;
-            final primaryRole = user?.role;
-            final isManagement = primaryRole == AppRole.owner ||
-                primaryRole == AppRole.manager ||
-                primaryRole == AppRole.supervisor ||
-                primaryRole == AppRole.accountant ||
-                primaryRole == AppRole.hr;
+            final authService = Provider.of<AuthService>(context, listen: false);
+            final user = authService.currentUser;
+            final effectiveRoles = <AppRole>{
+              if (user != null) user.role,
+              ...?user?.roles,
+              ...authService.activeAssumedRoles,
+            };
+            final isManagement = effectiveRoles.contains(AppRole.owner) ||
+                effectiveRoles.contains(AppRole.manager) ||
+                effectiveRoles.contains(AppRole.supervisor) ||
+                effectiveRoles.contains(AppRole.accountant) ||
+                effectiveRoles.contains(AppRole.hr);
 
             return isManagement
                 ? const DashboardScreen()
