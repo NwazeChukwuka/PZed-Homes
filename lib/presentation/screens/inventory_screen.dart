@@ -292,55 +292,96 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         // While controller is mismatched, show placeholder to avoid TabBar/TabBarView assertion
         if (tabCountMismatch) {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text('Inventory Management', overflow: TextOverflow.ellipsis, maxLines: 1),
-              backgroundColor: Colors.green[700],
-              foregroundColor: Colors.white,
+            body: LayeredScrollBody(
+              topSection: Container(
+                color: Colors.green[700],
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    if (Navigator.of(context).canPop())
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => context.pop(),
+                      ),
+                    const Expanded(
+                      child: Text(
+                        'Inventory Management',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    ContextAwareRoleButton(
+                      suggestedRole: _selectedBar == 'outside_bar'
+                          ? AppRole.outside_bartender
+                          : AppRole.vip_bartender,
+                    ),
+                  ],
+                ),
+              ),
+              content: const Center(child: CircularProgressIndicator()),
             ),
-            body: const Center(child: CircularProgressIndicator()),
           );
         }
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Inventory Management', overflow: TextOverflow.ellipsis, maxLines: 1),
-            backgroundColor: Colors.green[700],
-            foregroundColor: Colors.white,
-            leading: Navigator.of(context).canPop() ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => context.pop(),
-            ) : null,
-            actions: [
-              ContextAwareRoleButton(
-                suggestedRole: _selectedBar == 'outside_bar'
-                    ? AppRole.outside_bartender
-                    : AppRole.vip_bartender,
-              ),
-              // Show daily stock count button for bartenders
-              if (isBartender)
-                IconButton(
-                  icon: const Icon(Icons.inventory_2),
-                  tooltip: 'Daily Stock Count',
-                  onPressed: () => context.push('/stock'),
-                ),
-              // Show approval button for management roles
-              if (showAddItemButton)
-                IconButton(
-                  icon: const Icon(Icons.approval),
-                  tooltip: 'Stock Count Approvals',
-                  onPressed: () => context.push('/stock/approval'),
-                ),
-              if (showAddItemButton)
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: _showAddItemDialog,
-                ),
-            ],
-          ),
           body: LayeredScrollBody(
-            topSection: Container(
-              color: Colors.white,
-              decoration: BoxDecoration(
+            topSection: Column(
+              children: [
+                Container(
+                  color: Colors.green[700],
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      if (Navigator.of(context).canPop())
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () => context.pop(),
+                        ),
+                      const Expanded(
+                        child: Text(
+                          'Inventory Management',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      ContextAwareRoleButton(
+                        suggestedRole: _selectedBar == 'outside_bar'
+                            ? AppRole.outside_bartender
+                            : AppRole.vip_bartender,
+                      ),
+                      if (isBartender)
+                        IconButton(
+                          icon: const Icon(Icons.inventory_2, color: Colors.white),
+                          tooltip: 'Daily Stock Count',
+                          onPressed: () => context.push('/stock'),
+                        ),
+                      if (showAddItemButton)
+                        IconButton(
+                          icon: const Icon(Icons.approval, color: Colors.white),
+                          tooltip: 'Stock Count Approvals',
+                          onPressed: () => context.push('/stock/approval'),
+                        ),
+                      if (showAddItemButton)
+                        IconButton(
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          onPressed: _showAddItemDialog,
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  color: Colors.white,
+                  decoration: BoxDecoration(
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
@@ -349,19 +390,21 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     offset: const Offset(0, 1),
                   ),
                 ],
-              ),
-              child: TabBar(
-                controller: _tabController,
-                labelColor: Colors.green[800],
-                unselectedLabelColor: Colors.grey[600],
-                indicatorColor: Colors.green[800],
-                tabs: [
-                  const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
-                  const Tab(text: 'History', icon: Icon(Icons.history)),
-                  if (isBartender)
-                    const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
-                ],
-              ),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.green[800],
+                    unselectedLabelColor: Colors.grey[600],
+                    indicatorColor: Colors.green[800],
+                    tabs: [
+                      const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
+                      const Tab(text: 'History', icon: Icon(Icons.history)),
+                      if (isBartender)
+                        const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
+                    ],
+                  ),
+                ),
+              ],
             ),
             content: TabBarView(
               controller: _tabController,

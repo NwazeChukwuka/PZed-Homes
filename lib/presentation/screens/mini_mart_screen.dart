@@ -1010,33 +1010,39 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         final tabCountMismatch = _tabController!.length != tabCount;
         if (tabCountMismatch) {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text('Mini Mart', overflow: TextOverflow.ellipsis, maxLines: 1),
-              backgroundColor: Colors.green[700],
+            body: LayeredScrollBody(
+              topSection: Container(
+                color: Colors.green[700],
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    if (Navigator.of(context).canPop())
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => context.pop(),
+                      ),
+                    const Expanded(
+                      child: Text(
+                        'Mini Mart',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+                  ],
+                ),
+              ),
+              content: const Center(child: CircularProgressIndicator()),
             ),
-            body: const Center(child: CircularProgressIndicator()),
           );
         }
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Mini Mart', overflow: TextOverflow.ellipsis, maxLines: 1),
-            backgroundColor: Colors.green[700],
-            foregroundColor: Colors.white,
-            leading: Navigator.of(context).canPop() ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => context.pop(),
-            ) : null,
-            actions: [
-              ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
-              if (showAddItem)
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  tooltip: 'Add Item',
-                  onPressed: _showAddMiniMartItemDialog,
-                ),
-            ],
-          ),
           floatingActionButton: showAddItem
               ? FloatingActionButton(
                   onPressed: _showAddMiniMartItemDialog,
@@ -1048,6 +1054,38 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           body: LayeredScrollBody(
             topSection: Column(
               children: [
+                Container(
+                  color: Colors.green[700],
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      if (Navigator.of(context).canPop())
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () => context.pop(),
+                        ),
+                      const Expanded(
+                        child: Text(
+                          'Mini Mart',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+                      if (showAddItem)
+                        IconButton(
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          tooltip: 'Add Item',
+                          onPressed: _showAddMiniMartItemDialog,
+                        ),
+                    ],
+                  ),
+                ),
                 _buildHeader(context),
                 Container(
                   color: Colors.white,
