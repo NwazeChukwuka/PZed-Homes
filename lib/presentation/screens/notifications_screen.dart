@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/state/app_state_manager.dart';
+import '../../presentation/widgets/layered_scroll_body.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -33,19 +34,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       builder: (context, state, _) {
         final notifications = state.notifications;
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Notifications'),
-            actions: [
-              if (notifications.isNotEmpty)
-                TextButton(
-                  onPressed: () => state.markAllNotificationsAsRead(),
-                  child: const Text('Mark all read'),
-                ),
-            ],
-          ),
-          body: notifications.isEmpty
-              ? const Center(child: Text('No notifications'))
-              : ListView.separated(
+          body: LayeredScrollBody(
+            topSection: Container(
+              color: Colors.blueGrey.shade700,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Notifications',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (notifications.isNotEmpty)
+                    TextButton(
+                      onPressed: () => state.markAllNotificationsAsRead(),
+                      child: const Text('Mark all read'),
+                    ),
+                ],
+              ),
+            ),
+            content: notifications.isEmpty
+                ? const Center(child: Text('No notifications'))
+                : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: notifications.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -88,6 +103,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     );
                   },
                 ),
+          ),
         );
       },
     );

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/data_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/services/payment_service.dart';
+import '../../presentation/widgets/layered_scroll_body.dart';
 
 /// Read-only store view for Owner/Manager to see what's available in the store
 /// without the ability to record or modify stock.
@@ -136,35 +137,52 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Store Inventory View'),
-        backgroundColor: Colors.green[700],
-        foregroundColor: Colors.white,
-        leading: Navigator.of(context).canPop()
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.of(context).pop(),
-              )
-            : null,
-        bottom: TabBar(
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Column(
+          children: [
+            Container(
+              color: Colors.green[700],
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Row(
+                children: [
+                  if (Navigator.of(context).canPop())
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  const Expanded(
+                    child: Text(
+                      'Store Inventory View',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(text: 'Current Stock', icon: Icon(Icons.inventory_2)),
+                Tab(text: 'Recent Movements', icon: Icon(Icons.swap_horiz)),
+                Tab(text: 'Pending Purchases', icon: Icon(Icons.pending_actions)),
+              ],
+            ),
+          ],
+        ),
+        content: TabBarView(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Current Stock', icon: Icon(Icons.inventory_2)),
-            Tab(text: 'Recent Movements', icon: Icon(Icons.swap_horiz)),
-            Tab(text: 'Pending Purchases', icon: Icon(Icons.pending_actions)),
+          children: [
+            _buildCurrentStockTab(),
+            _buildRecentMovementsTab(),
+            _buildPendingPurchasesTab(),
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildCurrentStockTab(),
-                _buildRecentMovementsTab(),
-                _buildPendingPurchasesTab(),
-              ],
-            ),
     );
   }
 

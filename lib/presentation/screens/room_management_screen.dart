@@ -7,6 +7,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -499,37 +500,36 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: _buildHeader(context),
-                ),
-                TabBar(
-                  controller: tabController,
-                  labelColor: Colors.green[800],
-                  unselectedLabelColor: Colors.grey[600],
-                  indicatorColor: Colors.green[800],
-                  tabs: [
-                    if (!_isPorter) const Tab(text: 'Booking History', icon: Icon(Icons.history)),
-                    const Tab(text: 'Room Status', icon: Icon(Icons.hotel)),
-                    if (_isManagement) const Tab(text: 'Manage Rooms', icon: Icon(Icons.settings)),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: tabController,
-                    children: [
-                      if (!_isPorter) _buildBookingHistoryTab(context),
-                      _buildRoomStatusTab(context),
-                      if (_isManagement) _buildManageRoomsTab(context),
-                    ],
-                  ),
-                ),
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: _buildHeader(context),
+            ),
+            TabBar(
+              controller: tabController,
+              labelColor: Colors.green[800],
+              unselectedLabelColor: Colors.grey[600],
+              indicatorColor: Colors.green[800],
+              tabs: [
+                if (!_isPorter) const Tab(text: 'Booking History', icon: Icon(Icons.history)),
+                const Tab(text: 'Room Status', icon: Icon(Icons.hotel)),
+                if (_isManagement) const Tab(text: 'Manage Rooms', icon: Icon(Icons.settings)),
               ],
             ),
+          ],
+        ),
+        content: TabBarView(
+          controller: tabController,
+          children: [
+            if (!_isPorter) _buildBookingHistoryTab(context),
+            _buildRoomStatusTab(context),
+            if (_isManagement) _buildManageRoomsTab(context),
+          ],
+        ),
+      ),
     );
   }
   

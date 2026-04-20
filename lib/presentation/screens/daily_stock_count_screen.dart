@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 class DailyStockCountScreen extends StatefulWidget {
   const DailyStockCountScreen({super.key});
@@ -486,19 +487,31 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     }
     
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Daily Stock Count'),
-        backgroundColor: Colors.brown.shade700,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+      body: LayeredScrollBody(
+        isLoading: _isLoadingData,
+        topSection: Container(
+          color: Colors.brown.shade700,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Daily Stock Count',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: _loadData,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _isLoadingData
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+        ),
+        content: Column(
               children: [
                 // Header Section
                 Padding(
@@ -675,6 +688,7 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                 ),
               ],
             ),
+      ),
     );
   }
 }

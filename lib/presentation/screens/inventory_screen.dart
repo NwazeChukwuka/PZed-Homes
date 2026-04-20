@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
@@ -336,45 +337,41 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 ),
             ],
           ),
-          body: Column(
-            children: [
-              Container(
+          body: LayeredScrollBody(
+            topSection: Container(
+              color: Colors.white,
+              decoration: BoxDecoration(
                 color: Colors.white,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 2,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.green[800],
-                  unselectedLabelColor: Colors.grey[600],
-                  indicatorColor: Colors.green[800],
-                  tabs: [
-                    const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
-                    const Tab(text: 'History', icon: Icon(Icons.history)),
-                    if (isBartender)
-                      const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
-                  ],
-                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 2,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildCurrentStockTab(),
-                    _buildStockMovementsTab(),
-                    if (isBartender)
-                      _buildMakeSaleTab(),
-                  ],
-                ),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.green[800],
+                unselectedLabelColor: Colors.grey[600],
+                indicatorColor: Colors.green[800],
+                tabs: [
+                  const Tab(text: 'Current Stock', icon: Icon(Icons.inventory)),
+                  const Tab(text: 'History', icon: Icon(Icons.history)),
+                  if (isBartender)
+                    const Tab(text: 'Make Sale', icon: Icon(Icons.point_of_sale)),
+                ],
               ),
-            ],
+            ),
+            content: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildCurrentStockTab(),
+                _buildStockMovementsTab(),
+                if (isBartender)
+                  _buildMakeSaleTab(),
+              ],
+            ),
           ),
           floatingActionButton: showAddItemButton
               ? FloatingActionButton(

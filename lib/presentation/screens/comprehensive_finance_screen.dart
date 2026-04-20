@@ -10,6 +10,7 @@ import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 import '../../presentation/widgets/context_aware_role_button.dart';
 import '../../presentation/widgets/finance_record_dialog.dart';
+import '../../presentation/widgets/layered_scroll_body.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -571,103 +572,103 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final canSetMonthlyGross = isOwnerOrManager;
     final roleKey = ValueKey('$canRecord-$canApprove-$canSetMonthlyGross');
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 1. Green header (no AppBar - avoids duplicate hamburger from MainScreen drawer)
-        Material(
-          color: Colors.green[700],
-          elevation: 4,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  if (Navigator.of(context).canPop())
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  const Expanded(
-                    child: Text(
-                      'Finance & Accounting',
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+    return LayeredScrollBody(
+      topSection: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Green header (no AppBar - avoids duplicate hamburger from MainScreen drawer)
+          Material(
+            color: Colors.green[700],
+            elevation: 4,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    if (Navigator.of(context).canPop())
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    const Expanded(
+                      child: Text(
+                        'Finance & Accounting',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, color: Colors.white),
-                    onPressed: _isLoadingData ? null : _loadCurrentTabData,
-                    tooltip: 'Refresh',
-                  ),
-                  const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
-                ],
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      onPressed: _isLoadingData ? null : _loadCurrentTabData,
+                      tooltip: 'Refresh',
+                    ),
+                    const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        // 2. TabBar in its own white container (matches Inventory/Mini Mart)
-        Container(
-          color: Colors.white,
-          decoration: BoxDecoration(
+          // 2. TabBar in its own white container (matches Inventory/Mini Mart)
+          Container(
             color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 2,
-                offset: const Offset(0, 1),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 2,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+              border: Border(
+                bottom: BorderSide(color: Colors.grey[300]!, width: 1),
               ),
-            ],
-            border: Border(
-              bottom: BorderSide(color: Colors.grey[300]!, width: 1),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 800;
+                return TabBar(
+                  controller: _tabController,
+                  isScrollable: !isWide,
+                  labelColor: Colors.green[800],
+                  unselectedLabelColor: Colors.grey[700],
+                  indicatorColor: Colors.green[800],
+                  tabAlignment: isWide ? TabAlignment.fill : TabAlignment.start,
+                  tabs: const [
+                    Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+                    Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
+                    Tab(text: 'Income', icon: Icon(Icons.trending_up)),
+                    Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
+                    Tab(text: 'Payroll', icon: Icon(Icons.payment)),
+                    Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
+                    Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
+                  ],
+                );
+              },
             ),
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 800;
-              return TabBar(
-                controller: _tabController,
-                isScrollable: !isWide,
-                labelColor: Colors.green[800],
-                unselectedLabelColor: Colors.grey[700],
-                indicatorColor: Colors.green[800],
-                tabAlignment: isWide ? TabAlignment.fill : TabAlignment.start,
-                tabs: const [
-                  Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-                  Tab(text: 'Debt Management', icon: Icon(Icons.money_off)),
-                  Tab(text: 'Income', icon: Icon(Icons.trending_up)),
-                  Tab(text: 'Expenses', icon: Icon(Icons.trending_down)),
-                  Tab(text: 'Payroll', icon: Icon(Icons.payment)),
-                  Tab(text: 'Cash Deposits', icon: Icon(Icons.account_balance)),
-                  Tab(text: 'Audit', icon: Icon(Icons.list_alt)),
-                ],
-              );
-            },
-          ),
-        ),
-        // 3. Date range strip (visible on all tabs, below tab row)
-        _buildSummaryRangeStrip(),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
-              _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
-              _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
-              _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove, canSetMonthlyGross)),
-              _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
-              _LazyTab(index: 6, controller: _tabController, builder: _buildAuditTab),
-            ],
-          ),
-        ),
-      ],
+          // 3. Date range strip (visible on all tabs, below tab row)
+          _buildSummaryRangeStrip(),
+        ],
+      ),
+      content: TabBarView(
+        controller: _tabController,
+        children: [
+          _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
+          _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
+          _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
+          _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+          _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove, canSetMonthlyGross)),
+          _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
+          _LazyTab(index: 6, controller: _tabController, builder: _buildAuditTab),
+        ],
+      ),
     );
   }
 

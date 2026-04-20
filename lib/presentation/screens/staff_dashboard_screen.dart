@@ -14,6 +14,7 @@ import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/data/models/booking.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 /// Personalized dashboard for individual staff members
 /// Shows only their own sales, transactions, and department-specific data
@@ -675,49 +676,60 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     );
     
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _showDepartmentView ? 'Department Dashboard' : 'My Dashboard',
-          overflow: TextOverflow.ellipsis,
-          maxLines: 1,
-        ),
-        backgroundColor: Colors.green[700],
-        foregroundColor: Colors.white,
-        actions: [
-          if (department != null)
-            IconButton(
-              icon: Icon(_showDepartmentView ? Icons.person : Icons.people),
-              tooltip: _showDepartmentView ? 'My Dashboard' : 'Department Dashboard',
-              onPressed: () {
-                setState(() {
-                  _showDepartmentView = !_showDepartmentView;
-                });
-              },
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-          ),
-        ],
-      ),
       backgroundColor: Colors.grey[50],
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(user),
-                  const SizedBox(height: 16),
-                  _buildTimeFilter(),
-                  const SizedBox(height: 16),
-                  _showDepartmentView
-                      ? _buildDepartmentView(department)
-                      : _buildPersonalView(),
-                ],
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Container(
+          color: Colors.green[700],
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _showDepartmentView ? 'Department Dashboard' : 'My Dashboard',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+              if (department != null)
+                IconButton(
+                  icon: Icon(_showDepartmentView ? Icons.person : Icons.people),
+                  color: Colors.white,
+                  tooltip: _showDepartmentView ? 'My Dashboard' : 'Department Dashboard',
+                  onPressed: () {
+                    setState(() {
+                      _showDepartmentView = !_showDepartmentView;
+                    });
+                  },
+                ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: _loadData,
+              ),
+            ],
+          ),
+        ),
+        content: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(user),
+              const SizedBox(height: 16),
+              _buildTimeFilter(),
+              const SizedBox(height: 16),
+              _showDepartmentView
+                  ? _buildDepartmentView(department)
+                  : _buildPersonalView(),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

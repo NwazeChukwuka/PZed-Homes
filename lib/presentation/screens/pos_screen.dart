@@ -6,6 +6,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PosScreen extends StatefulWidget {
@@ -246,35 +247,56 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Point of Sale'),
-        backgroundColor: Colors.deepPurple,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () async {
-              final scannedValue = await context.push<String>('/scanner');
-              if (scannedValue != null) {
-                _handleScannedBarcode(scannedValue);
-              }
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadInitialData,
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Restaurant'),
-            Tab(text: 'Bar'),
+      body: LayeredScrollBody(
+        isLoading: _isLoadingMenu,
+        topSection: Column(
+          children: [
+            Container(
+              color: Colors.deepPurple,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Point of Sale',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
+                    onPressed: () async {
+                      final scannedValue = await context.push<String>('/scanner');
+                      if (scannedValue != null) {
+                        _handleScannedBarcode(scannedValue);
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    onPressed: _loadInitialData,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              color: Colors.deepPurple,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                tabs: const [
+                  Tab(text: 'Restaurant'),
+                  Tab(text: 'Bar'),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      body: _isLoadingMenu
-          ? const Center(child: CircularProgressIndicator())
-          : Row(
+        content: Row(
               children: [
                 // Menu Grid Section
                 Expanded(
@@ -295,6 +317,7 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                 ),
               ],
             ),
+      ),
     );
   }
 

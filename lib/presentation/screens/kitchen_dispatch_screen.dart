@@ -16,6 +16,7 @@ import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
@@ -2422,27 +2423,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         }
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Kitchen', overflow: TextOverflow.ellipsis, maxLines: 1),
-            backgroundColor: Colors.orange.shade800,
-            leading: Navigator.of(context).canPop() ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => context.pop(),
-            ) : null,
-            actions: [
-              const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
-              if (!isOperational)
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  tooltip: 'Add Menu Item',
-                  onPressed: _showAddMenuItemDialog,
-                ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _loadStockAndLocations,
-              ),
-            ],
-          ),
           floatingActionButton: !isOperational
               ? FloatingActionButton(
                   onPressed: _showAddMenuItemDialog,
@@ -2450,34 +2430,72 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   child: const Icon(Icons.add, color: Colors.white),
                 )
               : null,
-          body: Column(
-            children: [
-              if (_missingStockLinks.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
-                _KitchenMissingStockWarning(
-                  missingLinks: _missingStockLinks,
-                  onDismiss: () {
-                    setState(() => _dismissedWarnings.add('missing_stock_linkage'));
-                  },
+          body: LayeredScrollBody(
+            topSection: Column(
+              children: [
+                Container(
+                  color: Colors.orange.shade800,
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: Row(
+                    children: [
+                      if (Navigator.of(context).canPop())
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () => context.pop(),
+                        ),
+                      const Expanded(
+                        child: Text(
+                          'Kitchen',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+                      if (!isOperational)
+                        IconButton(
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          tooltip: 'Add Menu Item',
+                          onPressed: _showAddMenuItemDialog,
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        onPressed: _loadStockAndLocations,
+                      ),
+                    ],
+                  ),
                 ),
-              Expanded(
-                child: Column(
-                  children: [
-                    TabBar(
-                      controller: _tabController,
-                      labelColor: Colors.orange.shade800,
-                      tabs: isOperational
-                          ? const [
-                              Tab(text: 'Dispatch', icon: Icon(Icons.send)),
-                              Tab(text: 'Sales', icon: Icon(Icons.point_of_sale)),
-                              Tab(text: 'History', icon: Icon(Icons.history)),
-                            ]
-                          : const [
-                              Tab(text: 'Menu', icon: Icon(Icons.restaurant_menu)),
-                              Tab(text: 'History', icon: Icon(Icons.history)),
-                            ],
-                    ),
-                    Expanded(
-                      child: TabBarView(
+                if (_missingStockLinks.isNotEmpty &&
+                    !_dismissedWarnings.contains('missing_stock_linkage'))
+                  _KitchenMissingStockWarning(
+                    missingLinks: _missingStockLinks,
+                    onDismiss: () {
+                      setState(
+                        () => _dismissedWarnings.add('missing_stock_linkage'),
+                      );
+                    },
+                  ),
+                TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.orange.shade800,
+                  tabs: isOperational
+                      ? const [
+                          Tab(text: 'Dispatch', icon: Icon(Icons.send)),
+                          Tab(text: 'Sales', icon: Icon(Icons.point_of_sale)),
+                          Tab(text: 'History', icon: Icon(Icons.history)),
+                        ]
+                      : const [
+                          Tab(text: 'Menu', icon: Icon(Icons.restaurant_menu)),
+                          Tab(text: 'History', icon: Icon(Icons.history)),
+                        ],
+                ),
+              ],
+            ),
+            content: TabBarView(
                         controller: _tabController,
                         children: isOperational ? [
                           // Dispatch tab
@@ -2712,11 +2730,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         );
       },
     );

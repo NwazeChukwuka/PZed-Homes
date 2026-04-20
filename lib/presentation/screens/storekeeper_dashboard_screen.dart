@@ -7,6 +7,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
 import 'package:uuid/uuid.dart';
 
@@ -49,72 +50,108 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     // But need to assume role for full functionality
     if (ownerManager && !isAssumedStorekeeper) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Store View', overflow: TextOverflow.ellipsis, maxLines: 1),
-          backgroundColor: Colors.green[700],
-          foregroundColor: Colors.white,
-          leading: Navigator.of(context).canPop() ? IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ) : null,
-          actions: const [
-            ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-          ],
+        body: LayeredScrollBody(
+          topSection: _buildStorekeeperHeader(
+            context: context,
+            title: 'Store View',
+            subtitle: 'Read-only warehouse overview',
+            showTabs: false,
+          ),
+          content: _buildReadOnlyStoreView(),
         ),
-        body: _buildReadOnlyStoreView(),
       );
     }
 
     if (!showFull) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Storekeeper Dashboard', overflow: TextOverflow.ellipsis, maxLines: 1),
-          backgroundColor: Colors.green[700],
-          foregroundColor: Colors.white,
-          leading: Navigator.of(context).canPop() ? IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ) : null,
-          actions: const [
-            ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-          ],
+        body: LayeredScrollBody(
+          topSection: _buildStorekeeperHeader(
+            context: context,
+            title: 'Storekeeper Dashboard',
+            subtitle: 'Assume Storekeeper role for full access',
+            showTabs: false,
+          ),
+          content: const Center(child: Text('Access restricted. Assume Storekeeper role to view.')),
         ),
-        body: const Center(child: Text('Access restricted. Assume Storekeeper role to view.')),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Storekeeper Dashboard', overflow: TextOverflow.ellipsis, maxLines: 1),
-        backgroundColor: Colors.green[700],
-        foregroundColor: Colors.white,
-        leading: Navigator.of(context).canPop() ? IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ) : null,
-        actions: const [
-          ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
-        ],
-        bottom: TabBar(
+      body: LayeredScrollBody(
+        topSection: _buildStorekeeperHeader(
+          context: context,
+          title: 'Storekeeper Dashboard',
+          subtitle: 'Warehouse operations and stock movement',
+          showTabs: true,
+        ),
+        content: TabBarView(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Confirm Purchases'),
-            Tab(text: 'Direct Stock Entry'),
-            Tab(text: 'Issue to Department'),
+          children: const [
+            ConfirmPurchasesScreen(),
+            DirectStockEntryForm(),
+            StockTransferForm(),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          ConfirmPurchasesScreen(),
-          DirectStockEntryForm(),
-          StockTransferForm(),
-        ],
-      ),
     );
   }
-  
+
+  Widget _buildStorekeeperHeader({
+    required BuildContext context,
+    required String title,
+    required String subtitle,
+    required bool showTabs,
+  }) {
+    return Column(
+      children: [
+        Container(
+          color: Colors.green[700],
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Row(
+            children: [
+              if (Navigator.of(context).canPop())
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
+            ],
+          ),
+        ),
+        if (showTabs)
+          TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(text: 'Confirm Purchases'),
+              Tab(text: 'Direct Stock Entry'),
+              Tab(text: 'Issue to Department'),
+            ],
+          ),
+      ],
+    );
+  }
+
   Widget _buildReadOnlyStoreView() {
     final dataService = DataService();
     // Data source: stock_levels ledger (stock_transactions). Filter by Main Store only so

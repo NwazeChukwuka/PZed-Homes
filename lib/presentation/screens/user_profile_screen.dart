@@ -7,6 +7,7 @@ import 'package:pzed_homes/core/services/password_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -407,18 +408,32 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         : null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(fullName),
-        actions: [
-          if (isAdmin) IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _resetUserPassword(),
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Container(
+          color: Colors.blueGrey.shade700,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  fullName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (isAdmin)
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  onPressed: () => _resetUserPassword(),
+                ),
+            ],
           ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+        ),
+        content: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -632,6 +647,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 

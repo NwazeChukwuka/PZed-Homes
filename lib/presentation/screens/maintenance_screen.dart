@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   const MaintenanceScreen({super.key});
@@ -79,13 +80,27 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Maintenance'),
-        backgroundColor: Colors.orange[700],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Builder(builder: (context) {
+      body: LayeredScrollBody(
+        isLoading: _loading,
+        topSection: Container(
+          color: Colors.orange[700],
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          child: const Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Maintenance',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Builder(builder: (context) {
               final workOrders = _workOrders;
               if (workOrders.isEmpty) {
                 return Center(
@@ -146,6 +161,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
                 },
               );
             }),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _loadWorkOrders,
         tooltip: 'Refresh',

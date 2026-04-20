@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/reporting_service.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 class ReportingScreen extends StatefulWidget {
   const ReportingScreen({super.key});
@@ -404,17 +405,17 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildHeader(context),
-          _buildTabBar(),
-          Expanded(
-            child: SingleChildScrollView(
-              child: _buildCurrentTabContent(),
-            ),
-          ),
-        ],
+      body: LayeredScrollBody(
+        topSection: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(context),
+            _buildTabBar(),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: _buildCurrentTabContent(),
+        ),
       ),
     );
   }

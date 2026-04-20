@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -112,12 +113,30 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Record New Expense')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
+      body: LayeredScrollBody(
+        topSection: Container(
+          color: Colors.green[700],
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: const Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Record New Expense',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
             children: [
               TextFormField(
                 controller: _descriptionController,
@@ -191,6 +210,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       ),
                     ),
             ],
+          ),
           ),
         ),
       ),

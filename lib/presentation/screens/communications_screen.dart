@@ -5,6 +5,7 @@ import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -256,13 +257,27 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
                      authService.currentUser?.role == AppRole.owner;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Announcements'),
-        backgroundColor: Colors.blueGrey.shade700,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Builder(builder: (context) {
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Container(
+          color: Colors.blueGrey.shade700,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          child: const Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Announcements',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Builder(builder: (context) {
           final posts = _posts;
           if (posts.isEmpty) {
             return Center(
@@ -336,6 +351,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
             },
           );
         }),
+      ),
       floatingActionButton: canPost
           ? FloatingActionButton(
               onPressed: () => _showCreatePostDialog(),

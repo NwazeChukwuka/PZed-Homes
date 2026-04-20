@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 class StockCountApprovalScreen extends StatefulWidget {
   const StockCountApprovalScreen({super.key});
@@ -354,40 +355,51 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stock Count Approvals'),
-        backgroundColor: Colors.brown[700],
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
-        actions: [
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'pending', label: Text('Pending')),
-              ButtonSegment(value: 'historical', label: Text('History')),
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: Container(
+          color: Colors.brown[700],
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => context.pop(),
+              ),
+              const Expanded(
+                child: Text(
+                  'Stock Count Approvals',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'pending', label: Text('Pending')),
+                  ButtonSegment(value: 'historical', label: Text('History')),
+                ],
+                selected: {_viewMode},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _viewMode = selection.first;
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: () {
+                  _loadPendingCounts();
+                  _loadHistoricalCounts();
+                },
+              ),
             ],
-            selected: {_viewMode},
-            onSelectionChanged: (selection) {
-              setState(() {
-                _viewMode = selection.first;
-              });
-            },
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              _loadPendingCounts();
-              _loadHistoricalCounts();
-            },
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _viewMode == 'pending'
+        ),
+        content: _viewMode == 'pending'
               ? _pendingCounts.isEmpty
                   ? Center(
                       child: Column(
@@ -435,6 +447,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
                         )
                       : _buildCountsList(_historicalCounts, showActions: false),
                 ),
+      ),
     );
   }
 

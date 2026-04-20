@@ -14,6 +14,7 @@ import 'package:pzed_homes/core/animations/app_animations.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/core/utils/room_number_sort.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
 enum TimeRange { today, month, lastMonth, custom }
 
@@ -903,24 +904,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final screenWidth = constraints.maxWidth;
-                  final isMobile = screenWidth < 600;
-                  if (screenWidth > 1200) {
-                    return _buildDesktopLayout(context, screenWidth, isMobile);
-                  } else if (screenWidth > 800) {
-                    return _buildTabletLayout(context, screenWidth, isMobile);
-                  } else {
-                    return _buildMobileLayout(context, screenWidth, isMobile);
-                  }
-                },
-              ),
-            ),
+      body: LayeredScrollBody(
+        isLoading: _isLoading,
+        topSection: const SizedBox.shrink(),
+        content: RefreshIndicator(
+          onRefresh: _loadData,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final screenWidth = constraints.maxWidth;
+              final isMobile = screenWidth < 600;
+              if (screenWidth > 1200) {
+                return _buildDesktopLayout(context, screenWidth, isMobile);
+              } else if (screenWidth > 800) {
+                return _buildTabletLayout(context, screenWidth, isMobile);
+              } else {
+                return _buildMobileLayout(context, screenWidth, isMobile);
+              }
+            },
+          ),
+        ),
+      ),
     );
   }
 

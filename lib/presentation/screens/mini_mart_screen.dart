@@ -16,6 +16,7 @@ import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/widgets/product_card.dart';
 import 'package:pzed_homes/presentation/widgets/product_form_dialog.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/widgets/sale_list_item.dart';
 import 'package:pzed_homes/presentation/widgets/scrollable_list_with_arrows.dart';
 import 'package:flutter/services.dart';
@@ -1044,34 +1045,34 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 )
               : null,
           backgroundColor: Colors.grey[50],
-          body: Column(
-            children: [
-              _buildHeader(context),
-              Container(
-                color: Colors.white,
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.green[800],
-                  unselectedLabelColor: Colors.grey[600],
-                  indicatorColor: Colors.green[800],
-                  tabs: [
-                    if (isReceptionist) const Tab(text: 'Make Sale', icon: Icon(Icons.shopping_cart)),
-                    const Tab(text: 'Sales History', icon: Icon(Icons.history)),
-                    const Tab(text: 'Inventory', icon: Icon(Icons.inventory)),
-                  ],
+          body: LayeredScrollBody(
+            topSection: Column(
+              children: [
+                _buildHeader(context),
+                Container(
+                  color: Colors.white,
+                  child: TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.green[800],
+                    unselectedLabelColor: Colors.grey[600],
+                    indicatorColor: Colors.green[800],
+                    tabs: [
+                      if (isReceptionist) const Tab(text: 'Make Sale', icon: Icon(Icons.shopping_cart)),
+                      const Tab(text: 'Sales History', icon: Icon(Icons.history)),
+                      const Tab(text: 'Inventory', icon: Icon(Icons.inventory)),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    if (isReceptionist) _buildSalesInterface(),
-                    _buildSalesHistory(),
-                    _buildInventory(),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
+            content: TabBarView(
+              controller: _tabController,
+              children: [
+                if (isReceptionist) _buildSalesInterface(),
+                _buildSalesHistory(),
+                _buildInventory(),
+              ],
+            ),
           ),
         );
       },

@@ -6,6 +6,7 @@ import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/utils/staff_auth_helper.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:intl/intl.dart';
 
 class PurchaserDashboardScreen extends StatefulWidget {
@@ -343,34 +344,34 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
             });
           }
           
-          return Column(
-            children: [
-              _buildHeader(context),
-              Container(
-                color: Colors.white,
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.green[800],
-                  unselectedLabelColor: Colors.grey[600],
-                  indicatorColor: Colors.green[800],
-                  tabs: [
-                    if (showRecordPurchase) const Tab(text: 'Record Purchase', icon: Icon(Icons.add_shopping_cart)),
-                    const Tab(text: 'Budget Overview', icon: Icon(Icons.account_balance_wallet)),
-                    const Tab(text: 'Purchase History', icon: Icon(Icons.history)),
-                  ],
+          return LayeredScrollBody(
+            topSection: Column(
+              children: [
+                _buildHeader(context),
+                Container(
+                  color: Colors.white,
+                  child: TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.green[800],
+                    unselectedLabelColor: Colors.grey[600],
+                    indicatorColor: Colors.green[800],
+                    tabs: [
+                      if (showRecordPurchase) const Tab(text: 'Record Purchase', icon: Icon(Icons.add_shopping_cart)),
+                      const Tab(text: 'Budget Overview', icon: Icon(Icons.account_balance_wallet)),
+                      const Tab(text: 'Purchase History', icon: Icon(Icons.history)),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    if (showRecordPurchase) _buildPurchaseForm(),
-                    _buildBudgetOverview(),
-                    _buildPurchaseHistory(),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
+            content: TabBarView(
+              controller: _tabController,
+              children: [
+                if (showRecordPurchase) _buildPurchaseForm(),
+                _buildBudgetOverview(),
+                _buildPurchaseHistory(),
+              ],
+            ),
           );
         },
       ),

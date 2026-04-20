@@ -11,6 +11,7 @@ import 'package:pzed_homes/core/utils/input_sanitizer.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:pzed_homes/data/models/user.dart';
+import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HrScreen extends StatefulWidget {
@@ -84,38 +85,38 @@ class _HrScreenState extends State<HrScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Column(
-        children: [
-          _buildHeader(context),
-          Container(
-            width: double.infinity,
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.green[800],
-              unselectedLabelColor: Colors.grey[600],
-              indicatorColor: Colors.green[800],
-              isScrollable: false,
-              tabAlignment: TabAlignment.fill,
-              tabs: const [
-                Tab(text: 'Staff Directory', icon: Icon(Icons.people_alt)),
-                Tab(
-                  text: 'Roles & Positions',
-                  icon: Icon(Icons.admin_panel_settings),
-                ),
-              ],
+      body: LayeredScrollBody(
+        topSection: Column(
+          children: [
+            _buildHeader(context),
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.green[800],
+                unselectedLabelColor: Colors.grey[600],
+                indicatorColor: Colors.green[800],
+                isScrollable: false,
+                tabAlignment: TabAlignment.fill,
+                tabs: const [
+                  Tab(text: 'Staff Directory', icon: Icon(Icons.people_alt)),
+                  Tab(
+                    text: 'Roles & Positions',
+                    icon: Icon(Icons.admin_panel_settings),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildStaffDirectoryTab(context),
-                _buildRolesPositionsTab(context),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
+        content: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildStaffDirectoryTab(context),
+            _buildRolesPositionsTab(context),
+          ],
+        ),
       ),
     );
   }
