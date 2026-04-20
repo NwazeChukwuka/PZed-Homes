@@ -51,23 +51,46 @@ class _LayeredScrollBodyState extends State<LayeredScrollBody> {
             hasScrollBody: true,
             child: PrimaryScrollController.none(
               child: Listener(
-                onPointerDown: (_) => _setOuterScrollLock(true),
-                onPointerUp: (_) => _setOuterScrollLock(false),
                 onPointerCancel: (_) => _setOuterScrollLock(false),
-                onPointerSignal: (_) => _setOuterScrollLock(true),
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
-                    // Lock parent while Layer C is actively scrolling, including
-                    // overscroll momentum, then release immediately at rest.
-                    if (notification is ScrollStartNotification ||
-                        notification is ScrollUpdateNotification ||
-                        notification is OverscrollNotification) {
+                    if (notification is ScrollStartNotification) {
                       _setOuterScrollLock(true);
-                    } else if (notification is ScrollEndNotification ||
+                      return false;
+                    }
+
+                    if (notification is ScrollUpdateNotification) {
+                      final metrics = notification.metrics;
+                      final delta = notification.scrollDelta ?? 0;
+                      final atTop = metrics.pixels <= metrics.minScrollExtent + 0.5;
+                      final atBottom = metrics.pixels >= metrics.maxScrollExtent - 0.5;
+
+                      // Keep parent locked while Layer C can still scroll.
+                      // But when at an edge and user keeps pushing in that same
+                      // direction, unlock parent so Layer B can move.
+                      final canHandoffToParent =
+                          (atTop && delta < 0) || (atBottom && delta > 0);
+                      _setOuterScrollLock(!canHandoffToParent);
+                      return false;
+                    }
+
+                    if (notification is OverscrollNotification) {
+                      final metrics = notification.metrics;
+                      final overscroll = notification.overscroll;
+                      final atTop = metrics.pixels <= metrics.minScrollExtent + 0.5;
+                      final atBottom = metrics.pixels >= metrics.maxScrollExtent - 0.5;
+                      final canHandoffToParent =
+                          (atTop && overscroll < 0) || (atBottom && overscroll > 0);
+                      _setOuterScrollLock(!canHandoffToParent);
+                      return false;
+                    }
+
+                    if (notification is ScrollEndNotification ||
                         (notification is UserScrollNotification &&
                             notification.direction == ScrollDirection.idle)) {
                       _setOuterScrollLock(false);
                     }
+
                     return false;
                   },
                   child: widget.content,
