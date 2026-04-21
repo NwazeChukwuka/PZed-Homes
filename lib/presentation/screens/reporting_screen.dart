@@ -444,53 +444,50 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                    Text('Reports & Analytics',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.green[800])),
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Reports & Analytics',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[800],
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text(_periodLabel(), style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-              ],
-            ),
-          ),
+                    Text(
+                      _periodLabel(),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh),
-                onPressed: _isLoadingForTab(_tabController.index) ? null : () {
-                  setState(() {
-                    switch (_tabController.index) {
-                      case 0:
-                        _financialLoadError = null;
-                        break;
-                      case 1:
-                        _guestLoadError = null;
-                        break;
-                      case 2:
-                        _opsLoadError = null;
-                        break;
-                    }
-                  });
-                  _loadForTab(_tabController.index, force: true);
-                },
+                onPressed: _isLoadingForTab(_tabController.index)
+                    ? null
+                    : () {
+                        setState(() {
+                          switch (_tabController.index) {
+                            case 0:
+                              _financialLoadError = null;
+                              break;
+                            case 1:
+                              _guestLoadError = null;
+                              break;
+                            case 2:
+                              _opsLoadError = null;
+                              break;
+                          }
+                        });
+                        _loadForTab(_tabController.index, force: true);
+                      },
                 tooltip: 'Refresh',
               ),
-              const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green[200]!)),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.analytics, color: Colors.green[700], size: 16),
-                const SizedBox(width: 8),
-                    Text('Business Intelligence', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
-              ],
-            ),
+            ],
           ),
-        ],
-      ),
           const SizedBox(height: 16),
           _buildPeriodSelector(),
         ],

@@ -2436,37 +2436,70 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 Container(
                   color: Colors.orange.shade800,
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                  child: Row(
-                    children: [
-                      if (Navigator.of(context).canPop())
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: () => context.pop(),
-                        ),
-                      const Expanded(
-                        child: Text(
-                          'Kitchen',
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isMobile = constraints.maxWidth < 760;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (Navigator.of(context).canPop())
+                                IconButton(
+                                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                  onPressed: () => context.pop(),
+                                ),
+                              const Expanded(
+                                child: Text(
+                                  'Kitchen',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (!isMobile) ...[
+                                const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+                                if (!isOperational)
+                                  IconButton(
+                                    icon: const Icon(Icons.add, color: Colors.white),
+                                    tooltip: 'Add Menu Item',
+                                    onPressed: _showAddMenuItemDialog,
+                                  ),
+                                IconButton(
+                                  icon: const Icon(Icons.refresh, color: Colors.white),
+                                  onPressed: _loadStockAndLocations,
+                                ),
+                              ],
+                            ],
                           ),
-                        ),
-                      ),
-                      const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
-                      if (!isOperational)
-                        IconButton(
-                          icon: const Icon(Icons.add, color: Colors.white),
-                          tooltip: 'Add Menu Item',
-                          onPressed: _showAddMenuItemDialog,
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.white),
-                        onPressed: _loadStockAndLocations,
-                      ),
-                    ],
+                          if (isMobile) ...[
+                            const SizedBox(height: 6),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+                                  if (!isOperational)
+                                    IconButton(
+                                      icon: const Icon(Icons.add, color: Colors.white),
+                                      tooltip: 'Add Menu Item',
+                                      onPressed: _showAddMenuItemDialog,
+                                    ),
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh, color: Colors.white),
+                                    onPressed: _loadStockAndLocations,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                 ),
                 if (_missingStockLinks.isNotEmpty &&

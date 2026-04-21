@@ -335,48 +335,69 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                 Container(
                   color: Colors.green[700],
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      if (Navigator.of(context).canPop())
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: () => context.pop(),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isMobile = constraints.maxWidth < 760;
+                      final actions = [
+                        ContextAwareRoleButton(
+                          suggestedRole: _selectedBar == 'outside_bar'
+                              ? AppRole.outside_bartender
+                              : AppRole.vip_bartender,
                         ),
-                      const Expanded(
-                        child: Text(
-                          'Inventory Management',
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
+                        if (isBartender)
+                          IconButton(
+                            icon: const Icon(Icons.inventory_2, color: Colors.white),
+                            tooltip: 'Daily Stock Count',
+                            onPressed: () => context.push('/stock'),
                           ),
-                        ),
-                      ),
-                      ContextAwareRoleButton(
-                        suggestedRole: _selectedBar == 'outside_bar'
-                            ? AppRole.outside_bartender
-                            : AppRole.vip_bartender,
-                      ),
-                      if (isBartender)
-                        IconButton(
-                          icon: const Icon(Icons.inventory_2, color: Colors.white),
-                          tooltip: 'Daily Stock Count',
-                          onPressed: () => context.push('/stock'),
-                        ),
-                      if (showAddItemButton)
-                        IconButton(
-                          icon: const Icon(Icons.approval, color: Colors.white),
-                          tooltip: 'Stock Count Approvals',
-                          onPressed: () => context.push('/stock/approval'),
-                        ),
-                      if (showAddItemButton)
-                        IconButton(
-                          icon: const Icon(Icons.add, color: Colors.white),
-                          onPressed: _showAddItemDialog,
-                        ),
-                    ],
+                        if (showAddItemButton)
+                          IconButton(
+                            icon: const Icon(Icons.approval, color: Colors.white),
+                            tooltip: 'Stock Count Approvals',
+                            onPressed: () => context.push('/stock/approval'),
+                          ),
+                        if (showAddItemButton)
+                          IconButton(
+                            icon: const Icon(Icons.add, color: Colors.white),
+                            onPressed: _showAddItemDialog,
+                          ),
+                      ];
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (Navigator.of(context).canPop())
+                                IconButton(
+                                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                  onPressed: () => context.pop(),
+                                ),
+                              const Expanded(
+                                child: Text(
+                                  'Inventory Management',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (!isMobile) ...actions,
+                            ],
+                          ),
+                          if (isMobile) ...[
+                            const SizedBox(height: 6),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(children: actions),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                 ),
                 Container(

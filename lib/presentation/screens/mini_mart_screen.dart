@@ -1057,36 +1057,60 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                 Container(
                   color: Colors.green[700],
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      if (Navigator.of(context).canPop())
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: () => context.pop(),
-                        ),
-                      const Expanded(
-                        child: Text(
-                          'Mini Mart',
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isMobile = constraints.maxWidth < 700;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (Navigator.of(context).canPop())
+                                IconButton(
+                                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                  onPressed: () => context.pop(),
+                                ),
+                              const Expanded(
+                                child: Text(
+                                  'Mini Mart',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (!isMobile)
+                                const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+                              if (!isMobile && showAddItem)
+                                IconButton(
+                                  icon: const Icon(Icons.add, color: Colors.white),
+                                  tooltip: 'Add Item',
+                                  onPressed: _showAddMiniMartItemDialog,
+                                ),
+                            ],
                           ),
-                        ),
-                      ),
-                      const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
-                      if (showAddItem)
-                        IconButton(
-                          icon: const Icon(Icons.add, color: Colors.white),
-                          tooltip: 'Add Item',
-                          onPressed: _showAddMiniMartItemDialog,
-                        ),
-                    ],
+                          if (isMobile) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+                                if (showAddItem)
+                                  IconButton(
+                                    icon: const Icon(Icons.add, color: Colors.white),
+                                    tooltip: 'Add Item',
+                                    onPressed: _showAddMiniMartItemDialog,
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                 ),
-                _buildHeader(context),
                 Container(
                   color: Colors.white,
                   child: TabBar(
@@ -1114,69 +1138,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           ),
         );
       },
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Mini Mart Sales',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Manage mini mart sales and inventory',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green[200]!),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.store, color: Colors.green[700], size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  'Mini Mart',
-                  style: TextStyle(
-                    color: Colors.green[700],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
