@@ -608,7 +608,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       onPressed: _isLoadingData ? null : _loadCurrentTabData,
                       tooltip: 'Refresh',
                     ),
-                    const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
+                    if (MediaQuery.sizeOf(context).width >= 700)
+                      const ContextAwareRoleButton(suggestedRole: AppRole.accountant),
                   ],
                 ),
               ),

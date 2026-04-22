@@ -1533,65 +1533,50 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   }
 
   Widget _buildHeader(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 900;
+        final showLocalRoleButton = constraints.maxWidth >= 700;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            Row(
+              children: [
+                Expanded(
                   child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                    'Room Management',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green[800],
-                    ),
+                        'Room Management',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[800],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Booking history, room status, and housekeeping',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
                   ),
-                        const SizedBox(height: 8),
-                  Text(
-                    'Booking history, room status, and housekeeping',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
+                ),
+                if (isDesktop && showLocalRoleButton) ...[
+                  const SizedBox(width: 12),
+                  const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
                 ],
-              ),
+              ],
             ),
+            if (!isDesktop && showLocalRoleButton) ...[
+              const SizedBox(height: 12),
+              const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+            ],
           ],
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green[200]!),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.info_outline, color: Colors.green[700], size: 16),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${_allRooms.length} Total Rooms',
-                    style: TextStyle(
-                      color: Colors.green[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ],
+        );
+      },
     );
   }
 }

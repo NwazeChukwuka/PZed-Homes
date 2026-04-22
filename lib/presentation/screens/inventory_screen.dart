@@ -291,6 +291,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
         // While controller is mismatched, show placeholder to avoid TabBar/TabBarView assertion
         if (tabCountMismatch) {
+          final showLocalRoleButton = MediaQuery.sizeOf(context).width >= 700;
           return Scaffold(
             body: LayeredScrollBody(
               topSection: Container(
@@ -315,11 +316,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                         ),
                       ),
                     ),
-                    ContextAwareRoleButton(
-                      suggestedRole: _selectedBar == 'outside_bar'
-                          ? AppRole.outside_bartender
-                          : AppRole.vip_bartender,
-                    ),
+                    if (showLocalRoleButton)
+                      ContextAwareRoleButton(
+                        suggestedRole: _selectedBar == 'outside_bar'
+                            ? AppRole.outside_bartender
+                            : AppRole.vip_bartender,
+                      ),
                   ],
                 ),
               ),
@@ -339,11 +341,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     builder: (context, constraints) {
                       final isMobile = constraints.maxWidth < 760;
                       final actions = [
-                        ContextAwareRoleButton(
-                          suggestedRole: _selectedBar == 'outside_bar'
-                              ? AppRole.outside_bartender
-                              : AppRole.vip_bartender,
-                        ),
+                        if (!isMobile)
+                          ContextAwareRoleButton(
+                            suggestedRole: _selectedBar == 'outside_bar'
+                                ? AppRole.outside_bartender
+                                : AppRole.vip_bartender,
+                          ),
                         if (isBartender)
                           IconButton(
                             icon: const Icon(Icons.inventory_2, color: Colors.white),
@@ -355,11 +358,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                             icon: const Icon(Icons.approval, color: Colors.white),
                             tooltip: 'Stock Count Approvals',
                             onPressed: () => context.push('/stock/approval'),
-                          ),
-                        if (showAddItemButton)
-                          IconButton(
-                            icon: const Icon(Icons.add, color: Colors.white),
-                            onPressed: _showAddItemDialog,
                           ),
                       ];
 

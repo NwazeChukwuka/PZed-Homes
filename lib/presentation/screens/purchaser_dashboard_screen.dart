@@ -380,6 +380,7 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
   Widget _buildHeader(BuildContext context) {
     final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final showLocalRoleButton = !isMobile;
     final padding = isMobile ? 16.0 : 24.0;
     final titleSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -446,15 +447,18 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
               children: [
                 titleSection,
                 const SizedBox(height: 12),
-                const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
-                const SizedBox(height: 12),
+                if (showLocalRoleButton) ...[
+                  const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
+                  const SizedBox(height: 12),
+                ],
                 budgetChip,
               ],
             )
           : Row(
               children: [
                 Expanded(child: titleSection),
-                const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
+                if (showLocalRoleButton)
+                  const ContextAwareRoleButton(suggestedRole: AppRole.purchaser),
                 const SizedBox(width: 12),
                 budgetChip,
               ],

@@ -456,6 +456,9 @@ class _SidebarFooter extends StatelessWidget {
 class _DesktopAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final location = GoRouterState.of(context).uri.path;
+    final showGlobalAssumeRole = location.startsWith('/dashboard');
+
     return Container(
       height: 64,
       decoration: BoxDecoration(
@@ -490,7 +493,7 @@ class _DesktopAppBar extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          _AssumeRoleButton(),
+          if (showGlobalAssumeRole) _AssumeRoleButton(),
           _NotificationBadge(),
           const SizedBox(width: 8),
           IconButton(
@@ -1094,6 +1097,9 @@ class _LargeDesktopSidebarFooter extends StatelessWidget {
 class _LargeDesktopAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final location = GoRouterState.of(context).uri.path;
+    final showGlobalAssumeRole = location.startsWith('/dashboard');
+
     return Container(
       height: 80,
       decoration: BoxDecoration(
@@ -1128,6 +1134,7 @@ class _LargeDesktopAppBar extends StatelessWidget {
             ],
           ),
           const Spacer(),
+          if (showGlobalAssumeRole) _AssumeRoleButton(),
           _NotificationBadge(),
           const SizedBox(width: 8),
           IconButton(

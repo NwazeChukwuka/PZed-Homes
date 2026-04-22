@@ -1009,6 +1009,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
 
         final tabCountMismatch = _tabController!.length != tabCount;
         if (tabCountMismatch) {
+          final showLocalRoleButton = MediaQuery.sizeOf(context).width >= 700;
           return Scaffold(
             body: LayeredScrollBody(
               topSection: Container(
@@ -1033,7 +1034,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                         ),
                       ),
                     ),
-                    const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
+                    if (showLocalRoleButton)
+                      const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
                   ],
                 ),
               ),
@@ -1084,28 +1086,8 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                               ),
                               if (!isMobile)
                                 const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
-                              if (!isMobile && showAddItem)
-                                IconButton(
-                                  icon: const Icon(Icons.add, color: Colors.white),
-                                  tooltip: 'Add Item',
-                                  onPressed: _showAddMiniMartItemDialog,
-                                ),
                             ],
                           ),
-                          if (isMobile) ...[
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                const ContextAwareRoleButton(suggestedRole: AppRole.receptionist),
-                                if (showAddItem)
-                                  IconButton(
-                                    icon: const Icon(Icons.add, color: Colors.white),
-                                    tooltip: 'Add Item',
-                                    onPressed: _showAddMiniMartItemDialog,
-                                  ),
-                              ],
-                            ),
-                          ],
                         ],
                       );
                     },

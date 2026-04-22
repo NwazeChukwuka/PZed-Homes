@@ -2463,12 +2463,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               ),
                               if (!isMobile) ...[
                                 const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
-                                if (!isOperational)
-                                  IconButton(
-                                    icon: const Icon(Icons.add, color: Colors.white),
-                                    tooltip: 'Add Menu Item',
-                                    onPressed: _showAddMenuItemDialog,
-                                  ),
                                 IconButton(
                                   icon: const Icon(Icons.refresh, color: Colors.white),
                                   onPressed: _loadStockAndLocations,
@@ -2482,13 +2476,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: [
-                                  const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
-                                  if (!isOperational)
-                                    IconButton(
-                                      icon: const Icon(Icons.add, color: Colors.white),
-                                      tooltip: 'Add Menu Item',
-                                      onPressed: _showAddMenuItemDialog,
-                                    ),
+                                  // Mobile uses global assume-role and FAB for actions.
                                   IconButton(
                                     icon: const Icon(Icons.refresh, color: Colors.white),
                                     onPressed: _loadStockAndLocations,

@@ -102,6 +102,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     required String subtitle,
     required bool showTabs,
   }) {
+    final showLocalRoleButton = MediaQuery.sizeOf(context).width >= 700;
     return Column(
       children: [
         Container(
@@ -135,7 +136,8 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
                   ],
                 ),
               ),
-              const ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
+              if (showLocalRoleButton)
+                const ContextAwareRoleButton(suggestedRole: AppRole.storekeeper),
             ],
           ),
         ),

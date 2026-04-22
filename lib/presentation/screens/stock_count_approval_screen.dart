@@ -360,53 +360,89 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
         topSection: Container(
           color: Colors.brown[700],
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => context.pop(),
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Stock Count Approvals',
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 860;
+              final toggle = SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'pending', label: Text('Pending')),
+                  ButtonSegment(value: 'historical', label: Text('History')),
+                ],
+                selected: {_viewMode},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _viewMode = selection.first;
+                  });
+                },
+              );
+
+              if (isWide) {
+                return Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => context.pop(),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Stock Count Approvals',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, color: Colors.white),
-                    onPressed: () {
-                      _loadPendingCounts();
-                      _loadHistoricalCounts();
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'pending', label: Text('Pending')),
-                    ButtonSegment(value: 'historical', label: Text('History')),
+                    toggle,
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      onPressed: () {
+                        _loadPendingCounts();
+                        _loadHistoricalCounts();
+                      },
+                    ),
                   ],
-                  selected: {_viewMode},
-                  onSelectionChanged: (selection) {
-                    setState(() {
-                      _viewMode = selection.first;
-                    });
-                  },
-                ),
-              ),
-            ],
+                );
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => context.pop(),
+                      ),
+                      const Expanded(
+                        child: Text(
+                          'Stock Count Approvals',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        onPressed: () {
+                          _loadPendingCounts();
+                          _loadHistoricalCounts();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(width: double.infinity, child: toggle),
+                ],
+              );
+            },
           ),
         ),
         content: _viewMode == 'pending'
