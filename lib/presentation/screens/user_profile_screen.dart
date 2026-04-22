@@ -150,29 +150,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  Future<void> _updateUserStatus(String newStatus) async {
-    setState(() => _isLoading = true);
-    try {
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (mounted) {
-        ErrorHandler.showSuccessMessage(
-          context,
-          'User status updated to $newStatus',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ErrorHandler.handleError(
-          context,
-          e,
-          customMessage: 'Failed to update status. Please try again.',
-        );
-      }
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
   Future<void> _resetUserPassword() async {
     final email = widget.userProfile['email'];
     if (email == null) {
@@ -380,11 +357,36 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  AppRole? _parseRole(dynamic rawRole) {
+    final role = rawRole?.toString().trim();
+    if (role == null || role.isEmpty) return null;
+    for (final appRole in AppRole.values) {
+      if (appRole.name == role) return appRole;
+    }
+    return null;
+  }
+
+  String _resolveUserRoleDisplay(Map<String, dynamic> profile) {
+    final primaryRole = _parseRole(profile['role']);
+    if (primaryRole != null) {
+      return AuthService.getRoleDisplayName(primaryRole);
+    }
+
+    final roles = (profile['roles'] as List<dynamic>? ?? [])
+        .map((r) => _parseRole(r))
+        .whereType<AppRole>()
+        .toList();
+    if (roles.isNotEmpty) {
+      return AuthService.getRoleDisplayName(roles.first);
+    }
+
+    return 'Unassigned';
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final currentUser = authService.currentUser;
-    final effectiveRole = currentUser?.role;
     final roles = <AppRole>{
       ...?currentUser?.roles,
       ...authService.activeAssumedRoles,
@@ -400,7 +402,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final bool viewingSelf = (currentUser?.id != null) && (widget.userProfile['id'] == currentUser!.id);
 
     final userStatus = widget.userProfile['status'] as String? ?? 'Active';
-    final userRole = widget.userProfile['role'] as String? ?? 'Unknown';
+    final userRole = _resolveUserRoleDisplay(widget.userProfile);
     final fullName = widget.userProfile['full_name'] as String? ?? 'Unknown';
     final phone = widget.userProfile['phone'] as String?;
     final createdAt = widget.userProfile['created_at'] != null
@@ -415,6 +417,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
           child: Row(
             children: [
+              if (Navigator.of(context).canPop())
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
               Expanded(
                 child: Text(
                   fullName,
@@ -455,7 +462,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             ),
                             const SizedBox(height: 12),
                             _buildInfoRow('Full Name', fullName),
-                            _buildInfoRow('Role', userRole.toUpperCase()),
+                            _buildInfoRow('Role', userRole),
                           ],
                         ),
                       ),
@@ -489,7 +496,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ),
                           const SizedBox(height: 16),
                           _buildInfoRow('Full Name', fullName),
-                          _buildInfoRow('Role', userRole.toUpperCase()),
+                          _buildInfoRow('Role', userRole),
                           _buildInfoRow('Status', userStatus, 
                               valueColor: _getStatusColor(userStatus)),
                           if (phone != null) _buildInfoRow('Phone', phone),
@@ -548,98 +555,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     const SizedBox(height: 24),
                   ],
 
-                  // Role Assumption Section (for Owner and Manager)
-                  if (isManagement) ...[
-                    const Text(
-                      'Assume Role',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Temporarily assume a role to access specific functionalities:',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildRoleChip('VIP Bar Bartender', AppRole.vip_bartender, authService),
-                        _buildRoleChip('Outside Bar Bartender', AppRole.outside_bartender, authService),
-                        _buildRoleChip('Receptionist', AppRole.receptionist, authService),
-                        _buildRoleChip('Storekeeper', AppRole.storekeeper, authService),
-                        _buildRoleChip('Purchaser', AppRole.purchaser, authService),
-                        _buildRoleChip('Accountant', AppRole.accountant, authService),
-                        _buildRoleChip('Kitchen Staff', AppRole.kitchen_staff, authService),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    if (authService.activeAssumedRoles.isNotEmpty) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.shade300),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.info_outline, color: Colors.orange.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Assuming: ${authService.activeAssumedRoles.map((r) => AuthService.getRoleDisplayName(r)).join(', ')}',
-                                style: TextStyle(
-                                  color: Colors.orange.shade700,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => authService.clearAssumedRoles(),
-                              child: const Text('Clear All'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-
-                  // Admin Actions
-                  if (isAdmin) ...[
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Admin Actions',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildStatusChip('Active', userStatus),
-                        _buildStatusChip('Inactive', userStatus),
-                        _buildStatusChip('Suspended', userStatus),
-                        _buildStatusChip('Resigned', userStatus),
-                        _buildStatusChip('Terminated', userStatus),
-                      ],
-                    ),
-                  ],
-
                   // Management-only performance overview when viewing another staff
                   if (isManagement && !viewingSelf) ...[
                     const SizedBox(height: 24),
-                    Text(
-                      (effectiveRole == AppRole.owner || effectiveRole == AppRole.accountant)
-                          ? 'Performance Overview — Financial Focus'
-                          : 'Performance Overview',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    const Text(
+                      'Performance Overview — Financial Focus',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
-                    if (effectiveRole == AppRole.owner || effectiveRole == AppRole.accountant)
-                      _buildPerformanceOverviewSection(widget.userProfile, detail: 'financial')
-                    else
-                      _buildPerformanceOverviewSection(widget.userProfile, detail: 'standard'),
+                    _buildPerformanceOverviewSection(widget.userProfile),
                   ],
 
                   const SizedBox(height: 32),
@@ -672,46 +596,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String status, String currentStatus) {
-    return ChoiceChip(
-      label: Text(status),
-      selected: currentStatus.toLowerCase() == status.toLowerCase(),
-      onSelected: (selected) {
-        if (selected) {
-          _updateUserStatus(status);
-        }
-      },
-      selectedColor: _getStatusColor(status),
-      labelStyle: TextStyle(
-        color: currentStatus.toLowerCase() == status.toLowerCase() 
-            ? Colors.white 
-            : null,
-      ),
-    );
-  }
-
-  Widget _buildRoleChip(String roleName, AppRole role, AuthService authService) {
-    final isCurrentlyAssumed = authService.hasAssumedRole(role);
-
-    return ChoiceChip(
-      label: Text(roleName),
-      selected: isCurrentlyAssumed,
-      onSelected: (selected) {
-        if (selected) {
-          authService.assumeRole(role);
-          if (mounted) ErrorHandler.showSuccessMessage(context, 'Now assuming $roleName');
-        } else {
-          authService.dropAssumedRole(role);
-          if (mounted) ErrorHandler.showInfoMessage(context, 'Dropped $roleName');
-        }
-      },
-      selectedColor: Colors.green,
-      labelStyle: TextStyle(
-        color: isCurrentlyAssumed ? Colors.white : null,
       ),
     );
   }
@@ -796,67 +680,126 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   // Load performance data from database
   Future<void> _loadPerformanceData(String profileId, {BuildContext? context}) async {
     if (_isLoadingPerformance) return;
-    
+
     setState(() => _isLoadingPerformance = true);
-    
+
     try {
       final now = DateTime.now();
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-      
-      // Load department sales (for sales attributed to this staff member)
-      final salesResponse = await _supabase
+
+      final bookingsFuture = _supabase
+          .from('bookings')
+          .select('paid_amount, status')
+          .eq('created_by', profileId)
+          .gte('created_at', thirtyDaysAgo.toIso8601String());
+
+      final departmentSalesFuture = _supabase
           .from('department_sales')
           .select('total_sales, transaction_count')
-          .eq('staff_id', profileId) // Filter by staff_id to get individual performance
-          .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0])
-          .timeout(const Duration(seconds: 5));
-      
-      final salesRecords = salesResponse as List;
-      
-      // Load payroll records
-      final payrollResponse = await _supabase
-          .from('payroll_records')
-          .select('*')
           .eq('staff_id', profileId)
-          .gte('month', thirtyDaysAgo.toIso8601String().split('T')[0])
-          .timeout(const Duration(seconds: 5));
-      
-      final payrollRecords = payrollResponse as List;
-      
-      // Calculate total sales (sum of all department sales)
-      final totalSales = salesRecords.fold<int>(0, (sum, record) {
-        return sum + ((record['total_sales'] as num?)?.toInt() ?? 0);
-      });
-      
-      // Calculate average ticket value (simplified - total sales / transaction count)
-      final totalTransactions = salesRecords.fold<int>(0, (sum, record) {
-        return sum + ((record['transaction_count'] as num?)?.toInt() ?? 0);
-      });
-      final avgTicketValue = totalTransactions > 0 ? (totalSales / totalTransactions / 100) : 0.0;
-      
-      // Approved payroll only (same rule as dashboard / P&L)
-      final overtimeCost = payrollRecords.fold<int>(0, (sum, record) {
-        if ((record['approval_status']?.toString() ?? '') != 'approved') return sum;
-        return sum + ((record['amount'] as num?)?.toInt() ?? 0);
-      });
+          .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0]);
 
-      final pendingApproval =
-          payrollRecords.where((r) => (r['approval_status']?.toString() ?? '').toLowerCase() == 'pending').length;
-      final rejected =
-          payrollRecords.where((r) => (r['approval_status']?.toString() ?? '').toLowerCase() == 'rejected').length;
-      final payrollStatus = pendingApproval > 0
-          ? 'Awaiting approval ($pendingApproval)'
-          : rejected > 0
-              ? 'Up-to-date ($rejected rejected)'
-              : 'Up-to-date';
-      
+      final debtClaimsFuture = _supabase
+          .from('debt_payment_claims')
+          .select('amount, status')
+          .eq('recorded_by', profileId)
+          .eq('status', 'approved')
+          .gte('created_at', thirtyDaysAgo.toIso8601String());
+
+      final payrollFuture = _supabase
+          .from('payroll_records')
+          .select('amount, approval_status, approved_at, month, created_at')
+          .eq('staff_id', profileId)
+          .order('approved_at', ascending: false, nullsFirst: false)
+          .order('created_at', ascending: false);
+
+      final results = await Future.wait([
+        bookingsFuture,
+        departmentSalesFuture,
+        debtClaimsFuture,
+        payrollFuture,
+      ]).timeout(const Duration(seconds: 8));
+
+      final bookings = List<Map<String, dynamic>>.from(results[0] as List);
+      final departmentSales = List<Map<String, dynamic>>.from(results[1] as List);
+      final debtClaims = List<Map<String, dynamic>>.from(results[2] as List);
+      final payrollRecords = List<Map<String, dynamic>>.from(results[3] as List);
+
+      final successfulBookingStatuses = <String>{
+        'checked-in',
+        'checked_in',
+        'checked out',
+        'checked-out',
+        'checked_out',
+        'confirmed',
+      };
+
+      final successfulBookings = bookings.where((b) {
+        final paidAmount = (b['paid_amount'] as num?)?.toInt() ?? 0;
+        if (paidAmount <= 0) return false;
+        final status = (b['status']?.toString() ?? '')
+            .trim()
+            .toLowerCase()
+            .replaceAll('_', '-');
+        return successfulBookingStatuses.contains(status);
+      }).toList();
+
+      final bookingCount = successfulBookings.length;
+      final bookingCollected = successfulBookings.fold<int>(
+        0,
+        (sum, b) => sum + ((b['paid_amount'] as num?)?.toInt() ?? 0),
+      );
+
+      final departmentCount = departmentSales.fold<int>(
+        0,
+        (sum, row) => sum + ((row['transaction_count'] as num?)?.toInt() ?? 0),
+      );
+      final departmentCollected = departmentSales.fold<int>(
+        0,
+        (sum, row) => sum + ((row['total_sales'] as num?)?.toInt() ?? 0),
+      );
+
+      final debtCollectionCount = debtClaims.length;
+      final debtCollected = debtClaims.fold<int>(
+        0,
+        (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
+      );
+
+      final pendingPayroll = payrollRecords
+          .where((row) =>
+              (row['approval_status']?.toString() ?? '').toLowerCase() == 'pending')
+          .toList();
+      final payrollOwedCount = pendingPayroll.length;
+      final payrollOwedAmount = pendingPayroll.fold<int>(
+        0,
+        (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
+      );
+
+      Map<String, dynamic>? lastApprovedPayroll;
+      for (final record in payrollRecords) {
+        final status = (record['approval_status']?.toString() ?? '').toLowerCase();
+        if (status == 'approved') {
+          lastApprovedPayroll = record;
+          break;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _performanceData = {
-            'total_sales': totalSales,
-            'avg_ticket_value': avgTicketValue,
-            'overtime_cost': overtimeCost,
-            'payroll_status': payrollStatus,
+            'booking_count': bookingCount,
+            'booking_collected': bookingCollected,
+            'department_count': departmentCount,
+            'department_collected': departmentCollected,
+            'debt_collection_count': debtCollectionCount,
+            'debt_collected': debtCollected,
+            'payroll_owed_count': payrollOwedCount,
+            'payroll_owed_amount': payrollOwedAmount,
+            'last_salary_count': lastApprovedPayroll == null ? 0 : 1,
+            'last_salary_amount':
+                (lastApprovedPayroll?['amount'] as num?)?.toInt() ?? 0,
+            'last_salary_paid_at':
+                lastApprovedPayroll?['approved_at']?.toString(),
           };
           _isLoadingPerformance = false;
         });
@@ -884,75 +827,66 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   // Performance overview with real data from database
-  Widget _buildPerformanceOverviewSection(Map<String, dynamic> profile, {String detail = 'standard'}) {
+  Widget _buildPerformanceOverviewSection(Map<String, dynamic> profile) {
     final staffName = (profile['full_name']?.toString() ?? 'Staff');
     final profileId = profile['id'] as String?;
-    
+
     // Load performance data if not loaded
-    // Get context from the widget tree
     final context = this.context;
     if (profileId != null && _performanceData == null && !_isLoadingPerformance) {
       _loadPerformanceData(profileId, context: context);
     }
-    
-    // Build KPIs from real data or show loading
-    List<Map<String, String>> standardKpis;
-    List<Map<String, String>> financialKpis;
-    
+
+    List<Map<String, String>> kpis;
     if (_isLoadingPerformance) {
-      standardKpis = [
-        {'label': 'Sales attributed (30d)', 'value': 'Loading...'},
-        {'label': 'Avg. ticket value', 'value': 'Loading...'},
-        {'label': 'Customer ratings', 'value': 'N/A'},
-        {'label': 'Payroll status', 'value': 'Loading...'},
-      ];
-      financialKpis = [
-        {'label': 'Sales Attributed (30d)', 'value': 'Loading...'},
-        {'label': 'Refunds/Discounts', 'value': 'N/A'},
-        {'label': 'Cash Variance', 'value': 'N/A'},
-        {'label': 'Avg. Ticket Value', 'value': 'Loading...'},
-        {'label': 'Approved payroll (30d)', 'value': 'Loading...'},
-        {'label': 'Payroll approval', 'value': 'Loading...'},
+      kpis = [
+        {'label': 'Booking Collections (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Department Sales (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Debt Collections (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Payroll Owed (Pending)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Last Salary Paid', 'count': 'Loading...', 'amount': 'Loading...'},
       ];
     } else if (_performanceData != null) {
       final data = _performanceData!;
-      final salesAmount = PaymentService.koboToNaira(data['total_sales'] as int? ?? 0);
-      final avgTicket = PaymentService.koboToNaira((data['avg_ticket_value'] as num? ?? 0).toInt());
-      final overtime = PaymentService.koboToNaira(data['overtime_cost'] as int? ?? 0);
-      
-      standardKpis = [
+      final lastPaidAt = DateTime.tryParse(data['last_salary_paid_at']?.toString() ?? '');
+      final lastPaidAtLabel = lastPaidAt == null ? 'N/A' : DateFormat.yMMMd().format(lastPaidAt);
+      String amountLabel(int kobo) =>
+          '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(kobo))}';
+
+      kpis = [
         {
-          'label': 'Sales attributed (30d)',
-          'value': '₦${NumberFormat('#,##0.00').format(salesAmount)}',
+          'label': 'Booking Collections (30d)',
+          'count': '${data['booking_count'] ?? 0} txns',
+          'amount': amountLabel((data['booking_collected'] as int?) ?? 0),
         },
-        {'label': 'Avg. ticket value', 'value': '₦${NumberFormat('#,##0.00').format(avgTicket)}'},
-        {'label': 'Customer ratings', 'value': 'N/A'},
-        {'label': 'Payroll status', 'value': data['payroll_status'] as String? ?? 'N/A'},
-      ];
-      
-      financialKpis = [
-        {'label': 'Sales Attributed (30d)', 'value': '₦${NumberFormat('#,##0.00').format(salesAmount)}'},
-        {'label': 'Refunds/Discounts', 'value': 'N/A'}, // Not tracked separately yet
-        {'label': 'Cash Variance', 'value': 'N/A'}, // Not tracked yet
-        {'label': 'Avg. Ticket Value', 'value': '₦${NumberFormat('#,##0.00').format(avgTicket)}'},
-        {'label': 'Approved payroll (30d)', 'value': '₦${NumberFormat('#,##0.00').format(overtime)}'},
-        {'label': 'Payroll approval', 'value': data['payroll_status'] as String? ?? 'N/A'},
+        {
+          'label': 'Department Sales (30d)',
+          'count': '${data['department_count'] ?? 0} txns',
+          'amount': amountLabel((data['department_collected'] as int?) ?? 0),
+        },
+        {
+          'label': 'Debt Collections (30d)',
+          'count': '${data['debt_collection_count'] ?? 0} txns',
+          'amount': amountLabel((data['debt_collected'] as int?) ?? 0),
+        },
+        {
+          'label': 'Payroll Owed (Pending)',
+          'count': '${data['payroll_owed_count'] ?? 0} entries',
+          'amount': amountLabel((data['payroll_owed_amount'] as int?) ?? 0),
+        },
+        {
+          'label': 'Last Salary Paid',
+          'count': lastPaidAtLabel,
+          'amount': amountLabel((data['last_salary_amount'] as int?) ?? 0),
+        },
       ];
     } else {
-      // Fallback if data failed to load
-      standardKpis = [
-        {'label': 'Sales attributed (30d)', 'value': 'N/A'},
-        {'label': 'Avg. ticket value', 'value': 'N/A'},
-        {'label': 'Customer ratings', 'value': 'N/A'},
-        {'label': 'Payroll status', 'value': 'N/A'},
-      ];
-      financialKpis = [
-        {'label': 'Sales Attributed (30d)', 'value': 'N/A'},
-        {'label': 'Refunds/Discounts', 'value': 'N/A'},
-        {'label': 'Cash Variance', 'value': 'N/A'},
-        {'label': 'Avg. Ticket Value', 'value': 'N/A'},
-        {'label': 'Approved payroll (30d)', 'value': 'N/A'},
-        {'label': 'Payroll approval', 'value': 'N/A'},
+      kpis = [
+        {'label': 'Booking Collections (30d)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Department Sales (30d)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Debt Collections (30d)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Payroll Owed (Pending)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Last Salary Paid', 'count': 'N/A', 'amount': 'N/A'},
       ];
     }
 
@@ -970,8 +904,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: (detail == 'financial' ? financialKpis : standardKpis)
-                  .map((kpi) => _buildKpiTile(kpi['label']!, kpi['value']!))
+              children: kpis
+                  .map((kpi) => _buildKpiTile(
+                        kpi['label']!,
+                        kpi['count']!,
+                        kpi['amount']!,
+                      ))
                   .toList(),
             ),
           ],
@@ -980,9 +918,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Widget _buildKpiTile(String title, String value) {
+  Widget _buildKpiTile(String title, String count, String amount) {
     return Container(
-      width: 160,
+      width: 220,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
@@ -995,8 +933,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           Text(title, style: const TextStyle(color: Colors.black87)),
           const SizedBox(height: 6),
           Text(
-            value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            count,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            amount,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
           ),
         ],
       ),
