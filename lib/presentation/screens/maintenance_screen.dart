@@ -83,7 +83,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       body: LayeredScrollBody(
         isLoading: _loading,
         topSection: Container(
-          color: Colors.orange[700],
+          color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
           child: const Row(
             children: [

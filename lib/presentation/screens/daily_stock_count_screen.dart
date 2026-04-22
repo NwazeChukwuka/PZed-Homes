@@ -488,9 +488,8 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoadingData,
         topSection: Container(
-          color: Colors.brown.shade700,
+          color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
           child: Row(
             children: [
@@ -556,7 +555,9 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
                 // Stock Items List
                 Expanded(
-                  child: ListView(
+                  child: _isLoadingData
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     children: [
                       // Existing stock items
@@ -673,19 +674,20 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                 ),
 
                 // Submit Button
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: _isLoading
-                      ? const CircularProgressIndicator()
-                      : ElevatedButton(
-                          onPressed: _submitCount,
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 50),
-                            backgroundColor: Colors.brown.shade700,
+                if (!_isLoadingData)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: _isLoading
+                        ? const CircularProgressIndicator()
+                        : ElevatedButton(
+                            onPressed: _submitCount,
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              backgroundColor: Colors.green[700],
+                            ),
+                            child: const Text('Submit Stock Count'),
                           ),
-                          child: const Text('Submit Stock Count'),
-                        ),
-                ),
+                  ),
               ],
             ),
       ),

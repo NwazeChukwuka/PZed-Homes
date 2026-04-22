@@ -43,7 +43,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   List<Map<String, dynamic>> _bookings = [];
   Map<String, dynamic> _stats = {};
-  bool _isLoading = true;
   
   // Time range state
   TimeRange _timeRange = TimeRange.today;
@@ -751,7 +750,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _bookings = bookings;
           _checkedInGuests = checkedInGuests;
           _cachedFilteredActivities = null;
-          _isLoading = false;
 
           _currentIncome = currentIncome;
           _currentExpenses = currentExpenses;
@@ -806,9 +804,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e, stackTrace) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
         if (kDebugMode) debugPrint('DEBUG dashboard load: $e\n$stackTrace');
         ErrorHandler.handleError(
           context,
@@ -905,7 +900,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: const SizedBox.shrink(),
         content: RefreshIndicator(
           onRefresh: _loadData,
@@ -2060,7 +2054,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 setState(() {
                   _timeRange = r;
                   _customRange = picked;
-                  _isLoading = true;
                 });
                 _loadData();
               }
@@ -2068,7 +2061,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               setState(() {
                 _timeRange = r;
                 _customRange = null;
-                _isLoading = true;
               });
               _loadData();
             }

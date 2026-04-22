@@ -411,7 +411,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       body: LayeredScrollBody(
         isLoading: _isLoading,
         topSection: Container(
-          color: Colors.blueGrey.shade700,
+          color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
           child: Row(
             children: [

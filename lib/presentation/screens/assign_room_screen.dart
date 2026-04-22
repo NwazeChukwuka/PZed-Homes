@@ -209,9 +209,7 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
         title: const Text('Assign Room'),
         backgroundColor: Colors.blueGrey,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: Column(
               children: [
                 // Booking Info Card
                 Card(
@@ -248,7 +246,9 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
 
                 // Available Rooms List
                 Expanded(
-                  child: _availableRooms.isEmpty
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _availableRooms.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -312,7 +312,7 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
                 ),
 
                 // Assign Button
-                if (_availableRooms.isNotEmpty)
+                if (!_isLoading && _availableRooms.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: SizedBox(

@@ -648,14 +648,24 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _kpiCard(String label, String value, IconData icon, Color color) {
     return _card(
       child: Column(
-      children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600]), textAlign: TextAlign.center),
-          ],
-        ),
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
 
@@ -1316,7 +1326,11 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       );
     }
 
-    final itemWidth = maxWidth < 900 ? ((maxWidth - 16) / 2).clamp(140.0, 420.0) : (maxWidth / 3);
+    final itemWidth = maxWidth < 600
+        ? ((maxWidth - 16) / 2).clamp(130.0, 280.0)
+        : maxWidth < 1100
+            ? ((maxWidth - 24) / 3).clamp(150.0, 320.0)
+            : 260.0;
     return Wrap(
       spacing: 8,
       runSpacing: 8,

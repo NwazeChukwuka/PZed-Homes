@@ -891,11 +891,14 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
             : 'Booking: ${_currentBooking.guestName}'),
         backgroundColor: Colors.blueGrey,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: _isLoading
+            ? const SizedBox(
+                height: 420,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : Column(
                 children: [
                   _buildDetailCard(
                     'Guest Information',
@@ -909,16 +912,16 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                     'Booking Details',
                     [
                       _buildDetailRow(
-                        Icons.king_bed, 
-                        'Room', 
-                        _currentBooking.roomNumber != null 
-                          ? '${_currentBooking.roomType} - ${_currentBooking.roomNumber}'
-                          : '${_currentBooking.roomType} - Room Not Assigned',
+                        Icons.king_bed,
+                        'Room',
+                        _currentBooking.roomNumber != null
+                            ? '${_currentBooking.roomType} - ${_currentBooking.roomNumber}'
+                            : '${_currentBooking.roomType} - Room Not Assigned',
                       ),
                       if (_currentBooking.roomNumber == null)
                         _buildDetailRow(
-                          Icons.warning, 
-                          'Room Status', 
+                          Icons.warning,
+                          'Room Status',
                           'Room needs to be assigned before check-in',
                           color: Colors.orange,
                         ),
@@ -931,7 +934,7 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
                   _buildBillingCard(currencyFormatter),
                 ],
               ),
-            ),
+      ),
       floatingActionButton: _currentBooking.status == 'Checked-in'
           ? FloatingActionButton.extended(
               onPressed: _showAddChargeDialog,

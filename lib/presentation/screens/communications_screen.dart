@@ -260,7 +260,7 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
       body: LayeredScrollBody(
         isLoading: _isLoading,
         topSection: Container(
-          color: Colors.blueGrey.shade700,
+          color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
           child: const Row(
             children: [

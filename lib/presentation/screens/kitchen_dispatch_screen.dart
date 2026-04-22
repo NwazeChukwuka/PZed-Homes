@@ -2426,7 +2426,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           floatingActionButton: !isOperational
               ? FloatingActionButton(
                   onPressed: _showAddMenuItemDialog,
-                  backgroundColor: Colors.orange[700],
+                  backgroundColor: Colors.green[700],
                   child: const Icon(Icons.add, color: Colors.white),
                 )
               : null,
@@ -2434,7 +2434,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             topSection: Column(
               children: [
                 Container(
-                  color: Colors.orange.shade800,
+                  color: Colors.green[700],
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
@@ -2502,7 +2502,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   ),
                 TabBar(
                   controller: _tabController,
-                  labelColor: Colors.orange.shade800,
+                  labelColor: Colors.green[700],
                   tabs: isOperational
                       ? const [
                           Tab(text: 'Dispatch', icon: Icon(Icons.send)),

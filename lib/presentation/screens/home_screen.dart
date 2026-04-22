@@ -66,39 +66,53 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadRoomTypes,
-              child: _roomTypes.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Image.asset(
-                            'assets/images/PZED logo.png',
-                            height: 64,
-                            width: 64,
-                            fit: BoxFit.contain,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No room types available',
-                            style: TextStyle(fontSize: 18, color: Colors.grey),
-                          ),
-                        ],
+      body: RefreshIndicator(
+        onRefresh: _loadRoomTypes,
+        child: _isLoading && _roomTypes.isEmpty
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(
+                    height: 420,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ],
+              )
+            : _roomTypes.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Image.asset(
+                              'assets/images/PZED logo.png',
+                              height: 64,
+                              width: 64,
+                              fit: BoxFit.contain,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'No room types available',
+                              style: TextStyle(fontSize: 18, color: Colors.grey),
+                            ),
+                          ],
+                        ),
                       ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _roomTypes.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        final roomType = _roomTypes[index];
-                        return RoomCard(roomCategory: RoomCategory.fromMap(roomType));
-                      },
-                    ),
-            ),
+                    ],
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _roomTypes.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final roomType = _roomTypes[index];
+                      return RoomCard(roomCategory: RoomCategory.fromMap(roomType));
+                    },
+                  ),
+      ),
     );
   }
 }

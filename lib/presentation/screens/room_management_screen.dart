@@ -501,7 +501,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
             )
           : null,
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Column(
           children: [
             Padding(
@@ -534,6 +533,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   }
   
   Widget _buildRoomStatusTab(BuildContext context) {
+    if (_isLoading && _allRooms.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (_allRooms.isEmpty) {
       return Center(
         child: Column(
@@ -1239,6 +1242,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   }
   
   Widget _buildBookingHistoryTab(BuildContext context) {
+    if (_isLoading && _bookings.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     // Filter bookings by date range if set
     List<Map<String, dynamic>> filteredBookings = _bookings;
     if (_bookingFilterRange != null) {

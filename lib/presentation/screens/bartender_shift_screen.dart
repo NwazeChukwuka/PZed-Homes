@@ -259,17 +259,28 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildShiftStatusTab(),
-                _buildOpeningStockTab(),
-                _buildTransfersTab(),
-                _buildClosingStockTab(),
-              ],
+      body: Stack(
+        children: [
+          TabBarView(
+            controller: _tabController,
+            children: [
+              _buildShiftStatusTab(),
+              _buildOpeningStockTab(),
+              _buildTransfersTab(),
+              _buildClosingStockTab(),
+            ],
+          ),
+          if (_isLoading)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
             ),
+        ],
+      ),
     );
   }
 
