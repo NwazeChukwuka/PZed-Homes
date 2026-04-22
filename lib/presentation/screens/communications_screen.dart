@@ -258,7 +258,6 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
 
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Container(
           color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
@@ -279,6 +278,9 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
         ),
         content: Builder(builder: (context) {
           final posts = _posts;
+          if (_isLoading && posts.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
           if (posts.isEmpty) {
             return Center(
               child: Column(

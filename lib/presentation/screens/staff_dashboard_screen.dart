@@ -678,7 +678,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Container(
           color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -714,20 +713,33 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
             ],
           ),
         ),
-        content: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(user),
-              const SizedBox(height: 16),
-              _buildTimeFilter(),
-              const SizedBox(height: 16),
-              _showDepartmentView
-                  ? _buildDepartmentView(department)
-                  : _buildPersonalView(),
-            ],
-          ),
+        content: Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(user),
+                  const SizedBox(height: 16),
+                  _buildTimeFilter(),
+                  const SizedBox(height: 16),
+                  _showDepartmentView
+                      ? _buildDepartmentView(department)
+                      : _buildPersonalView(),
+                ],
+              ),
+            ),
+            if (_isLoading)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

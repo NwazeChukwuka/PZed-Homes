@@ -248,7 +248,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
   Widget build(BuildContext context) {
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoadingMenu,
         topSection: Column(
           children: [
             Container(
@@ -296,7 +295,9 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
             ),
           ],
         ),
-        content: Row(
+        content: Stack(
+          children: [
+            Row(
               children: [
                 // Menu Grid Section
                 Expanded(
@@ -317,6 +318,17 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                 ),
               ],
             ),
+            if (_isLoadingMenu)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -20,7 +20,6 @@ class UserProfileScreen extends StatefulWidget {
 }
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
-  bool _isLoading = false;
   bool _hasSmartlockPermission = false;
   bool _isLoadingPermissions = true;
   final _supabase = Supabase.instance.client;
@@ -124,7 +123,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       }
     }
 
-    setState(() => _isLoading = true);
     try {
       await Future.delayed(const Duration(milliseconds: 400));
       if (mounted) {
@@ -145,8 +143,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       setState(() {
         _hasSmartlockPermission = !newValue;
       });
-    } finally {
-      setState(() => _isLoading = false);
     }
   }
 
@@ -411,7 +407,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Container(
           color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -689,21 +684,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
       final bookingsFuture = _supabase
           .from('bookings')
-          .select('paid_amount, status')
+          .select('paid_amount, status, created_at')
           .eq('created_by', profileId)
           .gte('created_at', thirtyDaysAgo.toIso8601String());
 
       final departmentSalesFuture = _supabase
           .from('department_sales')
-          .select('total_sales, transaction_count')
+          .select('total_sales, transaction_count, date')
           .eq('staff_id', profileId)
           .gte('date', thirtyDaysAgo.toIso8601String().split('T')[0]);
 
-      final debtClaimsFuture = _supabase
-          .from('debt_payment_claims')
-          .select('amount, status')
-          .eq('recorded_by', profileId)
-          .eq('status', 'approved')
+      final debtsFuture = _supabase
+          .from('debts')
+          .select('amount, paid_amount, status, created_at')
+          .or('sold_by.eq.$profileId,created_by.eq.$profileId')
           .gte('created_at', thirtyDaysAgo.toIso8601String());
 
       final payrollFuture = _supabase
@@ -716,13 +710,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final results = await Future.wait([
         bookingsFuture,
         departmentSalesFuture,
-        debtClaimsFuture,
+        debtsFuture,
         payrollFuture,
       ]).timeout(const Duration(seconds: 8));
 
       final bookings = List<Map<String, dynamic>>.from(results[0] as List);
       final departmentSales = List<Map<String, dynamic>>.from(results[1] as List);
-      final debtClaims = List<Map<String, dynamic>>.from(results[2] as List);
+      final debts = List<Map<String, dynamic>>.from(results[2] as List);
       final payrollRecords = List<Map<String, dynamic>>.from(results[3] as List);
 
       final successfulBookingStatuses = <String>{
@@ -759,17 +753,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         (sum, row) => sum + ((row['total_sales'] as num?)?.toInt() ?? 0),
       );
 
-      final debtCollectionCount = debtClaims.length;
-      final debtCollected = debtClaims.fold<int>(
+      final outstandingDebts = debts.where((row) {
+        final status = (row['status']?.toString() ?? '').toLowerCase();
+        return status == 'outstanding' || status == 'partially_paid';
+      }).toList();
+      final debtCount = outstandingDebts.length;
+      final debtAmount = outstandingDebts.fold<int>(
         0,
-        (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
+        (sum, row) {
+          final total = (row['amount'] as num?)?.toInt() ?? 0;
+          final paid = (row['paid_amount'] as num?)?.toInt() ?? 0;
+          final remaining = total - paid;
+          return sum + (remaining > 0 ? remaining : 0);
+        },
       );
 
       final pendingPayroll = payrollRecords
           .where((row) =>
               (row['approval_status']?.toString() ?? '').toLowerCase() == 'pending')
           .toList();
-      final payrollOwedCount = pendingPayroll.length;
+      final owedMonths = pendingPayroll
+          .map((row) {
+            final raw = row['month']?.toString() ?? '';
+            return raw.length >= 7 ? raw.substring(0, 7) : raw;
+          })
+          .where((month) => month.isNotEmpty)
+          .toSet();
+      final payrollOwedMonths = owedMonths.length;
       final payrollOwedAmount = pendingPayroll.fold<int>(
         0,
         (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
@@ -784,6 +794,29 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         }
       }
 
+      DateTime? parseAnyDate(dynamic raw) {
+        if (raw == null) return null;
+        return DateTime.tryParse(raw.toString());
+      }
+
+      DateTime? lastRevenueTransactionAt;
+      void ingestDate(DateTime? date) {
+        if (date == null) return;
+        if (lastRevenueTransactionAt == null || date.isAfter(lastRevenueTransactionAt!)) {
+          lastRevenueTransactionAt = date;
+        }
+      }
+
+      for (final booking in successfulBookings) {
+        ingestDate(parseAnyDate(booking['created_at']));
+      }
+      for (final row in departmentSales) {
+        ingestDate(parseAnyDate(row['date']));
+      }
+      for (final row in debts) {
+        ingestDate(parseAnyDate(row['created_at']));
+      }
+
       if (mounted) {
         setState(() {
           _performanceData = {
@@ -791,15 +824,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             'booking_collected': bookingCollected,
             'department_count': departmentCount,
             'department_collected': departmentCollected,
-            'debt_collection_count': debtCollectionCount,
-            'debt_collected': debtCollected,
-            'payroll_owed_count': payrollOwedCount,
+            'sales_count': bookingCount + departmentCount,
+            'sales_collected': bookingCollected + departmentCollected,
+            'debt_count': debtCount,
+            'debt_amount': debtAmount,
+            'payroll_owed_months': payrollOwedMonths,
             'payroll_owed_amount': payrollOwedAmount,
             'last_salary_count': lastApprovedPayroll == null ? 0 : 1,
             'last_salary_amount':
                 (lastApprovedPayroll?['amount'] as num?)?.toInt() ?? 0,
             'last_salary_paid_at':
                 lastApprovedPayroll?['approved_at']?.toString(),
+            'last_transaction_at': lastRevenueTransactionAt?.toIso8601String(),
           };
           _isLoadingPerformance = false;
         });
@@ -838,40 +874,40 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
 
     List<Map<String, String>> kpis;
+    String lastSalaryTop = 'Last salary paid: N/A';
     if (_isLoadingPerformance) {
       kpis = [
-        {'label': 'Booking Collections (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
-        {'label': 'Department Sales (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
-        {'label': 'Debt Collections (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Sales (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Debt (Unpaid)', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Payroll Owed (Pending)', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Last Salary Paid', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Date of Last Transaction', 'count': 'Loading...', 'amount': 'N/A'},
       ];
     } else if (_performanceData != null) {
       final data = _performanceData!;
       final lastPaidAt = DateTime.tryParse(data['last_salary_paid_at']?.toString() ?? '');
       final lastPaidAtLabel = lastPaidAt == null ? 'N/A' : DateFormat.yMMMd().format(lastPaidAt);
+      lastSalaryTop = 'Last salary paid: $lastPaidAtLabel';
+      final lastTransaction = DateTime.tryParse(data['last_transaction_at']?.toString() ?? '');
+      final lastTransactionLabel =
+          lastTransaction == null ? 'N/A' : DateFormat('MMM d, yyyy • h:mm a').format(lastTransaction);
       String amountLabel(int kobo) =>
           '₦${NumberFormat('#,##0.00').format(PaymentService.koboToNaira(kobo))}';
 
       kpis = [
         {
-          'label': 'Booking Collections (30d)',
-          'count': '${data['booking_count'] ?? 0} txns',
-          'amount': amountLabel((data['booking_collected'] as int?) ?? 0),
+          'label': 'Sales (30d)',
+          'count': '${data['sales_count'] ?? 0} txns',
+          'amount': amountLabel((data['sales_collected'] as int?) ?? 0),
         },
         {
-          'label': 'Department Sales (30d)',
-          'count': '${data['department_count'] ?? 0} txns',
-          'amount': amountLabel((data['department_collected'] as int?) ?? 0),
-        },
-        {
-          'label': 'Debt Collections (30d)',
-          'count': '${data['debt_collection_count'] ?? 0} txns',
-          'amount': amountLabel((data['debt_collected'] as int?) ?? 0),
+          'label': 'Debt (Unpaid)',
+          'count': '${data['debt_count'] ?? 0} txns unpaid',
+          'amount': amountLabel((data['debt_amount'] as int?) ?? 0),
         },
         {
           'label': 'Payroll Owed (Pending)',
-          'count': '${data['payroll_owed_count'] ?? 0} entries',
+          'count': '${data['payroll_owed_months'] ?? 0} months',
           'amount': amountLabel((data['payroll_owed_amount'] as int?) ?? 0),
         },
         {
@@ -879,14 +915,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           'count': lastPaidAtLabel,
           'amount': amountLabel((data['last_salary_amount'] as int?) ?? 0),
         },
+        {
+          'label': 'Date of Last Transaction',
+          'count': lastTransactionLabel,
+          'amount': 'N/A',
+        },
       ];
     } else {
       kpis = [
-        {'label': 'Booking Collections (30d)', 'count': 'N/A', 'amount': 'N/A'},
-        {'label': 'Department Sales (30d)', 'count': 'N/A', 'amount': 'N/A'},
-        {'label': 'Debt Collections (30d)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Sales (30d)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Debt (Unpaid)', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Payroll Owed (Pending)', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Last Salary Paid', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Date of Last Transaction', 'count': 'N/A', 'amount': 'N/A'},
       ];
     }
 
@@ -899,6 +940,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             Text(
               '$staffName — Key Performance Indicators',
               style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              lastSalaryTop,
+              style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 12),
             Wrap(

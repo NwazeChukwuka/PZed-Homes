@@ -81,7 +81,6 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _loading,
         topSection: Container(
           color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
@@ -102,6 +101,9 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
         ),
         content: Builder(builder: (context) {
               final workOrders = _workOrders;
+              if (_loading && workOrders.isEmpty) {
+                return const Center(child: CircularProgressIndicator());
+              }
               if (workOrders.isEmpty) {
                 return Center(
                   child: Column(

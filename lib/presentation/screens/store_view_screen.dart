@@ -138,7 +138,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Column(
           children: [
             Container(
@@ -174,12 +173,25 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
             ),
           ],
         ),
-        content: TabBarView(
-          controller: _tabController,
+        content: Stack(
           children: [
-            _buildCurrentStockTab(),
-            _buildRecentMovementsTab(),
-            _buildPendingPurchasesTab(),
+            TabBarView(
+              controller: _tabController,
+              children: [
+                _buildCurrentStockTab(),
+                _buildRecentMovementsTab(),
+                _buildPendingPurchasesTab(),
+              ],
+            ),
+            if (_isLoading)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

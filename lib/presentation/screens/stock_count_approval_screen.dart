@@ -355,9 +355,8 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: LayeredScrollBody(
-        isLoading: _isLoading,
         topSection: Container(
-          color: Colors.brown[700],
+          color: Colors.green[700],
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -436,7 +435,9 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
             },
           ),
         ),
-        content: _viewMode == 'pending'
+        content: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _viewMode == 'pending'
               ? _pendingCounts.isEmpty
                   ? Center(
                       child: Column(
