@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
@@ -379,10 +378,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
               if (isWide) {
                 return Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => context.pop(),
-                    ),
                     const Expanded(
                       child: Text(
                         'Stock Count Approvals',
@@ -413,10 +408,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
                 children: [
                   Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => context.pop(),
-                      ),
                       const Expanded(
                         child: Text(
                           'Stock Count Approvals',

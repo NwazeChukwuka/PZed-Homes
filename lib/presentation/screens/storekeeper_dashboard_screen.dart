@@ -54,7 +54,7 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
           topSection: _buildStorekeeperHeader(
             context: context,
             title: 'Store View',
-            subtitle: 'Read-only warehouse overview',
+            subtitle: '',
             showTabs: false,
           ),
           content: _buildReadOnlyStoreView(),
@@ -129,10 +129,11 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
+                    if (subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
                   ],
                 ),
               ),

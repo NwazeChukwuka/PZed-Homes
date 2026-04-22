@@ -73,6 +73,13 @@ List<NavigationItem> _computeNavItems(AuthService auth) {
   return items;
 }
 
+bool _isRouteSelected(String currentPath, String itemRoute) {
+  if (itemRoute == '/stock') {
+    return currentPath.startsWith('/stock');
+  }
+  return currentPath == itemRoute || currentPath.startsWith('$itemRoute/');
+}
+
 void _showLogoutDialog(BuildContext context) {
   showDialog(
     context: context,
@@ -794,7 +801,8 @@ class _MobileDrawerItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
+    final currentPath = GoRouterState.of(context).uri.path;
+    final isSelected = _isRouteSelected(currentPath, item.route);
     return ListTile(
       leading: Icon(
         item.icon,
@@ -915,7 +923,8 @@ class _TabletDrawerItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
+    final currentPath = GoRouterState.of(context).uri.path;
+    final isSelected = _isRouteSelected(currentPath, item.route);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
@@ -1048,7 +1057,8 @@ class _LargeDesktopSidebarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSelected = GoRouterState.of(context).uri.toString() == item.route;
+    final currentPath = GoRouterState.of(context).uri.path;
+    final isSelected = _isRouteSelected(currentPath, item.route);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(

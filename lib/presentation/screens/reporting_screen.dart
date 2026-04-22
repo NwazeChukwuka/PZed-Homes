@@ -456,11 +456,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
                         color: Colors.green[800],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _periodLabel(),
-                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                    ),
                   ],
                 ),
               ),
@@ -557,8 +552,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
       crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Select Period:', style: TextStyle(fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
             isNarrow
                 ? SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -735,32 +728,12 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     final netProfit = revenue - expenses;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth < 500;
         final cards = [
           _kpiCard('Total Revenue', _fmtNaira(revenue), Icons.trending_up, Colors.green[700]!),
           _kpiCard('Total Expenses', _fmtNaira(expenses), Icons.trending_down, Colors.red[600]!),
           _kpiCard('Net Profit', _fmtNaira(netProfit), Icons.account_balance_wallet, netProfit >= 0 ? Colors.green[800]! : Colors.red[800]!),
         ];
-        if (isNarrow) {
-          return Column(
-            children: cards
-                .map((c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: c,
-                    ))
-                .toList(),
-          );
-        }
-        return Row(
-          children: cards
-              .map((c) => Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: c,
-                    ),
-                  ))
-              .toList(),
-        );
+        return _buildResponsiveKpiCards(constraints.maxWidth, cards);
       },
     );
   }
@@ -1114,32 +1087,12 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildGuestKPIs() {
     final g = _guestStats!;
     return LayoutBuilder(builder: (context, constraints) {
-      final isNarrow = constraints.maxWidth < 500;
       final cards = [
         _kpiCard('Total Bookings', '${g['total']}', Icons.book_online, Colors.blue[700]!),
         _kpiCard('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0), Icons.hotel, Colors.green[700]!),
         _kpiCard('Avg Stay', '${g['avg_nights']} nights', Icons.nights_stay, Colors.purple[600]!),
       ];
-      if (isNarrow) {
-        return Column(
-          children: cards
-              .map((c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: c,
-                  ))
-              .toList(),
-        );
-      }
-      return Row(
-        children: cards
-            .map((c) => Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: c,
-                  ),
-                ))
-            .toList(),
-      );
+      return _buildResponsiveKpiCards(constraints.maxWidth, cards);
     });
   }
 
@@ -1342,33 +1295,38 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildOpsKPIs() {
     final o = _opsStats!;
     return LayoutBuilder(builder: (context, constraints) {
-      final isNarrow = constraints.maxWidth < 500;
       final cards = [
         _kpiCard('Staff Activities', '${o['activity_count']}', Icons.assignment, Colors.blue[700]!),
         _kpiCard('Active Staff', '${o['unique_staff']}', Icons.people, Colors.teal[600]!),
         _kpiCard('Stock Warnings', '${o['negative_adjustments']}', Icons.warning_amber, (o['negative_adjustments'] ?? 0) > 0 ? Colors.red[600]! : Colors.green[600]!),
       ];
-      if (isNarrow) {
-        return Column(
-          children: cards
-              .map((c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: c,
-                  ))
-              .toList(),
-        );
-      }
-      return Row(
+      return _buildResponsiveKpiCards(constraints.maxWidth, cards);
+    });
+  }
+
+  Widget _buildResponsiveKpiCards(double maxWidth, List<Widget> cards) {
+    if (maxWidth < 360) {
+      return Column(
         children: cards
-            .map((c) => Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: c,
-                  ),
+            .map((c) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: c,
                 ))
             .toList(),
       );
-    });
+    }
+
+    final itemWidth = maxWidth < 900 ? ((maxWidth - 16) / 2).clamp(140.0, 420.0) : (maxWidth / 3);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: cards
+          .map((c) => SizedBox(
+                width: itemWidth,
+                child: c,
+              ))
+          .toList(),
+    );
   }
 
   Widget _buildOpsDetails() {
