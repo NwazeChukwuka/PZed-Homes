@@ -339,14 +339,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final showActionsOnFirstRow = constraints.maxWidth >= 420;
-                      final actions = [
-                        if (showActionsOnFirstRow)
-                          ContextAwareRoleButton(
-                            suggestedRole: _selectedBar == 'outside_bar'
-                                ? AppRole.outside_bartender
-                                : AppRole.vip_bartender,
-                          ),
+                      final showRoleButton = constraints.maxWidth >= 900;
+                      final showActionsOnFirstRow = constraints.maxWidth >= 360;
+                      final quickActions = [
                         if (isBartender)
                           IconButton(
                             icon: const Icon(Icons.inventory_2, color: Colors.white),
@@ -383,14 +378,20 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                                   ),
                                 ),
                               ),
-                              if (showActionsOnFirstRow) ...actions,
+                              if (showRoleButton)
+                                ContextAwareRoleButton(
+                                  suggestedRole: _selectedBar == 'outside_bar'
+                                      ? AppRole.outside_bartender
+                                      : AppRole.vip_bartender,
+                                ),
+                              if (showActionsOnFirstRow) ...quickActions,
                             ],
                           ),
                           if (!showActionsOnFirstRow) ...[
                             const SizedBox(height: 6),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
-                              child: Row(children: actions),
+                              child: Row(children: quickActions),
                             ),
                           ],
                         ],

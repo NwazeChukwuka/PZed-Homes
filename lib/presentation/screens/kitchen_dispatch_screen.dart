@@ -2438,7 +2438,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final showActionsOnFirstRow = constraints.maxWidth >= 420;
+                      final showRoleButton = constraints.maxWidth >= 900;
+                      final showActionsOnFirstRow = constraints.maxWidth >= 360;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -2461,8 +2462,9 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                                   ),
                                 ),
                               ),
-                              if (showActionsOnFirstRow) ...[
+                              if (showRoleButton)
                                 const ContextAwareRoleButton(suggestedRole: AppRole.kitchen_staff),
+                              if (showActionsOnFirstRow) ...[
                                 IconButton(
                                   icon: const Icon(Icons.refresh, color: Colors.white),
                                   onPressed: _loadStockAndLocations,

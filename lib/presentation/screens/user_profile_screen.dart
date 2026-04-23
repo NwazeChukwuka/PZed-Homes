@@ -558,6 +558,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final userStatus = widget.userProfile['status'] as String? ?? 'Active';
     final userRole = _resolveUserRoleDisplay(widget.userProfile);
     final fullName = widget.userProfile['full_name'] as String? ?? 'Unknown';
+    final email = widget.userProfile['email']?.toString() ?? 'N/A';
     final phone = widget.userProfile['phone'] as String?;
     final createdAt = widget.userProfile['created_at'] != null
         ? DateTime.parse(widget.userProfile['created_at'] as String)
@@ -667,7 +668,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           _buildInfoRow('Role', userRole),
                           _buildInfoRow('Status', userStatus, 
                               valueColor: _getStatusColor(userStatus)),
-                          if (phone != null) _buildInfoRow('Phone', phone),
+                          _buildInfoRow('Email', email),
+                          _buildInfoRow('Phone', phone?.trim().isNotEmpty == true ? phone! : 'N/A'),
                           if (createdAt != null) 
                             _buildInfoRow('Member Since', DateFormat.yMMMd().format(createdAt)),
                         ],
