@@ -44,16 +44,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _bookings = [];
   Map<String, dynamic> _stats = {};
   
-  // Time range state
   TimeRange _timeRange = TimeRange.today;
   DateTimeRange? _customRange;
 
-  // Calendar state
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
-  // Presentation: checked-in guests and department sales
   List<Map<String, dynamic>> _checkedInGuests = [];
   Map<String, num> _deptSalesTotals = {
     'VIP Bar': 0,
@@ -63,7 +60,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'Reception': 0,
   };
   
-  // Previous period data for trend calculation
   Map<String, num> _previousDeptSalesTotals = {
     'VIP Bar': 0,
     'Outside Bar': 0,
@@ -76,20 +72,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   num _previousPayroll = 0;
   num _previousProfit = 0;
   int _previousCheckedInCount = 0;
-  /// Period payroll for Payroll card and Net Profit. Omitted (zero) when [TimeRange.today] is selected—payroll is monthly-only on the dashboard.
   num _calculatedPayrollTotal = 0;
-  /// Current period KPI totals (computed once when data loads; used by _buildAllCards to avoid recomputing on every build).
   num _currentIncome = 0;
   num _currentExpenses = 0;
   num _currentProfit = 0;
 
-  // Pagination state
   int _activitiesDisplayCount = 5;
   final ScrollController _activitiesScrollController = ScrollController();
   DateTime? _lastPaginationSetState;
   static const _paginationThrottleMs = 150;
 
-  // Memoized activities: recompute only when source data or search changes
   List<Map<String, dynamic>>? _cachedFilteredActivities;
   String _activitiesSearchQuery = '';
   Timer? _activitiesSearchDebounce;
@@ -242,7 +234,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _checkedInGuests = checkedInGuests;
           _bookings = bookings;
-          // Checked-in card: today = current live count; other ranges = count who checked in during period.
           final checkedInCount = _timeRange == TimeRange.today
               ? checkedInGuests.length
               : bookings.where((b) {
@@ -252,7 +243,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _stats = {
             'checked_in_count': checkedInCount,
           };
-          // Update Reception department card based on room revenue whenever bookings change.
           final currentReception = _calculateRoomRevenueForRange(bookings, timeRange);
           final previousReception = _calculateRoomRevenueForRange(bookings, previousRange);
           _deptSalesTotals = {
@@ -370,14 +360,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Removed automatic refresh to prevent flickering
-    // Real-time subscriptions handle updates, and pull-to-refresh is available
   }
 
-  /// Computes total room revenue for a given date range from bookings.
-  /// Revenue is recognized at check-in; filters by check_in_date in range.
-  /// Uses collected-first rule (paid_amount takes precedence over total_amount),
-  /// and includes extra_charges normalization when present.
   num _calculateRoomRevenueForRange(List<Map<String, dynamic>> bookings, DateTimeRange range) {
     return bookings.where((b) {
       final checkIn = _parseTimestamp(b['check_in_date']);
@@ -444,8 +428,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       final previousRange = getPreviousRange(timeRange);
 
-      // Run all independent sections in parallel
-      // Bookings: only fetch stays overlapping current + previous range (~20-50 rows vs 1000)
       final bookingsSection = Future.wait([
         _dataService.getCheckedInGuests(),
         _dataService.getBookings(
@@ -591,7 +573,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final calculatedCurrentPayroll = (financeResults[8] as num).toDouble();
       final calculatedPreviousPayroll = (financeResults[9] as num).toDouble();
 
-      // Checked-in card: today = current live count; other ranges = count who checked in during period.
       final checkedInCount = _timeRange == TimeRange.today
           ? checkedInGuests.length
           : bookings.where((b) {
@@ -607,34 +588,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }).length;
 
       if (mounted) {
-        // Filter department sales by business day logic
-        // Since department_sales.date is calendar date, we need to filter by created_at/updated_at
-        // to determine which records actually fall within the business day range
         List<Map<String, dynamic>> filterByBusinessDay(List<Map<String, dynamic>> sales) {
           return sales.where((sale) {
-            // Try to use created_at first (most accurate)
             final createdAt = _parseTimestamp(sale['created_at']);
             if (createdAt != null && _isInRange(createdAt)) {
               return true;
             }
-            // Fallback to updated_at
             final updatedAt = _parseTimestamp(sale['updated_at']);
             if (updatedAt != null && _isInRange(updatedAt)) {
               return true;
             }
-            // If no timestamp available, use date field as fallback
-            // This is less accurate but better than nothing
             final saleDate = _parseTimestamp(sale['date']);
             if (saleDate != null) {
-              // Check if the calendar date falls within the business day range
-              // This is approximate - assumes sales happen during business hours
               return _isInRange(saleDate);
             }
             return false;
           }).toList();
         }
         
-        // Helper to filter sales by previous business day range
         List<Map<String, dynamic>> filterByPreviousBusinessDay(List<Map<String, dynamic>> sales) {
           return sales.where((sale) {
             final createdAt = _parseTimestamp(sale['created_at']);
@@ -656,7 +627,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }).toList();
         }
         
-        // Calculate department sales totals (using total_sales field from department_sales table)
         num sumDeptSales(List<Map<String, dynamic>> list) {
           final filtered = filterByBusinessDay(list);
           return filtered.fold<num>(0, (s, e) => s + (double.tryParse(e['total_sales']?.toString() ?? '') ?? 0));
@@ -671,23 +641,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final outsideBarTotal = sumDeptSales(outsideSales);
         final miniMartTotal = sumDeptSales(miniMartSales);
         final kitchenTotal = sumDeptSales(kitchenSales);
-        // Reception card should reflect all room revenue (bookings), not department_sales.
         final receptionTotal = _calculateRoomRevenueForRange(bookings, timeRange);
         
-        // Calculate previous period totals
         final previousVipBarTotal = sumPreviousDeptSales(previousVipSales);
         final previousOutsideBarTotal = sumPreviousDeptSales(previousOutsideSales);
         final previousMiniMartTotal = sumPreviousDeptSales(previousMiniMartSales);
         final previousKitchenTotal = sumPreviousDeptSales(previousKitchenSales);
         final previousReceptionTotal = _calculateRoomRevenueForRange(previousBookings, previousRange);
         
-        // Calculate previous period income
         num previousIncomeFromRecords = previousIncomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num previousIncomeFromDeptSales = previousVipBarTotal + previousOutsideBarTotal + previousMiniMartTotal + previousKitchenTotal + previousReceptionTotal;
-        // Room revenue is in Reception card only; do not add previousIncomeFromBookings to avoid double-count.
         final previousIncome = previousIncomeFromRecords + previousIncomeFromDeptSales;
         
-        // Calculate previous period expenses
         num previousExpensesFromTable = previousExpensesList.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num previousExpensesFromPurchases = previousPurchaseOrders.where((po) {
           final created = _parseTimestamp(po['created_at']);
@@ -717,10 +682,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final previousPayroll = calculatedPreviousPayroll;
         final previousProfit = previousIncome - previousExpenses - previousPayroll;
 
-        // Current period KPI totals (once per load; used by _buildAllCards to avoid recomputing on every build)
         num currentIncomeFromRecords = incomeRecords.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
         num currentIncomeFromDeptSales = vipBarTotal + outsideBarTotal + miniMartTotal + kitchenTotal + receptionTotal;
-        // Room revenue is in Reception card only; do not add currentIncomeFromBookings to avoid double-count.
         final currentIncome = currentIncomeFromRecords + currentIncomeFromDeptSales;
 
         num currentExpensesFromTable = expenses.fold<num>(0, (s, e) => s + (double.tryParse(e['amount']?.toString() ?? '') ?? 0));
@@ -755,7 +718,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _currentExpenses = currentExpenses;
           _currentProfit = currentProfit;
 
-          // Store current period totals
           _deptSalesTotals = {
             'VIP Bar': vipBarTotal,
             'Outside Bar': outsideBarTotal,
@@ -764,7 +726,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'Reception': receptionTotal,
           };
           
-          // Store previous period totals for trend calculation
           _previousDeptSalesTotals = {
             'VIP Bar': previousVipBarTotal,
             'Outside Bar': previousOutsideBarTotal,
@@ -779,7 +740,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _previousCheckedInCount = previousCheckedInCount;
           _calculatedPayrollTotal = calculatedCurrentPayroll;
           
-          // Debug: Log if totals are zero
           if (kDebugMode) {
             print('Dashboard Sales Totals (Current):');
             print('VIP Bar: $vipBarTotal (${vipSales.length} records, filtered: ${filterByBusinessDay(vipSales).length})');
@@ -794,7 +754,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             }
           }
           
-          // Store checked-in count in stats for display
           _stats = {
             'checked_in_count': checkedInCount,
           };
@@ -889,9 +848,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _formatKobo(num value) {
     final intValue = value.toInt();
     final nairaValue = PaymentService.koboToNaira(intValue);
-    // Always return a formatted string, even for zero
     final formatted = NumberFormat('#,##0.00').format(nairaValue);
-    // Ensure we never return an empty string
     return formatted.isEmpty ? '0.00' : formatted;
   }
 
@@ -1148,18 +1105,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final DateTime start = DateTime.now();
     final List<DateTime> days = List.generate(7, (i) => DateTime(start.year, start.month, start.day + i));
 
-    // Collect unique rooms from bookings
     final Set<String> roomSet = {
       ..._bookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? 'Room ?'))
     }..removeWhere((e) => e.isEmpty);
     
-    // If no rooms from bookings, load all rooms from database
     List<String> rooms = [];
     if (roomSet.isNotEmpty) {
       rooms = roomSet.toList();
       sortRoomNumberStrings(rooms);
     } else {
-      // Load all rooms from database
       try {
         final allRooms = await _dataService.getRooms();
         final roomNumbers = allRooms
@@ -1213,7 +1167,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       child: Column(
         children: [
-                // Top bar
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
@@ -1224,10 +1177,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       const Text('Front Desk Calendar View', style: TextStyle(fontWeight: FontWeight.w700)),
                       const Spacer(),
-                      // Date range label
                       Text('From: ${fmt(days.first)}', style: const TextStyle(color: Colors.black54)),
                       const SizedBox(width: 12),
-                      // Filter dropdown placeholder
                       DropdownButton<String>(
                         value: 'All Reservations',
                         underline: const SizedBox(),
@@ -1240,7 +1191,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         onChanged: (_) {},
                       ),
                       const SizedBox(width: 12),
-                      // Search box placeholder
           SizedBox(
                         width: 220,
                         child: TextField(
@@ -1263,7 +1213,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Expanded(
                     child: Row(
                       children: [
-                      // Sidebar (rooms)
                         Container(
                         width: 220,
                         color: Colors.green[800],
@@ -1301,11 +1250,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
 
-                      // Timeline grid
                       Expanded(
       child: Column(
         children: [
-                            // Sticky header for dates
                             Container(
                               color: Colors.white,
             child: Row(
@@ -1350,7 +1297,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   List<dynamic> _getEventsForDay(DateTime day) {
-    // Basic marker: mark days that have any booking check-in or check-out
     final hasBooking = _bookings.any((b) {
       try {
         final ci = b['check_in_date'] != null ? DateTime.parse(b['check_in_date']) : null;
@@ -1416,15 +1362,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final spacing = 12.0;
     final cardWidth = (screenWidth - (padding * 2) - (spacing * (crossAxisCount - 1))) / crossAxisCount;
 
-    // Use precomputed KPI totals (set once in _loadData setState) to avoid heavy .fold()/.where() on every build
     final income = _currentIncome;
     final expenses = _currentExpenses;
     final payroll = _calculatedPayrollTotal;
     final profit = _currentProfit;
 
-    // Build all cards in specified order: Checked In, Reception, VIP Bar, Outside Bar, Kitchen, Mini Mart, Income, Expenses, Payroll, Profit
     final allCards = <Widget>[
-      // 1. Checked In
       _buildKPICard(
         context,
         'Checked In',
@@ -1434,7 +1377,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         false,
       ),
-      // 2. Reception
       _buildKPICard(
         context,
         'Reception',
@@ -1444,7 +1386,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 3. VIP Bar
       _buildKPICard(
         context,
         'VIP Bar',
@@ -1454,7 +1395,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 4. Outside Bar
       _buildKPICard(
         context,
         'Outside Bar',
@@ -1464,7 +1404,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 5. Kitchen
       _buildKPICard(
         context,
         'Kitchen',
@@ -1474,7 +1413,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 6. Mini Mart
       _buildKPICard(
         context,
         'Mini Mart',
@@ -1484,7 +1422,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 7. Income
       _buildKPICard(
         context,
         'Income',
@@ -1494,7 +1431,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.green[700]!,
         true,
       ),
-      // 8. Expenses (trend is inverted - lower is better, so we invert the trend)
       _buildKPICardWithInvertedTrend(
         context,
         'Expenses',
@@ -1504,7 +1440,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.orange[700]!,
         true,
       ),
-      // 9. Payroll
       _buildKPICardWithInvertedTrend(
         context,
         'Payroll',
@@ -1514,7 +1449,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Colors.orange[700]!,
         true,
       ),
-      // 10. Profit
       _buildKPICard(
         context,
         'Net Profit',
@@ -1526,7 +1460,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ];
     
-    // RepaintBoundary isolates KPI card grid from parent scroll/repaint cascades
     return RepaintBoundary(
       child: GridView.builder(
         shrinkWrap: true,
@@ -1543,7 +1476,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
-  // Calculate trend percentage change
   double _calculateTrend(num current, num previous) {
     if (previous == 0) {
       return current > 0 ? 100.0 : 0.0;
@@ -1551,7 +1483,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ((current - previous) / previous) * 100;
   }
   
-  // Unified KPI card builder with stable layout
   Widget _buildKPICard(
     BuildContext context,
     String title,
@@ -1593,12 +1524,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Top row: Icon (left) and Trend badge (right)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icon container (top-left)
                 Container(
                   width: 40,
                   height: 40,
@@ -1609,7 +1538,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   child: Icon(icon, color: color, size: 24),
                 ),
-                // Trend badge (top-right)
                 if (previousValue != 0 || currentValue != 0)
                   Flexible(
                     child: Container(
@@ -1642,7 +1570,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const Spacer(),
-            // Primary KPI value (large font, single line)
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
@@ -1659,7 +1586,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            // Card label (small, muted text)
             Text(
               title,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1676,7 +1602,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
-  // KPI card builder with inverted trend (for expenses where lower is better)
   Widget _buildKPICardWithInvertedTrend(
     BuildContext context,
     String title,
@@ -1686,7 +1611,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Color color,
     bool isCurrency,
   ) {
-    // Invert trend: if expenses decreased, that's positive
     final rawTrend = _calculateTrend(currentValue, previousValue);
     final trend = -rawTrend; // Invert: decrease in expenses is positive
     final isPositive = trend >= 0;
@@ -1720,12 +1644,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Top row: Icon (left) and Trend badge (right)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icon container (top-left)
                 Container(
                   width: 40,
                   height: 40,
@@ -1736,7 +1658,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   child: Icon(icon, color: color, size: 24),
                 ),
-                // Trend badge (top-right)
                 if (previousValue != 0 || currentValue != 0)
                   Flexible(
                     child: Container(
@@ -1769,7 +1690,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const Spacer(),
-            // Primary KPI value (large font, single line)
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
@@ -1786,7 +1706,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            // Card label (small, muted text)
             Text(
               title,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1863,7 +1782,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Helper to format time ago
   String _getTimeAgo(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
@@ -1933,7 +1851,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Text('No recent activities'),
             )
           else
-            // RepaintBoundary isolates activities list from parent repaints during scroll
             RepaintBoundary(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 400),
@@ -1944,12 +1861,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 itemBuilder: (context, index) {
                   final guest = displayedActivities[index];
                   
-                  // Extract room number
                   final roomNumber = guest['rooms']?['room_number'] as String? ?? 
                                     guest['room_number'] as String? ?? 
                                     'N/A';
                   
-                  // Extract guest name
                   String guestName = 'Guest';
                   if (guest['profiles'] != null) {
                     if (guest['profiles'] is Map) {
@@ -1961,7 +1876,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     guestName = guest['guest_name'] as String? ?? 'Guest';
                   }
                   
-                  // Extract check-in time
                   final checkInTime = guest['check_in_date'] as String?;
                   final timeAgo = checkInTime != null 
                       ? _getTimeAgo(DateTime.parse(checkInTime))
@@ -2013,7 +1927,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Toolbar to select time range filters
   Widget _buildTimeRangeToolbar(BuildContext context, bool isMobile) {
     final chipSpacing = isMobile ? 4.0 : 8.0;
     final chipPadding = isMobile ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4) : null;
@@ -2071,7 +1984,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Quick navigation for department and key areas
   Widget _buildQuickNav(BuildContext context, bool isMobile) {
     final auth = Provider.of<AuthService>(context, listen: false);
     final role = auth.userRole;
@@ -2160,26 +2072,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTimeRange _currentRange() {
     final now = DateTime.now();
     
-    // Business day starts at 5:00 AM, not midnight
-    // If current time is before 5 AM, "today" is from 5 AM yesterday to 4:59:59 AM today
-    // If current time is 5 AM or later, "today" is from 5 AM today to 4:59:59 AM tomorrow
     DateTime getBusinessDayStart(DateTime date) {
       if (date.hour < 5) {
-        // Before 5 AM, business day started yesterday at 5 AM
         final yesterday = date.subtract(const Duration(days: 1));
         return DateTime(yesterday.year, yesterday.month, yesterday.day, 5, 0, 0);
       } else {
-        // 5 AM or later, business day started today at 5 AM
         return DateTime(date.year, date.month, date.day, 5, 0, 0);
       }
     }
     
     DateTime getBusinessDayEnd(DateTime date) {
       if (date.hour < 5) {
-        // Before 5 AM, business day ends today at 4:59:59 AM
         return DateTime(date.year, date.month, date.day, 4, 59, 59, 999);
       } else {
-        // 5 AM or later, business day ends tomorrow at 4:59:59 AM
         final tomorrow = date.add(const Duration(days: 1));
         return DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 4, 59, 59, 999);
       }
@@ -2187,18 +2092,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     
     switch (_timeRange) {
       case TimeRange.today:
-        // Today: from 5 AM (business day start) to 4:59:59 AM next day
         final start = getBusinessDayStart(now);
         final end = getBusinessDayEnd(now);
         return DateTimeRange(start: start, end: end);
       case TimeRange.month:
-        // This month: from 5 AM of first day of month to end of current business day
         final monthStart = DateTime(now.year, now.month, 1);
         final businessMonthStart = getBusinessDayStart(monthStart);
         final businessMonthEnd = getBusinessDayEnd(now);
         return DateTimeRange(start: businessMonthStart, end: businessMonthEnd);
       case TimeRange.lastMonth:
-        // Last month: full previous calendar month (start of day 1 to end of last day)
         final lastMonthStart = DateTime(now.year, now.month - 1, 1);
         final lastMonthEnd = DateTime(now.year, now.month, 0, 23, 59, 59, 999);
         return DateTimeRange(start: lastMonthStart, end: lastMonthEnd);
@@ -2209,7 +2111,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _isInRange(DateTime date) {
     final r = _currentRange();
-    // Compare full datetime (including time) to respect 5 AM business day boundary
     // Business day: 5:00 AM to 4:59:59.999 AM next calendar day
     // Transaction at 4:59 AM belongs to previous business day
     // Transaction at 5:00 AM belongs to current business day
@@ -2217,7 +2118,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         && (date.isBefore(r.end) || date.isAtSameMomentAs(r.end));
   }
   
-  // Helper to parse timestamp from various formats
   DateTime? _parseTimestamp(dynamic timestamp) {
     if (timestamp == null) return null;
     
@@ -2225,23 +2125,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final str = timestamp.toString().trim();
       if (str.isEmpty) return null;
       
-      // Try ISO 8601 format first
       if (str.contains('T') || str.contains('Z')) {
         return DateTime.parse(str);
       }
       
-      // Try space-separated format (replace space with T)
       if (str.contains(' ')) {
         final normalized = str.replaceFirst(' ', 'T');
         return DateTime.parse(normalized);
       }
       
-      // Try date-only format
       if (str.length == 10 && str.contains('-')) {
         return DateTime.parse(str);
       }
       
-      // Try parsing as-is
       return DateTime.parse(str);
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG _parseTimestamp: $e\n$stack');
@@ -2249,7 +2145,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Inline builder for front desk calendar row to avoid nested class issues
   Widget _buildFrontDeskCalendarRow(
     BuildContext context,
     String roomName,

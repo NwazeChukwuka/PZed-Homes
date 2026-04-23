@@ -41,7 +41,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
 
   Future<void> _loadHistoricalCounts() async {
     try {
-      // Load approved counts
       final approved = await _supabase
           .from('pending_stock_counts')
           .select('*, submitted_by_profile:profiles!submitted_by(id, full_name), approved_by_profile:profiles!approved_by(id, full_name)')
@@ -49,7 +48,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           .order('submitted_at', ascending: false)
           .limit(25);
       
-      // Load rejected counts
       final rejected = await _supabase
           .from('pending_stock_counts')
           .select('*, submitted_by_profile:profiles!submitted_by(id, full_name), rejected_by_profile:profiles!rejected_by(id, full_name)')
@@ -66,7 +64,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           return bDate.compareTo(aDate);
         });
 
-      // Load custom items for historical counts
       if (_historicalCounts.isNotEmpty) {
         final countIds = _historicalCounts.map((c) => c['id'] as String).toList();
         final customItems = await _supabase
@@ -93,7 +90,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
   Future<void> _loadPendingCounts() async {
     setState(() => _isLoading = true);
     try {
-      // Load pending stock counts
       final counts = await _supabase
           .from('pending_stock_counts')
           .select('*, submitted_by_profile:profiles!submitted_by(id, full_name)')
@@ -102,19 +98,16 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
 
       _pendingCounts = List<Map<String, dynamic>>.from(counts);
 
-      // Load locations
       final locations = await _supabase.from('locations').select();
       _locationsById = {
         for (var loc in locations) loc['id'] as String: loc
       };
 
-      // Load stock items
       final stockItems = await _supabase.from('stock_items').select();
       _stockItemsById = {
         for (var item in stockItems) item['id'] as String: item
       };
 
-      // Extract submitter info for pending counts (alias: submitted_by_profile)
       for (var count in _pendingCounts) {
         final submitter = count['submitted_by_profile'] as Map<String, dynamic>?;
         if (submitter != null) {
@@ -122,7 +115,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
         }
       }
 
-      // Extract submitter info for historical counts (alias: submitted_by_profile)
       for (var count in _historicalCounts) {
         final submitter = count['submitted_by_profile'] as Map<String, dynamic>?;
         if (submitter != null && !_submittersById.containsKey(count['id'] as String)) {
@@ -130,7 +122,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
         }
       }
 
-      // Load count items for each pending count
       if (_pendingCounts.isNotEmpty) {
         final countIds = _pendingCounts.map((c) => c['id'] as String).toList();
         final items = await _supabase
@@ -147,7 +138,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           _countItemsByCountId[countId]!.add(item);
         }
 
-        // Load custom items for pending counts
         final customItems = await _supabase
             .from('stock_count_custom_items')
             .select()
@@ -187,7 +177,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
         throw Exception('User must be logged in to approve counts');
       }
 
-      // Call the approval function
       await _supabase.rpc('approve_stock_count', params: {
         'count_id': countId,
         'approver_id': approverId,
@@ -624,7 +613,6 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
                                         }),
                                       ],
                                     ),
-                                  // Custom Items Section
                                   if (customItems.isNotEmpty) ...[
                                     const SizedBox(height: 24),
                                     const Text(
@@ -707,3 +695,4 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
                   );
   }
 }
+

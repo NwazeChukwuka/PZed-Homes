@@ -1,4 +1,3 @@
-/// Numeric-aware ordering for hotel room labels (e.g. 101 before 201; avoids "10" < "2" lexicographic bugs).
 library;
 
 int? roomNumberSortKey(String? raw) {
@@ -12,7 +11,6 @@ int? roomNumberSortKey(String? raw) {
   return null;
 }
 
-/// Compares two room number strings for display lists. Non-numeric labels fall back to lexicographic order after numeric ones.
 int compareRoomNumbers(String? a, String? b) {
   final ka = roomNumberSortKey(a);
   final kb = roomNumberSortKey(b);
@@ -37,3 +35,4 @@ void sortRoomMapsByNumber(List<Map<String, dynamic>> rooms) {
 void sortRoomNumberStrings(List<String> labels) {
   labels.sort(compareRoomNumbers);
 }
+

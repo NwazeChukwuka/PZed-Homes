@@ -3,14 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 
-/// Performance optimization helpers for common UI patterns
 class OptimizationHelpers {
-  /// Maximum cache dimension for full-screen images (downscale oversized assets)
   static const int maxCacheDimension = 1200;
 
-  /// Optimized asset image with downscaling (cacheWidth/cacheHeight) to reduce memory.
-  /// Uses 2x display size for retina; caps at maxCacheDimension.
-  /// Optional [frameBuilder] for loading placeholder and fade-in transition.
   static Widget buildAssetImage({
     required String assetPath,
     double? width,
@@ -20,7 +15,6 @@ class OptimizationHelpers {
     Widget? errorWidget,
     Widget Function(BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded)? frameBuilder,
   }) {
-    // Use finite values for cache calc; infinity causes "unsupported operation"
     final w = (width != null && width.isFinite) ? width : 256.0;
     final h = (height != null && height.isFinite) ? height : 256.0;
     final cacheW = (w * 2).round().clamp(1, maxCacheDimension);
@@ -40,7 +34,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Optimized cached network image with shimmer loading and memory limits
   static Widget buildCachedImage({
     required String imageUrl,
     required double width,
@@ -65,7 +58,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Shimmer placeholder for loading states
   static Widget _buildShimmerPlaceholder(double width, double height) {
     return Shimmer.fromColors(
       baseColor: Colors.grey.shade300,
@@ -78,7 +70,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Error widget for failed image loads
   static Widget _buildErrorWidget(double width, double height) {
     return Container(
       width: width,
@@ -88,7 +79,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Optimized list view with performance flags
   static Widget buildOptimizedListView({
     required int itemCount,
     required Widget Function(BuildContext, int) itemBuilder,
@@ -110,7 +100,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Optimized grid view with performance flags
   static Widget buildOptimizedGridView({
     required int itemCount,
     required Widget Function(BuildContext, int) itemBuilder,
@@ -140,7 +129,6 @@ class OptimizationHelpers {
     );
   }
 
-  /// Debounced function calls to prevent excessive API calls
   static void debounce({
     required String key,
     required Duration delay,
@@ -149,7 +137,6 @@ class OptimizationHelpers {
     _DebounceManager.debounce(key, delay, callback);
   }
 
-  /// Memoized builder for expensive computations
   static Widget memoizedBuilder({
     required String key,
     required Widget Function() builder,
@@ -158,7 +145,6 @@ class OptimizationHelpers {
   }
 }
 
-/// Internal debounce manager
 class _DebounceManager {
   static final Map<String, Timer> _timers = {};
 
@@ -168,7 +154,6 @@ class _DebounceManager {
   }
 }
 
-/// Memoized builder widget
 class _MemoizedBuilder extends StatefulWidget {
   final String memoKey;
   final Widget Function() builder;
@@ -197,7 +182,6 @@ class _MemoizedBuilderState extends State<_MemoizedBuilder> {
   }
 }
 
-/// Performance monitoring utilities
 class PerformanceMonitor {
   static void trackWidgetBuild(String widgetName, VoidCallback buildFunction) {
     final stopwatch = Stopwatch()..start();
@@ -217,3 +201,5 @@ class PerformanceMonitor {
     debugPrint('$operationName completed in ${stopwatch.elapsedMilliseconds}ms');
   }
 }
+
+

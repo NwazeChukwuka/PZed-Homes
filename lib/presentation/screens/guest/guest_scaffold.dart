@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Shared luxury gold + deep green styling for guest-facing routes.
 abstract final class GuestPortalTheme {
   static const Color gold = Color(0xFFFFD54F);
   static const Color goldBright = Color(0xFFFFE082);
@@ -10,7 +9,6 @@ abstract final class GuestPortalTheme {
   static const Color forestGreen = Color(0xFF1B4332);
   static const Color leafGreen = Color(0xFF2D6A4F);
 
-  /// App bar + tab strip background.
   static const LinearGradient headerGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -26,7 +24,6 @@ abstract final class GuestPortalTheme {
 
   static const double headerGoldBorderWidth = 2;
 
-  /// Soft gold glow used under hero / plan cards.
   static List<BoxShadow> goldLeafShadows({double blur = 22, double dy = 8}) => [
         BoxShadow(
           color: gold.withValues(alpha: 0.18),
@@ -41,7 +38,6 @@ abstract final class GuestPortalTheme {
         ),
       ];
 
-  /// Explicit getter so Dart does not parse `=>` as a parameterless method.
   static SystemUiOverlayStyle get headerOverlayStyle => const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
@@ -49,8 +45,6 @@ abstract final class GuestPortalTheme {
       );
 }
 
-/// Lightweight guest shell.
-/// It intentionally excludes staff navigation chrome and dashboard widgets.
 class GuestScaffold extends StatelessWidget {
   final Widget child;
 
@@ -59,7 +53,6 @@ class GuestScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
-    // Subtle defaults for guest pages that are not GuestHomeScreen (plain Scaffold).
     final guestChrome = base.copyWith(
       appBarTheme: base.appBarTheme.copyWith(
         elevation: 0,
@@ -77,3 +70,5 @@ class GuestScaffold extends StatelessWidget {
     );
   }
 }
+
+

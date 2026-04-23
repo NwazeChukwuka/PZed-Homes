@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../core/error/error_handler.dart';
 
-/// Emerald Green and Gold theme for finance record dialogs.
 class _FinanceDialogColors {
   static const Color emeraldGreen = Color(0xFF009B77);
   static const Color goldAccent = Color(0xFFD4AF37);
 }
 
-/// Reusable dialog for recording finance entries (Income, Expense, Payroll, Debt, Cash Deposit).
-/// Manages its own loading state, wraps [onSave] in try-catch, and only pops on success.
 class FinanceRecordDialog extends StatefulWidget {
   final String title;
   final List<Widget> formFields;
@@ -94,3 +91,4 @@ class _FinanceRecordDialogState extends State<FinanceRecordDialog> {
     );
   }
 }
+

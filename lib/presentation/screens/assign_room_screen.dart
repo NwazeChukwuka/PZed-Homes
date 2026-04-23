@@ -1,4 +1,3 @@
-// Screen for receptionists to assign rooms to bookings
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -52,7 +51,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       }
       final rooms = await roomsQuery;
 
-      // Exclude this booking so its pre-linked room is not filtered out as "booked by self".
       final conflictingBookings = await _supabase
           .from('bookings')
           .select('room_id')
@@ -163,7 +161,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       final paymentMethod = (booking['payment_method']?.toString() ?? '').toLowerCase();
       final isTransferFlow = paymentMethod.contains('transfer');
       if (isTransferFlow && paidAmount < totalAmount) {
-        // Revenue is recognized only when reception confirms by assigning room.
         await _supabase.from('bookings').update({
           'paid_amount': totalAmount,
           'payment_method': 'bank_transfer_verified',
@@ -222,7 +219,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
       ),
       body: Column(
               children: [
-                // Booking Info Card
                 Card(
                   margin: const EdgeInsets.all(16),
                   child: Padding(
@@ -255,7 +251,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
                   ),
                 ),
 
-                // Available Rooms List
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -322,7 +317,6 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
                         ),
                 ),
 
-                // Assign Button
                 if (!_isLoading && _availableRooms.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(16),
@@ -358,4 +352,5 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
     );
   }
 }
+
 

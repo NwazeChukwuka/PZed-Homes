@@ -28,7 +28,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (mounted) {
         setState(() {
-          // Transform room_types data to match RoomCategory format
           _roomTypes = roomTypes.map((type) {
             return {
               'type': type['type'] ?? 'Unknown',

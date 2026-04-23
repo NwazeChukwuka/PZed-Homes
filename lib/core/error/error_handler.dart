@@ -2,10 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Centralized error handling for the application
 class ErrorHandler {
-  /// Returns a clean, user-friendly error message. Use for UI display.
-  /// Debug logs should still print the raw error and stack trace separately.
   static String getFriendlyErrorMessage(dynamic error) {
     if (error == null) return 'An unexpected error occurred.';
     if (error is AuthException) return _handleAuthError(error);
@@ -93,8 +90,6 @@ class ErrorHandler {
     return 'Authentication failed. Please try again.';
   }
 
-  /// Admin/CRUD-specific messages for PostgrestException. Use as [customMessage] in [handleError].
-  /// [itemName] and [department] are used for 23505 to show "Item [Name] already exists in this Department."
   static String getAdminErrorMessage(
     PostgrestException error, {
     String? itemName,
@@ -193,7 +188,6 @@ class ErrorHandler {
     );
   }
 
-  /// Shown after ledger writes complete so staff know it is safe to dismiss the sheet/dialog.
   static void showLedgerConfirmedSnackBar(
     BuildContext context,
     String message, {
@@ -293,7 +287,6 @@ class ErrorHandler {
     );
   }
 
-  /// Helper widget for FutureBuilder error states
   static Widget buildErrorWidget(
     BuildContext context,
     Object? error, {
@@ -328,7 +321,6 @@ class ErrorHandler {
     );
   }
 
-  /// Helper widget for empty states
   static Widget buildEmptyWidget(
     BuildContext context, {
     String? message,
@@ -355,7 +347,6 @@ class ErrorHandler {
     );
   }
 
-  /// Safe async operation wrapper with error handling
   static Future<T?> safeAsync<T>(
     BuildContext? context,
     Future<T> Function() operation, {
@@ -378,7 +369,6 @@ class ErrorHandler {
   }
 }
 
-/// Custom exception classes
 class NetworkException implements Exception {
   final String message;
   NetworkException(this.message);
@@ -407,7 +397,6 @@ class BusinessLogicException implements Exception {
   String toString() => 'BusinessLogicException: $message';
 }
 
-/// Error boundary widget for catching and handling errors
 class ErrorBoundary extends StatefulWidget {
   final Widget child;
   final Widget Function(BuildContext context, Object error, StackTrace? stackTrace)? errorBuilder;
@@ -429,14 +418,11 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
   @override
   void initState() {
     super.initState();
-    // Store the original error handler
     final originalErrorHandler = FlutterError.onError;
     
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Call original error handler first
       originalErrorHandler?.call(details);
       
-      // Then handle our custom error boundary
       if (mounted) {
         setState(() {
           _error = details.exception;
@@ -448,7 +434,6 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
 
   @override
   void dispose() {
-    // Restore original error handler on dispose
     FlutterError.onError = FlutterError.onError;
     super.dispose();
   }
@@ -516,3 +501,5 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     return widget.child;
   }
 }
+
+

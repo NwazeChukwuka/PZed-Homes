@@ -120,7 +120,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
   void _updateItem(int index, String field, dynamic value) {
     setState(() {
       _items[index][field] = value;
-      // Recalculate total if quantity or unit_cost changed
       if (field == 'quantity' || field == 'unit_cost') {
         final quantity = _items[index]['quantity'] as int? ?? 0;
         final unitCost = _items[index]['unit_cost'] as int? ?? 0;
@@ -145,7 +144,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
       return;
     }
 
-    // Validate all items have stock_item_id, quantity > 0, and unit_cost > 0
     for (int i = 0; i < _items.length; i++) {
       final item = _items[i];
       if (item['stock_item_id'] == null) {
@@ -235,7 +233,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
         child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Supplier
                           Row(
                             children: [
                               Expanded(
@@ -273,7 +270,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                           ),
                           const SizedBox(height: 24),
 
-                          // Items Section
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -290,7 +286,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // Items List
                           if (_items.isEmpty)
                             const Center(
                               child: Padding(
@@ -308,7 +303,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
 
                           const SizedBox(height: 16),
 
-                          // Total Cost
                           Card(
                             color: Colors.blue[50],
                             child: Padding(
@@ -405,7 +399,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Stock Item Dropdown
             DropdownButtonFormField<String>(
               initialValue: selectedStockItemId,
               decoration: const InputDecoration(
@@ -429,7 +422,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Quantity
             TextFormField(
               initialValue: (item['quantity'] as int? ?? 1).toString(),
               decoration: const InputDecoration(
@@ -452,7 +444,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Unit Cost (in Naira, will convert to kobo)
             TextFormField(
               initialValue: ((item['unit_cost'] as int? ?? 0) / 100).toStringAsFixed(2),
               decoration: const InputDecoration(
@@ -475,7 +466,6 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
               },
             ),
 
-            // Item Total
             if (selectedStockItemId != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8.0),
@@ -493,3 +483,4 @@ class _CreatePurchaseOrderScreenState extends State<CreatePurchaseOrderScreen> {
     );
   }
 }
+

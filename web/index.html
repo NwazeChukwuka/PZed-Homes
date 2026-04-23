@@ -18,23 +18,766 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <!-- upgrade-insecure-requests: upgrade http:// subresources to https:// -->
+  <!-- HSTS must be sent as an HTTP header by the server (.htaccess / nginx); meta cannot replace it. -->
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <meta name="description" content="Hotel management and guest booking for P-ZED Luxury Hotels & Suites.">
   <meta name="application-name" content="P-ZED Homes">
   <meta name="theme-color" content="#0B5E3B">
 
-  <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="P-ZED Homes">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>P-ZED Homes</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    /* Mirrors GuestLandingPage: Material green[800] app bar, white scaffold body, cards, section headers, hero, footer */
+    :root {
+      --appbar-green: #2E7D32;
+      --amber-700: #F57C00;
+      --grey-800: #424242;
+      --grey-600: #757575;
+      --grey-300: #E0E0E0;
+      --green-price: #2E7D32;
+      --amber-600: #FFB300;
+      --amber-800: #FF8F00;
+      --footer-green-800: #2E7D32;
+      --footer-green-900: #1B5E20;
+      --shadow-card: 0 5px 15px rgba(0, 0, 0, 0.08);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: #FAFAFA;
+    }
+    /* Full-height scrollable ghost — must receive pointer events so user can scroll while Flutter loads */
+    #ghost-root {
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      pointer-events: auto;
+      touch-action: pan-y;
+      background: #FAFAFA;
+      transition: opacity 0.38s ease, visibility 0.38s ease;
+    }
+    #ghost-root.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    /* AppBar — Colors.green[800], elevation 0, title Row */
+    .ghost-appbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px 0 16px;
+      background: var(--appbar-green);
+      color: #fff;
+      box-shadow: none;
+    }
+    .ghost-appbar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: 0.15px;
+      color: #fff;
+    }
+    .ghost-logo-wrap {
+      padding: 6px;
+      background: var(--amber-700);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .ghost-logo-wrap img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      display: block;
+      filter: brightness(0) invert(1);
+    }
+    .ghost-menu-btn {
+      width: 48px;
+      height: 48px;
+      border: 0;
+      background: transparent;
+      color: #fff;
+      cursor: default;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .ghost-menu-icon {
+      width: 24px;
+      height: 24px;
+    }
+    /* Hero — _HeroSectionWidget heights: mobile 600, tablet 650, desktop 700 */
+    .ghost-hero {
+      position: relative;
+      width: 100%;
+      height: 600px;
+    }
+    @media (min-width: 600px) {
+      .ghost-hero { height: 650px; }
+    }
+    @media (min-width: 900px) {
+      .ghost-hero { height: 700px; }
+    }
+    .ghost-hero-slide {
+      position: absolute;
+      inset: 0;
+    }
+    .ghost-hero-slide img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ghost-hero-dots {
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      z-index: 3;
+    }
+    .ghost-hero-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .ghost-hero-dot.active {
+      background: #fff;
+    }
+    .ghost-hero-gradient {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.3),
+        rgba(0, 0, 0, 0.5),
+        rgba(0, 0, 0, 0.7)
+      );
+      pointer-events: none;
+    }
+    .ghost-hero-text-wrap {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      text-align: center;
+      pointer-events: none;
+    }
+    .ghost-hero-title {
+      color: #fff;
+      font-size: 34px;
+      font-weight: 800;
+      line-height: 1.12;
+      text-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      margin: 0;
+    }
+    @media (min-width: 600px) {
+      .ghost-hero-title { font-size: 38px; }
+    }
+    @media (min-width: 900px) {
+      .ghost-hero-title { font-size: 42px; }
+    }
+    .ghost-hero-subtitle {
+      margin: 12px 0 0;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 20px;
+      font-weight: 400;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    }
+    @media (min-width: 600px) {
+      .ghost-hero-subtitle { font-size: 22px; }
+    }
+    @media (min-width: 900px) {
+      .ghost-hero-subtitle { font-size: 24px; }
+    }
+    /* Section header — _buildSectionHeader */
+    .ghost-section-header-wrap {
+      padding: 40px 16px 24px;
+      text-align: center;
+    }
+    @media (min-width: 600px) {
+      .ghost-section-header-wrap {
+        padding: 50px 24px 30px;
+      }
+    }
+    @media (min-width: 900px) {
+      .ghost-section-header-wrap {
+        padding: 60px 32px 40px;
+      }
+    }
+    .ghost-section-title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--grey-800);
+    }
+    @media (min-width: 600px) {
+      .ghost-section-title { font-size: 32px; }
+    }
+    @media (min-width: 900px) {
+      .ghost-section-title { font-size: 36px; }
+    }
+    .ghost-section-underline {
+      width: 50px;
+      height: 4px;
+      margin: 8px auto 0;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--amber-600), var(--amber-800));
+    }
+    /* Room card — margin 16h 10v, radius 16, shadow */
+    .ghost-room-card {
+      margin: 10px 16px;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .ghost-room-carousel {
+      height: 220px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px 16px 0 0;
+    }
+    .ghost-room-carousel img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ghost-room-body {
+      padding: 20px;
+    }
+    .ghost-room-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .ghost-room-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: rgba(0, 0, 0, 0.87);
+    }
+    .ghost-stars {
+      color: var(--amber-600);
+      font-size: 16px;
+      letter-spacing: 0;
+      line-height: 1;
+    }
+    .ghost-room-desc {
+      margin: 12px 0 16px;
+      font-size: 16px;
+      line-height: 1.4;
+      color: var(--grey-600);
+    }
+    .ghost-room-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .ghost-price-label {
+      font-size: 14px;
+      color: var(--grey-600);
+    }
+    .ghost-price-value {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--green-price);
+    }
+    .ghost-view-details {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      cursor: default;
+      background: linear-gradient(90deg, var(--amber-600), var(--amber-800));
+      box-shadow: 0 3px 6px rgba(255, 179, 0, 0.3);
+    }
+    /* Facility card */
+    .ghost-facility-card {
+      margin: 10px 16px;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .ghost-facility-img {
+      height: 250px;
+      width: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ghost-facility-body {
+      padding: 20px;
+    }
+    .ghost-facility-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: rgba(0, 0, 0, 0.87);
+      margin: 0 0 12px;
+    }
+    .ghost-facility-desc {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.4;
+      color: var(--grey-600);
+    }
+    /* Gallery — padding 16, grid 3 cols, gap 8, rounded 8, title overlay */
+    .ghost-gallery-wrap {
+      padding: 16px;
+    }
+    /* GuestLandingPage: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, spacing 8) */
+    .ghost-gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .ghost-gallery-cell {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      aspect-ratio: 1;
+      min-height: 0;
+    }
+    .ghost-gallery-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ghost-gallery-gradient {
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+      pointer-events: none;
+    }
+    .ghost-gallery-label {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.2;
+      z-index: 1;
+      pointer-events: none;
+    }
+    /* Footer — gradient green[800] to green[900] */
+    .ghost-page-footer {
+      margin-top: 0;
+      background: linear-gradient(180deg, var(--footer-green-800), var(--footer-green-900));
+      color: #fff;
+    }
+    .ghost-footer-inner {
+      padding: 20px 32px;
+      max-width: 100%;
+    }
+    .ghost-footer-brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .ghost-footer-logo-box {
+      padding: 10px;
+      background: var(--amber-700);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ghost-footer-logo-box img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+      filter: brightness(0) invert(1);
+    }
+    .ghost-footer-brand-text {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .ghost-footer-columns {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 24px 48px;
+      text-align: center;
+    }
+    .ghost-footer-col {
+      flex: 1 1 200px;
+      max-width: 360px;
+    }
+    .ghost-footer-col-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .ghost-footer-col p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    .ghost-footer-col .sep {
+      color: rgba(255, 255, 255, 0.6);
+    }
+    #ghost-status {
+      padding: 12px 32px;
+      background: rgba(0, 0, 0, 0.2);
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
+  <div id="ghost-root" aria-hidden="false">
+    <header class="ghost-appbar">
+      <div class="ghost-appbar-title">
+        <div class="ghost-logo-wrap">
+          <img src="assets/images/PZED logo.png" alt="" width="18" height="18" />
+        </div>
+        <span>P-ZED Luxury Hotels &amp; Suites</span>
+      </div>
+      <button type="button" class="ghost-menu-btn" aria-label="Menu" tabindex="-1">
+        <svg class="ghost-menu-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+        </svg>
+      </button>
+    </header>
+
+    <section class="ghost-hero" aria-label="Hero">
+      <div class="ghost-hero-slide">
+        <img src="assets/images/Front View/Front View 1.JPG" alt="" fetchpriority="high" />
+      </div>
+      <div class="ghost-hero-gradient"></div>
+      <div class="ghost-hero-text-wrap">
+        <div>
+          <h1 class="ghost-hero-title">Welcome to P-ZED Luxury Hotels &amp; Suites</h1>
+          <p class="ghost-hero-subtitle">Your Comfort is Our Priority</p>
+        </div>
+      </div>
+      <div class="ghost-hero-dots" aria-hidden="true">
+        <span class="ghost-hero-dot active"></span>
+        <span class="ghost-hero-dot"></span>
+        <span class="ghost-hero-dot"></span>
+        <span class="ghost-hero-dot"></span>
+      </div>
+    </section>
+
+    <div class="ghost-section-header-wrap">
+      <h2 class="ghost-section-title">Our Rooms &amp; Suites</h2>
+      <div class="ghost-section-underline"></div>
+    </div>
+
+    <article class="ghost-room-card">
+      <div class="ghost-room-carousel"><img src="assets/images/Standard Room/Standard 1.png" alt="" /></div>
+      <div class="ghost-room-body">
+        <div class="ghost-room-head">
+          <span class="ghost-room-name">Standard Room</span>
+          <span class="ghost-stars">★★★★★</span>
+        </div>
+        <p class="ghost-room-desc">Comfortable, affordable, and equipped with all the essentials for a pleasant stay.</p>
+        <div class="ghost-room-footer">
+          <div>
+            <div class="ghost-price-label">Starts from</div>
+            <div class="ghost-price-value">₦20,000.00 / night</div>
+          </div>
+          <button type="button" class="ghost-view-details" tabindex="-1">View Details</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="ghost-room-card">
+      <div class="ghost-room-carousel"><img src="assets/images/Classic Room/Classic 1.JPG" alt="" /></div>
+      <div class="ghost-room-body">
+        <div class="ghost-room-head">
+          <span class="ghost-room-name">Classic Room</span>
+          <span class="ghost-stars">★★★★★</span>
+        </div>
+        <p class="ghost-room-desc">A touch of elegance with enhanced amenities and more space to relax and unwind.</p>
+        <div class="ghost-room-footer">
+          <div>
+            <div class="ghost-price-label">Starts from</div>
+            <div class="ghost-price-value">₦25,000.00 / night</div>
+          </div>
+          <button type="button" class="ghost-view-details" tabindex="-1">View Details</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="ghost-room-card">
+      <div class="ghost-room-carousel"><img src="assets/images/Diplomatic Room/Diplomatic 1.png" alt="" /></div>
+      <div class="ghost-room-body">
+        <div class="ghost-room-head">
+          <span class="ghost-room-name">Diplomatic Room</span>
+          <span class="ghost-stars">★★★★★</span>
+        </div>
+        <p class="ghost-room-desc">Spacious and refined, designed for the discerning traveler requiring extra comfort.</p>
+        <div class="ghost-room-footer">
+          <div>
+            <div class="ghost-price-label">Starts from</div>
+            <div class="ghost-price-value">₦30,000.00 / night</div>
+          </div>
+          <button type="button" class="ghost-view-details" tabindex="-1">View Details</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="ghost-room-card">
+      <div class="ghost-room-carousel"><img src="assets/images/Deluxe Room/Deluxe 1.JPG" alt="" /></div>
+      <div class="ghost-room-body">
+        <div class="ghost-room-head">
+          <span class="ghost-room-name">Deluxe Room</span>
+          <span class="ghost-stars">★★★★★</span>
+        </div>
+        <p class="ghost-room-desc">A premium experience with superior furnishings and breathtaking views.</p>
+        <div class="ghost-room-footer">
+          <div>
+            <div class="ghost-price-label">Starts from</div>
+            <div class="ghost-price-value">₦35,000.00 / night</div>
+          </div>
+          <button type="button" class="ghost-view-details" tabindex="-1">View Details</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="ghost-room-card">
+      <div class="ghost-room-carousel"><img src="assets/images/Executive Room/Executive 1.png" alt="" /></div>
+      <div class="ghost-room-body">
+        <div class="ghost-room-head">
+          <span class="ghost-room-name">Executive Room</span>
+          <span class="ghost-stars">★★★★★</span>
+        </div>
+        <p class="ghost-room-desc">A generously sized room crafted for refined comfort, combining elegant finishes with enhanced space, ideal for work, privacy, and relaxation.</p>
+        <div class="ghost-room-footer">
+          <div>
+            <div class="ghost-price-label">Starts from</div>
+            <div class="ghost-price-value">₦50,000.00 / night</div>
+          </div>
+          <button type="button" class="ghost-view-details" tabindex="-1">View Details</button>
+        </div>
+      </div>
+    </article>
+
+    <div class="ghost-section-header-wrap">
+      <h2 class="ghost-section-title">Our Facilities</h2>
+      <div class="ghost-section-underline"></div>
+    </div>
+
+    <article class="ghost-facility-card">
+      <img class="ghost-facility-img" src="assets/images/VIP Bar/VIP Bar 1.JPG" alt="" />
+      <div class="ghost-facility-body">
+        <h3 class="ghost-facility-name">VIP Bar</h3>
+        <p class="ghost-facility-desc">An exclusive lounge for premium drinks and a serene ambiance.</p>
+      </div>
+    </article>
+    <article class="ghost-facility-card">
+      <img class="ghost-facility-img" src="assets/images/Restaurant/Restaurant 1.jpg" alt="" />
+      <div class="ghost-facility-body">
+        <h3 class="ghost-facility-name">Restaurant</h3>
+        <p class="ghost-facility-desc">Savor a wide range of local and continental dishes prepared by our expert chefs.</p>
+      </div>
+    </article>
+    <article class="ghost-facility-card">
+      <img class="ghost-facility-img" src="assets/images/Reception/Reception 1.JPG" alt="" />
+      <div class="ghost-facility-body">
+        <h3 class="ghost-facility-name">Reception</h3>
+        <p class="ghost-facility-desc">Our welcoming reception area with professional staff ready to assist you 24/7.</p>
+      </div>
+    </article>
+    <article class="ghost-facility-card">
+      <img class="ghost-facility-img" src="assets/images/Outside bar/Outside Bar 2.jpg" alt="" />
+      <div class="ghost-facility-body">
+        <h3 class="ghost-facility-name">Outside Bar</h3>
+        <p class="ghost-facility-desc">Savor a wide range of local and continental dishes prepared by our expert chefs.</p>
+      </div>
+    </article>
+
+    <div class="ghost-section-header-wrap">
+      <h2 class="ghost-section-title">Hotel Gallery</h2>
+      <div class="ghost-section-underline"></div>
+    </div>
+
+    <div class="ghost-gallery-wrap">
+      <div class="ghost-gallery-grid">
+        <div class="ghost-gallery-cell">
+          <img src="assets/images/Front View/Front View 1.JPG" alt="" />
+          <div class="ghost-gallery-gradient"></div>
+          <span class="ghost-gallery-label">Front View</span>
+        </div>
+        <div class="ghost-gallery-cell">
+          <img src="assets/images/VIP Bar/VIP Bar 1.JPG" alt="" />
+          <div class="ghost-gallery-gradient"></div>
+          <span class="ghost-gallery-label">VIP Bar</span>
+        </div>
+        <div class="ghost-gallery-cell">
+          <img src="assets/images/Restaurant/Restaurant 1.jpg" alt="" />
+          <div class="ghost-gallery-gradient"></div>
+          <span class="ghost-gallery-label">Restaurant</span>
+        </div>
+        <div class="ghost-gallery-cell">
+          <img src="assets/images/Reception/Reception 1.JPG" alt="" />
+          <div class="ghost-gallery-gradient"></div>
+          <span class="ghost-gallery-label">Reception</span>
+        </div>
+        <div class="ghost-gallery-cell">
+          <img src="assets/images/Outside bar/Outside Bar 2.jpg" alt="" />
+          <div class="ghost-gallery-gradient"></div>
+          <span class="ghost-gallery-label">Outside Bar</span>
+        </div>
+      </div>
+    </div>
+
+    <footer class="ghost-page-footer">
+      <div class="ghost-footer-inner">
+        <div class="ghost-footer-brand-row">
+          <div class="ghost-footer-logo-box">
+            <img src="assets/images/PZED logo.png" alt="" />
+          </div>
+          <span class="ghost-footer-brand-text">P-ZED Luxury Hotels &amp; Suites</span>
+        </div>
+        <div class="ghost-footer-columns">
+          <div class="ghost-footer-col">
+            <div class="ghost-footer-col-title">Contact Us</div>
+            <p class="ghost-contact-desktop">
+              <span>+234 815 750 5978</span> <span class="sep">|</span> <span>pzedglobal@gmail.com</span><br />
+              Unity FM Junction, Amike-Aba, Abakaliki
+            </p>
+            <p class="ghost-contact-mobile" style="display: none;">
+              +234 815 750 5978<br />
+              pzedglobal@gmail.com<br />
+              Unity FM Junction, Amike-Aba, Abakaliki
+            </p>
+          </div>
+          <div class="ghost-footer-col">
+            <div class="ghost-footer-col-title">Quick Links</div>
+            <p class="ghost-links-desktop">
+              <span>About Us</span> <span class="sep">|</span> <span>Services</span> <span class="sep">|</span> <span>Contact</span>
+            </p>
+            <p class="ghost-links-mobile" style="display: none;">
+              About Us<br />Services<br />Contact
+            </p>
+          </div>
+        </div>
+      </div>
+      <div id="ghost-status">© 2026 P-ZED Luxury Hotels &amp; Suites. All rights reserved.</div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      function applyFooterLayout() {
+        var mobile = window.matchMedia('(max-width: 599px)').matches;
+        var cd = document.querySelector('.ghost-contact-desktop');
+        var cm = document.querySelector('.ghost-contact-mobile');
+        var ld = document.querySelector('.ghost-links-desktop');
+        var lm = document.querySelector('.ghost-links-mobile');
+        if (cd && cm) {
+          cd.style.display = mobile ? 'none' : 'block';
+          cm.style.display = mobile ? 'block' : 'none';
+        }
+        if (ld && lm) {
+          ld.style.display = mobile ? 'none' : 'block';
+          lm.style.display = mobile ? 'block' : 'none';
+        }
+      }
+      applyFooterLayout();
+      window.addEventListener('resize', applyFooterLayout);
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
+  <script>
+    (function () {
+      var ghost = document.getElementById('ghost-root');
+      var ghostStatus = document.getElementById('ghost-status');
+      var firstFrameSeen = false;
+      var fallbackTriggered = false;
+
+      function hideGhost() {
+        firstFrameSeen = true;
+        if (ghost) {
+          ghost.classList.add('fade-out');
+          window.setTimeout(function () {
+            if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+          }, 420);
+        }
+      }
+
+      function triggerHtmlFallback(reason) {
+        if (fallbackTriggered) return;
+        fallbackTriggered = true;
+        console.warn('Flutter web load notice:', reason);
+        if (ghostStatus) {
+          ghostStatus.textContent = 'Loading is taking longer than expected. Please refresh this page.';
+        }
+      }
+
+      window.addEventListener('flutter-first-frame', function () {
+        hideGhost();
+      });
+
+      window.addEventListener('load', function () {
+        var observer = new MutationObserver(function () {
+          if (firstFrameSeen) return;
+          var pane = document.querySelector('flt-glass-pane');
+          if (pane && pane.childElementCount > 0) hideGhost();
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+
+        window.setTimeout(function () {
+          if (!firstFrameSeen) {
+            var pane = document.querySelector('flt-glass-pane');
+            if (pane && pane.childElementCount > 0) hideGhost();
+          }
+        }, 4500);
+
+        window.setTimeout(function () {
+          if (!firstFrameSeen) triggerHtmlFallback('first-frame-timeout');
+        }, 18000);
+      });
+    })();
+  </script>
 </body>
 </html>

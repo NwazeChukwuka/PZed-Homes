@@ -39,12 +39,9 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   int _transferDisplayCount = 1;
   String _supportPhone = '+2348157505978';
   List<Map<String, dynamic>> _transferAccounts = [];
-  /// Name and email from profile; read-only for logged-in guests.
   bool _lockedNameAndEmail = false;
-  /// Phone read-only when loaded from profile and non-empty.
   bool _phoneLocked = false;
 
-  // Get Supabase client safely (returns null if not initialized)
   SupabaseClient? get _supabase {
     try {
       return Supabase.instance.client;
@@ -56,7 +53,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   @override
   void initState() {
     super.initState();
-    // Fallback values if no extra data
     roomType = {
       'name': 'Standard Room',
       'price': 1500000,
@@ -78,10 +74,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         checkInDate = extra['checkInDate'] as DateTime;
         checkOutDate = extra['checkOutDate'] as DateTime;
       }
-    } catch (e) {
-      // If GoRouterState is not available, use fallback values from initState
-      // This can happen if the screen is accessed without router context
-    }
+    } catch (_) {}
     if (!_loggedInGuestPrefillScheduled) {
       _loggedInGuestPrefillScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _applyLoggedInGuestPrefill());
@@ -147,19 +140,25 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     return int.tryParse('${priceValue ?? 0}') ?? 0;
   }
 
-  /// Get total price in kobo (for database storage)
   int get _totalPriceInKobo {
     final nights = checkOutDate.difference(checkInDate).inDays;
     return _pricePerNightKobo * nights;
   }
 
-  /// Get total price in naira (for display)
   double get _totalPriceInNaira {
     return PaymentService.koboToNaira(_totalPriceInKobo);
   }
 
   int get _nightsCount {
     return checkOutDate.difference(checkInDate).inDays;
+  }
+
+  String get _selectedRoomTypeName {
+    final fromName = roomType['name']?.toString().trim() ?? '';
+    if (fromName.isNotEmpty) return fromName;
+    final fromType = roomType['type']?.toString().trim() ?? '';
+    if (fromType.isNotEmpty) return fromType;
+    return 'Standard Room';
   }
 
   Future<void> _loadTransferConfig() async {
@@ -204,7 +203,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       return false;
     }
 
-    // Check if Supabase is initialized
     if (_supabase == null) {
       ErrorHandler.handleError(
         context,
@@ -230,7 +228,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Use guest account only if already logged in
       final guestProfileId = _supabase!.auth.currentUser?.id;
 
       if (_usePaystack) {
@@ -278,10 +275,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
   }
 
-  // Guest accounts are created only via explicit signup on the landing page.
-
-  // NEW: Use atomic database function to prevent race conditions
-  // This function atomically checks room availability and creates the booking
   Future<String> _createPendingBookingAtomically(
     String? guestProfileId, {
     required String paymentMethod,
@@ -293,13 +286,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     }
 
     try {
-      final roomTypeName = roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Standard';
+      final roomTypeName = _selectedRoomTypeName;
       final guestName = InputSanitizer.sanitizeText(_nameController.text.trim());
       final guestEmail = InputSanitizer.sanitizeEmail(_emailController.text.trim());
       final guestPhone = InputSanitizer.sanitizePhone(_phoneController.text.trim());
-      
-      // Use database function to atomically check availability and create booking
-      // This prevents race conditions where multiple guests book the same room type simultaneously
       final response = await _supabase!.rpc(
         'create_booking_with_availability_check',
         params: {
@@ -320,9 +310,8 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
         },
       );
 
-      return response as String; // Function returns UUID directly
+      return response as String;
     } catch (e) {
-      // Provide user-friendly error messages
       final errorMsg = e.toString();
       if (errorMsg.contains('No rooms of type') || errorMsg.contains('not available')) {
         throw Exception('Sorry, no rooms of this type are available for the selected dates. Please try different dates or room type.');
@@ -337,6 +326,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     if (!canProceed) return;
 
     String reason = 'Bank app/network issue';
+    final otherReasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -364,6 +354,17 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                   ],
                   onChanged: (value) => setDialogState(() => reason = value ?? reason),
                 ),
+                if (reason == 'Other') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: otherReasonController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Please specify',
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
               ],
             ),
             actions: [
@@ -375,6 +376,16 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       ),
     );
     if (confirmed != true) return;
+    final finalReason = reason == 'Other'
+        ? 'Other: ${otherReasonController.text.trim()}'
+        : reason;
+    if (reason == 'Other' && otherReasonController.text.trim().isEmpty) {
+      if (mounted) {
+        ErrorHandler.showWarningMessage(context, 'Please specify your reason.');
+      }
+      otherReasonController.dispose();
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
@@ -392,17 +403,17 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
           params: {
             'p_booking_id': bookingId,
             'p_new_status': 'Cancelled',
-            'p_reason': 'Transfer not made: $reason',
+            'p_reason': 'Transfer not made: $finalReason',
           },
         );
         await _supabase!.from('bookings').update({
-          'notes': 'Transfer not made reason: $reason',
+          'notes': 'Transfer not made reason: $finalReason',
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', bookingId);
       } catch (_) {
         await _supabase!.from('bookings').update({
           'status': 'Cancelled',
-          'notes': 'Transfer not made reason: $reason',
+          'notes': 'Transfer not made reason: $finalReason',
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', bookingId);
       }
@@ -412,6 +423,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
     } finally {
       if (mounted) setState(() => _isLoading = false);
+      otherReasonController.dispose();
     }
   }
 
@@ -439,7 +451,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     try {
       final paymentService = PaymentService();
       
-      // Check if Paystack is initialized
       if (!paymentService.isInitialized) {
         throw Exception('Payment system is not configured. Please contact support.');
       }
@@ -452,7 +463,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       final reference = _paymentReference ?? paymentService.generateReference();
       _paymentReference = reference;
       
-      // Show loading dialog
       if (mounted) {
         showDialog(
           context: context,
@@ -464,7 +474,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       }
 
       try {
-        // Process payment with Paystack
         final success = await paymentService.processPayment(
           context: context,
           amountInKobo: _totalPriceInKobo,
@@ -473,20 +482,18 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
           metadata: {
             'booking_id': bookingId,
             'guest_name': _nameController.text.trim(),
-            'room_type': roomType['name']?.toString() ?? roomType['type']?.toString() ?? 'Unknown',
+            'room_type': _selectedRoomTypeName,
             'check_in': checkInDate.toIso8601String(),
             'check_out': checkOutDate.toIso8601String(),
           },
         );
 
-        // Close loading dialog
         if (mounted) {
           Navigator.of(context).pop();
         }
 
         return success;
       } catch (e) {
-        // Close loading dialog
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -514,8 +521,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       if (response.status != 200) {
         throw Exception('Payment verification failed');
       }
-      
-      // Note: Room status remains 'Vacant' - receptionist will assign room and update status at check-in
     } catch (e) {
       rethrow;
     }
@@ -537,15 +542,13 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       message,
       duration: const Duration(seconds: 5),
     );
-    
-    // Navigate back to home after success
+
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         try {
           final auth = Provider.of<AuthService>(context, listen: false);
           context.go(auth.currentUser != null ? '/guest/home' : '/guest');
         } catch (e) {
-          // If GoRouter is not available, use Navigator as fallback
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }
@@ -585,7 +588,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-              // Booking Summary
               Card(
                 elevation: 2,
                 child: Padding(
@@ -616,7 +618,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                         tablet: 16,
                         desktop: 16,
                       )),
-                      _buildSummaryRow(context, 'Room Type', roomType['name']?.toString() ?? 'Unknown Room'),
+                      _buildSummaryRow(context, 'Room Type', _selectedRoomTypeName),
                       _buildSummaryRow(context, 'Check-in', dateFormat.format(checkInDate)),
                       _buildSummaryRow(context, 'Check-out', dateFormat.format(checkOutDate)),
                       _buildSummaryRow(context, 'Nights', _nightsCount.toString()),
@@ -644,7 +646,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                 desktop: 24,
               )),
 
-              // Guest Information Form
               if (_lockedNameAndEmail) ...[
                 Text(
                   'Booking as ${_nameController.text.isNotEmpty ? _nameController.text : 'Guest'}',
@@ -888,7 +889,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       desktop: 24,
                     )),
                     
-                    // Security notice
                     Text(
                       'Your payment is secured and encrypted',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -910,11 +910,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       desktop: 8,
                     )),
                     
-                    // Payment methods
                     Text(
                       _paystackConfigured
                           ? 'Bank Transfer • Optional Paystack'
-                          : 'Bank Transfer',
+                          : 'Bank Transfer • Paystack (coming soon)',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.grey,
                         fontSize: ResponsiveHelper.getResponsiveFontSize(
@@ -927,7 +926,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       textAlign: TextAlign.center,
                     ),
                     
-                    // Bottom padding to ensure content is scrollable above button
                     SizedBox(height: ResponsiveHelper.getResponsiveValue(
                       context,
                       mobile: 100,
@@ -940,7 +938,6 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
             ),
           ),
           
-          // Sticky Payment Button at bottom
           Container(
             padding: ResponsiveHelper.getResponsivePadding(
               context,
@@ -981,17 +978,29 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       ),
                     ],
                   ),
-                  if (_paystackConfigured)
-                    SwitchListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Use Paystack instead'),
-                      subtitle: const Text('Turn on to pay instantly with card/USSD'),
-                      value: _usePaystack,
-                      onChanged: _isLoading
-                          ? null
-                          : (value) => setState(() => _usePaystack = value),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Pay with Paystack'),
+                    subtitle: Text(
+                      _paystackConfigured
+                          ? 'Turn on to pay instantly with card/USSD'
+                          : 'Currently unavailable. Complete transfer for now.',
                     ),
+                    value: _usePaystack,
+                    onChanged: _isLoading
+                        ? null
+                        : (value) {
+                            if (value && !_paystackConfigured) {
+                              ErrorHandler.showWarningMessage(
+                                context,
+                                'Paystack is not fully configured yet. Please use bank transfer.',
+                              );
+                              return;
+                            }
+                            setState(() => _usePaystack = value);
+                          },
+                  ),
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : _usePaystack

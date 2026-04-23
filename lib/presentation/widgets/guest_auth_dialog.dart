@@ -73,7 +73,6 @@ class _AuthFormState extends State<AuthForm> {
   bool _obscurePassword = true;
 
   Future<void> _showForgotPasswordDialog() async {
-    // Use consolidated password service
     await PasswordService.showPasswordResetDialog(context);
   }
 
@@ -103,16 +102,12 @@ class _AuthFormState extends State<AuthForm> {
       
       if (error == null) {
         final user = authService.currentUser;
-        // Treat staff as anyone with any non-guest role
         final isStaff = user != null && user.roles.any((role) => role != AppRole.guest);
 
         if (isStaff) {
-          // Use GoRouter navigation for staff users
           if (context.mounted) {
             try {
-              // Close the dialog first
               Navigator.pop(context);
-              // Then navigate to dashboard using GoRouter
               context.go('/dashboard');
               ErrorHandler.showInfoMessage(
                 context,

@@ -67,7 +67,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     super.dispose();
   }
   
-  // Calculate base total amount (nights * room price)
   int get _baseTotalAmount {
     if (_checkInDate == null || _checkOutDate == null || _selectedRoomTypeId == null) {
       return 0;
@@ -81,7 +80,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     return nights * roomPrice;
   }
   
-  // Get number of nights
   int get _nightsCount {
     if (_checkInDate == null || _checkOutDate == null) {
       return 0;
@@ -89,7 +87,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     return _checkOutDate!.difference(_checkInDate!).inDays;
   }
   
-  // Get amount paid by customer (from input or base total) - returns in kobo
   int get _amountPaid {
     if (!_discountApplied) {
       return _baseTotalAmount;
@@ -98,12 +95,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     if (amountText.isEmpty) {
       return _baseTotalAmount;
     }
-    // Input is in naira, convert to kobo
     final amountInNaira = double.tryParse(amountText.replaceAll(',', '')) ?? 0.0;
     return PaymentService.nairaToKobo(amountInNaira);
   }
   
-  // Calculate discount amount (can be negative for overpayment)
   int get _discountAmount {
     if (!_discountApplied) {
       return 0;
@@ -111,7 +106,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
     return _baseTotalAmount - _amountPaid;
   }
   
-  // Calculate discount percentage
   double get _discountPercentage {
     if (!_discountApplied || _baseTotalAmount == 0) {
       return 0.0;
@@ -151,9 +145,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
     setState(() => _isFetchingRooms = true);
     try {
-      // Get conflicting bookings
-      // Correct overlap logic: Two bookings overlap if:
-      // booking.check_in_date < our.check_out_date AND booking.check_out_date > our.check_in_date
       final conflictingBookings = await _supabase
           .from('bookings')
           .select('room_id')
@@ -166,8 +157,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           .map((b) => b['room_id'] as String)
           .toSet();
 
-      // Get available rooms of selected type
-      // _selectedRoomTypeId is a UUID from room_types.id, so we need to match against rooms.type_id
       var query = _supabase
           .from('rooms')
           .select()
@@ -239,45 +228,36 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = authService.currentUser?.id ?? 'system';
       
-      // Guest details are optional and stored only on the booking record
       final fullName = InputSanitizer.sanitizeText(_guestNameController.text.trim());
       final phoneRaw = _guestPhoneController.text.trim();
       final phone = phoneRaw.isEmpty ? null : InputSanitizer.sanitizePhone(phoneRaw);
       final displayGuestName = fullName.isEmpty ? 'Guest' : fullName;
       final guestNameForRecord = fullName.isEmpty ? null : fullName;
 
-      // Get room type name for requested_room_type
       final selectedRoomType = _roomTypes.firstWhere(
         (type) => type['id'] == _selectedRoomTypeId,
         orElse: () => {'type': 'Standard'},
       );
       
-      // Calculate total amount (nights * room price)
       final totalAmount = _baseTotalAmount;
       
-      // CRITICAL: Validate payment method and amount
-      // Ensure payment method is selected and valid
       if (_paymentMethod.isEmpty) {
         throw Exception('Please select a payment method');
       }
       
-      // Get amount paid (from discount input or base total)
       int paidAmount = _amountPaid;
       
-      // Validate discount input if discount is applied
       if (_discountApplied) {
         final amountText = _amountPaidController.text.trim();
         if (amountText.isEmpty) {
           throw Exception('Please enter the amount paid by customer when discount is applied');
         }
-        // Input is in naira, convert to kobo
         final amountInNaira = double.tryParse(amountText.replaceAll(',', '')) ?? 0.0;
         if (amountInNaira < 0) {
           throw Exception('Amount paid cannot be negative');
         }
         paidAmount = PaymentService.nairaToKobo(amountInNaira);
       } else {
-        // No discount - set paid amount based on payment method
         if (_paymentMethod == 'Cash' || _paymentMethod == 'Transfer' || _paymentMethod == 'POS') {
           paidAmount = totalAmount;
         } else if (_paymentMethod == 'Credit') {
@@ -285,12 +265,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         }
       }
       
-      // Additional validation: Ensure total amount is positive
       if (totalAmount <= 0) {
         throw Exception('Invalid booking amount. Please check room selection and dates.');
       }
 
-      // Staff-created bookings must have a room and be checked in immediately.
       if (_selectedRoomId == null || _selectedRoomId!.isEmpty) {
         throw Exception('Please select a room before creating this booking.');
       }
@@ -317,7 +295,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
         discountAppliedByProfileId: _discountApplied ? userId : null,
       );
 
-      // If credit payment, create debt linked to booking
       if (_paymentMethod.toLowerCase() == 'credit') {
         final debt = {
           'debtor_name': displayGuestName,
@@ -804,7 +781,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Date Selection
               _buildDateSelector(
                 'Check-in Date',
                 _checkInDate,
@@ -820,7 +796,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Room Type Selection
               DropdownButtonFormField<String>(
                 initialValue: _selectedRoomTypeId,
                 decoration: const InputDecoration(
@@ -842,7 +817,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Available Rooms
               if (_isFetchingRooms)
                 const Center(child: CircularProgressIndicator())
               else if (_selectedRoomTypeId != null && _availableRooms.isEmpty)
@@ -870,7 +844,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               const Divider(),
               const SizedBox(height: 16),
 
-              // Guest Information
               const Text(
                 'Guest Information (Optional)',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -897,7 +870,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Payment Method
               DropdownButtonFormField<String>(
                 initialValue: _paymentMethod,
                 decoration: const InputDecoration(
@@ -919,7 +891,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                 }),
               ),
               
-              // Show approved by field for credit payment
               if (_paymentMethod == 'Credit')
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -976,12 +947,10 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
               const Divider(),
               const SizedBox(height: 16),
               
-              // Price Summary
               _buildPriceSummary(),
               
               const SizedBox(height: 16),
               
-              // Discount Toggle
               Card(
                 color: Colors.grey[50],
                 child: SwitchListTile(
@@ -1007,7 +976,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                 ),
               ),
               
-              // Discount Input Fields (shown when discount is applied)
               if (_discountApplied) ...[
                 const SizedBox(height: 16),
                 TextFormField(
@@ -1036,7 +1004,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                // Discount display: ListenableBuilder scopes rebuild to this section only
                 ListenableBuilder(
                   listenable: _amountPaidController,
                   builder: (context, _) {
@@ -1066,7 +1033,6 @@ class _CreateBookingScreenState extends State<CreateBookingScreen> {
 
               const SizedBox(height: 32),
 
-              // Submit Button
               _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : SizedBox(

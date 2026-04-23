@@ -199,7 +199,6 @@ class ConnectivityStatusWidget extends StatelessWidget {
   }
 }
 
-// Offline banner
 class OfflineBanner extends StatelessWidget {
   const OfflineBanner({super.key});
 
@@ -236,7 +235,6 @@ class OfflineBanner extends StatelessWidget {
                     size: 20,
                   ),
                   onPressed: () {
-                    // Hide banner (you can implement this with a state variable)
                   },
                 ),
               ],
@@ -249,7 +247,6 @@ class OfflineBanner extends StatelessWidget {
   }
 }
 
-// Connection quality indicator
 class ConnectionQualityIndicator extends StatelessWidget {
   const ConnectionQualityIndicator({super.key});
 
@@ -279,3 +276,4 @@ class ConnectionQualityIndicator extends StatelessWidget {
     );
   }
 }
+

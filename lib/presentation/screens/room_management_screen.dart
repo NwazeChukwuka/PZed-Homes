@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
@@ -40,12 +40,10 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   List<Map<String, dynamic>> _allRooms = [];
   Set<String> _checkedInRoomIds = {};
 
-  // Room Status tab: bulk edit
   bool _roomStatusBulkEditMode = false;
   final Set<String> _roomStatusSelectedIds = {};
   bool _roomStatusBatchUpdating = false;
 
-  // Manage Rooms tab (management only): filter, add room, bulk, room type prices
   final _manageFilterRoomNumberController = TextEditingController();
   String? _manageFilterStatus;
   bool _manageBulkEditMode = false;
@@ -58,7 +56,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
   String? _selectedTypeId;
   String? _selectedTypeName;
 
-  // Booking history: infinite scroll, paginated load (performance: no full preload)
   static const int _bookingsPageSize = 30;
   List<Map<String, dynamic>> _bookings = [];
   bool _bookingsHasMore = true;
@@ -83,7 +80,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     return user?.roles.any((r) => r == AppRole.porter) ?? false;
   }
 
-  /// Receptionist, housekeeper, or management (when assuming receptionist) can update room status.
   bool get _canUpdateRoomStatus {
     final authService = Provider.of<AuthService>(context, listen: false);
     final user = authService.currentUser;
@@ -116,8 +112,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     }
   }
 
-  /// Loads first page of bookings (performance: small chunk, cached in DataService).
-  /// Passes date filter when set; filter changes trigger reload.
   Future<void> _loadBookings() async {
     if (_isPorter) return;
     try {
@@ -151,7 +145,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     }
   }
 
-  /// Loads next page when user scrolls near bottom (infinite scroll).
   Future<void> _loadMoreBookings() async {
     if (_isPorter) return;
     if (_bookingsLoadingMore || !_bookingsHasMore) return;
@@ -337,11 +330,9 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     }
   }
 
-  // Calculate correct booking status based on check-out date (12:00 PM rule)
   String _calculateBookingStatus(Map<String, dynamic> booking) {
     final dbStatus = booking['status']?.toString().toLowerCase() ?? 'unknown';
     
-    // If already terminal, return as is.
     if (dbStatus == 'checked-out' || dbStatus == 'checked_out') return 'Checked Out';
     if (dbStatus == 'cancelled') return 'Cancelled';
     if (dbStatus == 'rejected') return 'Rejected';
@@ -349,10 +340,8 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       return 'Expired';
     }
     
-    // Check if check-out date has passed 12:00 PM
     final checkOut = _parseTimestamp(booking['check_out_date']);
     if (checkOut != null) {
-      // Set check-out time to 12:00 PM on the check-out date
       final checkOutExpiry = DateTime(
         checkOut.year,
         checkOut.month,
@@ -363,9 +352,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       
       final now = DateTime.now();
       
-      // If elapsed (inclusive at 12:00 PM):
-      // - checked-in stays are checked out
-      // - pending bookings are expired/no-show
       if (!now.isBefore(checkOutExpiry)) {
         if (dbStatus == 'checked-in' || dbStatus == 'checked_in') return 'Checked Out';
         if (dbStatus == 'pending check-in' || dbStatus == 'pending_check_in' || dbStatus == 'pending') {
@@ -374,7 +360,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       }
     }
     
-    // Return the database status for other cases
     switch (dbStatus) {
       case 'checked-in':
       case 'checked_in':
@@ -399,7 +384,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
     return s;
   }
 
-  /// Single status-update dialog for receptionist, housekeeper, or management (assuming receptionist).
   void _showUpdateStatusDialog(Map<String, dynamic> room) {
     final effectiveStatus = _checkedInRoomIds.contains(room['id']?.toString())
         ? 'Occupied'
@@ -1246,7 +1230,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Filter bookings by date range if set
     List<Map<String, dynamic>> filteredBookings = _bookings;
     if (_bookingFilterRange != null) {
       filteredBookings = _bookings.where((booking) {
@@ -1254,7 +1237,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
         final checkOut = _parseTimestamp(booking['check_out_date']);
         if (checkIn == null && checkOut == null) return false;
         
-        // Check if booking overlaps with filter range
         final bookingStart = checkIn ?? checkOut!;
         final bookingEnd = checkOut ?? checkIn!;
         
@@ -1263,7 +1245,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       }).toList();
     }
     
-    // Filter by search query (guest name or room number)
     final searchQuery = _bookingSearchQuery.toLowerCase().trim();
     if (searchQuery.isNotEmpty) {
       filteredBookings = filteredBookings.where((booking) {
@@ -1277,7 +1258,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       }).toList();
     }
 
-    // Filter by booking status label
     if (_bookingStatusFilter != 'all') {
       filteredBookings = filteredBookings.where((booking) {
         final calculatedStatus = _calculateBookingStatus(booking);
@@ -1285,7 +1265,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
       }).toList();
     }
     
-    // Sort by check-in date (most recent first)
     filteredBookings.sort((a, b) {
       final aTime = _parseTimestamp(a['check_in_date']);
       final bTime = _parseTimestamp(b['check_in_date']);
@@ -1316,7 +1295,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                 ],
               ),
               const SizedBox(height: 16),
-              // Search field
               TextField(
                 controller: _bookingSearchController,
                 decoration: InputDecoration(
@@ -1439,7 +1417,6 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
                     final roomNumber = (booking['rooms'] as Map<String, dynamic>?)?['room_number'] 
                         ?? booking['room_id']?.toString() 
                         ?? 'N/A';
-                    // Calculate correct status based on check-out date (12:00 PM rule)
                     final calculatedStatus = _calculateBookingStatus(booking);
                     final checkIn = _parseTimestamp(booking['check_in_date']);
                     final checkOut = _parseTimestamp(booking['check_out_date']);

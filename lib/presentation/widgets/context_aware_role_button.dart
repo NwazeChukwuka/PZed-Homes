@@ -4,8 +4,6 @@ import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
-/// Context-aware role assumption button that shows the appropriate role
-/// based on the current screen/context
 class ContextAwareRoleButton extends StatelessWidget {
   final AppRole suggestedRole;
   final String? customLabel;
@@ -22,7 +20,6 @@ class ContextAwareRoleButton extends StatelessWidget {
     final user = authService.currentUser;
     final isOwnerOrManager = user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
     
-    // Only show for owner/manager
     if (!isOwnerOrManager) return const SizedBox.shrink();
     
     final isCurrentlyAssumed = authService.hasAssumedRole(suggestedRole);
@@ -74,7 +71,6 @@ class ContextAwareRoleButton extends StatelessWidget {
   
 }
 
-/// Helper function to get suggested role based on route
 AppRole? getSuggestedRoleForContext(String context) {
   final contextLower = context.toLowerCase();
   
@@ -108,3 +104,5 @@ AppRole? getSuggestedRoleForContext(String context) {
   
   return null;
 }
+
+

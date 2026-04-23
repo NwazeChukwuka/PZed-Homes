@@ -47,9 +47,6 @@ class _HrScreenState extends State<HrScreen>
     super.dispose();
   }
 
-  /// Generate a secure random password with "Pzed" prefix
-  /// Format: Pzed + (3 numbers + 2 alphabets) OR (2 numbers + 3 alphabets)
-  /// Examples: Pzed123ab, Pzed12abc, Pzed456XY, Pzed45XYZ
   String _generateSecurePassword() {
     const prefix = 'Pzed';
     const numbers = '0123456789';
@@ -57,11 +54,9 @@ class _HrScreenState extends State<HrScreen>
     final random = Random.secure();
     final suffix = StringBuffer();
     
-    // Randomly choose between: 3 numbers + 2 alphabets OR 2 numbers + 3 alphabets
     final useThreeNumbers = random.nextBool();
     
     if (useThreeNumbers) {
-      // Pattern: 3 numbers + 2 alphabets
       for (int i = 0; i < 3; i++) {
         suffix.write(numbers[random.nextInt(numbers.length)]);
       }
@@ -69,7 +64,6 @@ class _HrScreenState extends State<HrScreen>
         suffix.write(allLetters[random.nextInt(allLetters.length)]);
       }
     } else {
-      // Pattern: 2 numbers + 3 alphabets
       for (int i = 0; i < 2; i++) {
         suffix.write(numbers[random.nextInt(numbers.length)]);
       }
@@ -162,7 +156,6 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // ---------- Staff Directory ----------
   Future<void> _loadStaff() async {
     setState(() => _isLoading = true);
     try {
@@ -232,7 +225,6 @@ class _HrScreenState extends State<HrScreen>
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh'),
               ),
-              // Owner and manager can hire new staff
               Consumer<AuthService>(
                 builder: (context, authService, _) {
                   final currentRole = authService.currentUser?.role;
@@ -343,7 +335,6 @@ class _HrScreenState extends State<HrScreen>
                                   ],
                                 ),
                               ),
-                              // Owner and manager can terminate employment
                               if (canTerminate)
                                 const PopupMenuItem(
                                   value: 'terminate',
@@ -372,7 +363,6 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // ---------- Roles & Positions ----------
   Widget _buildRolesPositionsTab(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -751,7 +741,6 @@ class _HrScreenState extends State<HrScreen>
           ),
           ElevatedButton(
             onPressed: () async {
-              // Sanitize position inputs
               final positionName = InputSanitizer.sanitizeText(nameController.text.trim());
               final benefits = InputSanitizer.sanitizeDescription(benefitsController.text.trim());
               
@@ -766,7 +755,6 @@ class _HrScreenState extends State<HrScreen>
               }
 
               try {
-                // Store position in database
                 final authService = Provider.of<AuthService>(context, listen: false);
                 final createdBy = authService.currentUser?.id;
                 
@@ -780,7 +768,6 @@ class _HrScreenState extends State<HrScreen>
                 Navigator.pop(dialogContext);
                 if (!mounted) return;
                 ErrorHandler.showSuccessMessage(context, 'Position created successfully!');
-                // Reload positions if needed
                 setState(() {});
               } catch (e, stackTrace) {
                 if (kDebugMode) debugPrint('DEBUG create position: $e\n$stackTrace');
@@ -800,7 +787,6 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // Suspend Staff Dialog
   void _showSuspendDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     DateTime? suspensionEndDate;
@@ -926,15 +912,12 @@ class _HrScreenState extends State<HrScreen>
                   return;
                 }
 
-                // Update staff status in database
                 try {
                   await _dataService.updateStaffStatus(
                     staff['id'] as String,
                     'Suspended',
                   );
                   
-                  // Optionally: Store suspension end date (would require schema update)
-                  // For now, status change is sufficient
                   
                   if (!dialogContext.mounted) return;
                   Navigator.pop(dialogContext);
@@ -969,7 +952,6 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // Terminate Staff Dialog
   void _showTerminateDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     bool confirmTermination = false;
@@ -1084,7 +1066,6 @@ class _HrScreenState extends State<HrScreen>
               onPressed: !isTerminating && confirmTermination && reasonController.text.isNotEmpty
                   ? () async {
                       setDialogState(() => isTerminating = true);
-                      // Update staff status in database
                       try {
                         await _dataService.updateStaffStatus(
                           staff['id'] as String,
@@ -1150,7 +1131,6 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
-  // Hire New Staff Dialog (Owner and Manager Only)
   void _showHireNewStaffDialog() {
     final fullNameController = TextEditingController();
     final emailController = TextEditingController();
@@ -2071,3 +2051,5 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 }
+
+

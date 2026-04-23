@@ -4,7 +4,6 @@ import 'package:pzed_homes/core/utils/room_number_sort.dart';
 class DatabaseService {
   final _supabase = Supabase.instance.client;
 
-  // Fetch all bookings with related room and guest info
   Future<List<Map<String, dynamic>>> getBookings() async {
     final response = await _supabase
         .from('bookings')
@@ -33,17 +32,14 @@ class DatabaseService {
     return response;
   }
 
-  // Update a booking's status
   Future<void> updateBookingStatus(String bookingId, String newStatus) async {
     await _supabase.from('bookings').update({'status': newStatus}).eq('id', bookingId);
   }
 
-  // Add extra charges to a booking
   Future<void> addExtraCharges(String bookingId, List<dynamic> newCharges) async {
     await _supabase.from('bookings').update({'extra_charges': newCharges}).eq('id', bookingId);
   }
 
-  // Fetch all rooms
   Future<List<Map<String, dynamic>>> getRooms() async {
     final response = await _supabase.from('rooms').select().order('room_number');
     final list = List<Map<String, dynamic>>.from(response as List);
@@ -51,12 +47,10 @@ class DatabaseService {
     return list;
   }
 
-  // Update a room's status
   Future<void> updateRoomStatus(String roomId, String newStatus) async {
     await _supabase.from('rooms').update({'status': newStatus}).eq('id', roomId);
   }
 
-  // Fetch all stock items
   Future<List<Map<String, dynamic>>> getStockItems() async {
     final response = await _supabase.from('stock_items').select().order('name');
     return response;
@@ -69,13 +63,11 @@ class DatabaseService {
     );
   }
 
-  // Fetch all menu items
   Future<List<Map<String, dynamic>>> getMenuItems() async {
     final response = await _supabase.from('menu_items').select().order('name');
     return response;
   }
 
-  // Create a new booking
   Future<void> createBooking({
     required String guestProfileId,
     required String roomId,

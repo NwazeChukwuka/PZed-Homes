@@ -75,13 +75,11 @@ class _RoomCardState extends State<RoomCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Image carousel
             SizedBox(
               height: 200,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // PageView for images
                   if (images.isNotEmpty)
                     PageView.builder(
                       controller: _pageController,
@@ -116,7 +114,6 @@ class _RoomCardState extends State<RoomCard> {
                       child: const Center(child: Icon(Icons.image_not_supported, size: 50)),
                     ),
                   
-                  // Image indicator dots
                   if (images.length > 1)
                     Positioned(
                       bottom: 8,
@@ -151,7 +148,6 @@ class _RoomCardState extends State<RoomCard> {
               ),
             ),
             
-            // Room details
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(

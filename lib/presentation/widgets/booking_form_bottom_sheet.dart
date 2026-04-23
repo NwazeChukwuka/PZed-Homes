@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 class BookingFormBottomSheet extends StatefulWidget {
-  // We'll use a callback to notify the parent screen when booking is confirmed
   final Function(String name, String contact) onConfirm;
 
   const BookingFormBottomSheet({super.key, required this.onConfirm});
@@ -23,9 +22,7 @@ class _BookingFormBottomSheetState extends State<BookingFormBottomSheet> {
   }
 
   void _submitForm() {
-    // This validates the form fields
     if (_formKey.currentState!.validate()) {
-      // If valid, call the onConfirm callback with the entered data
       widget.onConfirm(_nameController.text, _contactController.text);
     }
   }
@@ -33,7 +30,6 @@ class _BookingFormBottomSheetState extends State<BookingFormBottomSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      // Padding to account for the keyboard
       padding: EdgeInsets.only(
           bottom: MediaQuery.viewInsetsOf(context).bottom,
           left: 16,

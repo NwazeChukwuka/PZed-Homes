@@ -15,19 +15,14 @@ class AboutUsScreen extends StatelessWidget {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Hero Section
             _buildHeroSection(context),
             
-            // Mission & Vision
             _buildMissionVision(context),
             
-            // Our Story
             _buildOurStory(context),
             
-            // Team Section
             _buildTeamSection(context),
             
-            // Values
             _buildValuesSection(context),
           ],
         ),

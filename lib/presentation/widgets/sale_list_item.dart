@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
-/// Unified sale/transaction list item displaying:
-/// Product Name × Quantity, Staff Name, Payment Method, and Timestamp.
 class SaleListItem extends StatelessWidget {
   final String productName;
   final int quantity;
@@ -53,3 +51,4 @@ class SaleListItem extends StatelessWidget {
     );
   }
 }
+

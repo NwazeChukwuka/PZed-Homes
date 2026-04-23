@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
 class AppAnimations {
-  // Page transition animations
   static Widget slideTransition({
     required Widget child,
     required Animation<double> animation,
@@ -36,7 +35,6 @@ class AppAnimations {
     );
   }
 
-  // Fade transition
   static Widget fadeTransition({
     required Widget child,
     required Animation<double> animation,
@@ -50,7 +48,6 @@ class AppAnimations {
     );
   }
 
-  // Scale transition
   static Widget scaleTransition({
     required Widget child,
     required Animation<double> animation,
@@ -68,7 +65,6 @@ class AppAnimations {
     );
   }
 
-  /// Plain list without stagger (avoids layout/paint overhead). Use scrollable: true for drawer/sidebar.
   static Widget staggeredList({
     required List<Widget> children,
     int duration = 300,
@@ -85,7 +81,6 @@ class AppAnimations {
     );
   }
 
-  /// Plain grid without stagger - avoids layout/paint overhead.
   static Widget staggeredGrid({
     required List<Widget> children,
     required int crossAxisCount,
@@ -106,7 +101,6 @@ class AppAnimations {
     );
   }
 
-  /// Lightweight wrapper - no animation overhead.
   static Widget animatedCard({
     required Widget child,
     Duration duration = const Duration(milliseconds: 200),
@@ -115,7 +109,6 @@ class AppAnimations {
     return child;
   }
 
-  // Loading shimmer animation
   static Widget shimmer({
     required Widget child,
     Color? baseColor,
@@ -128,7 +121,6 @@ class AppAnimations {
     );
   }
 
-  // Pulse animation
   static Widget pulse({
     required Widget child,
     Duration duration = const Duration(seconds: 1),
@@ -146,7 +138,6 @@ class AppAnimations {
     );
   }
 
-  // Bounce animation
   static Widget bounce({
     required Widget child,
     Duration duration = const Duration(milliseconds: 600),
@@ -165,7 +156,6 @@ class AppAnimations {
     );
   }
 
-  // Slide in from bottom
   static Widget slideInFromBottom({
     required Widget child,
     Duration duration = const Duration(milliseconds: 300),
@@ -187,7 +177,6 @@ class AppAnimations {
     );
   }
 
-  // Counter animation
   static Widget animatedCounter({
     required int value,
     Duration duration = const Duration(milliseconds: 500),
@@ -214,7 +203,6 @@ enum SlideDirection {
   down,
 }
 
-// Custom page route with animations
 class AnimatedPageRoute<T> extends PageRouteBuilder<T> {
   final Widget child;
   final SlideDirection direction;
@@ -237,7 +225,6 @@ class AnimatedPageRoute<T> extends PageRouteBuilder<T> {
         );
 }
 
-// Responsive animation controller
 class ResponsiveAnimationController {
   static bool shouldAnimate(BuildContext context) {
     final screenWidth = MediaQuery.sizeOf(context).width;
@@ -255,3 +242,5 @@ class ResponsiveAnimationController {
     }
   }
 }
+
+

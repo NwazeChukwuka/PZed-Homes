@@ -33,7 +33,6 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         throw Exception('User must be logged in to report issues');
       }
 
-      // Save to database via DataService
       await _dataService.createMaintenanceWorkOrder({
         'asset_id': _selectedAssetId,
         'reported_by_id': currentUser.id,
@@ -63,7 +62,6 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // INFO: The UI from the refactor is good. We are keeping it but connecting it to the correct logic.
     return Scaffold(
       appBar: AppBar(title: const Text('Report Maintenance Issue')),
       body: Form(
@@ -71,7 +69,6 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            // Dropdown to select an asset from the 'assets' table
             DropdownButtonFormField<String>(
               initialValue: _selectedAssetId,
               decoration: const InputDecoration(labelText: 'Asset *', border: OutlineInputBorder()),

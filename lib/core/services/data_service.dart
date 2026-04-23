@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/core/utils/room_number_sort.dart';
 
-/// Lightweight in-memory cache with short TTL, stale-while-revalidate, and memoization.
 class _DataServiceCache {
   static const _ttl = Duration(seconds: 30);
   final Map<String, _CacheEntry> _entries = {};
@@ -78,12 +77,10 @@ class DataService {
   final _cache = _DataServiceCache();
   SupabaseClient? _supabaseClient;
 
-  /// Invalidates cached data for the given table. Call when realtime events indicate the table changed.
   void invalidateCacheForTable(String table) {
     _cache.invalidateForTable(table);
   }
 
-  /// Clears all cached data. Use sparingly (e.g. on logout).
   void invalidateAllCache() {
     _cache.invalidateAll();
   }
@@ -100,10 +97,8 @@ class DataService {
   static const Duration _retryDelay = Duration(seconds: 2);
   static const Duration _queryTimeout = Duration(seconds: 30);
 
-  // Getter to expose supabase client for direct access when needed
   SupabaseClient get supabase => _supabase;
 
-  // Retry wrapper for network operations
   Future<T> _retryOperation<T>(
     Future<T> Function() operation, {
     int retries = _maxRetries,
@@ -117,7 +112,6 @@ class DataService {
         await Future.delayed(_retryDelay * (attempts + 1));
         attempts++;
       } on PostgrestException catch (e) {
-        // Don't retry on client errors (4xx)
         if (e.code != null && e.code!.startsWith('4')) {
           rethrow;
         }
@@ -134,15 +128,11 @@ class DataService {
     throw Exception('Operation failed after $retries attempts');
   }
 
-  // Bookings
-  // Auto-update expired bookings (runs before fetching bookings to ensure accuracy)
   Future<void> updateExpiredBookings() async {
     await _retryOperation(() async {
       try {
-        // Reconcile stale records where room is already assigned but booking stayed pending.
         await _supabase.rpc('reconcile_assigned_bookings');
       } catch (_) {
-        // Backward-compatible fallback when migration function is not yet available.
         try {
           await _supabase
               .from('bookings')
@@ -165,11 +155,6 @@ class DataService {
     });
   }
 
-  /// Fetches bookings with pagination. Use limit 20-50 per page for list screens.
-  /// Each page is cached separately; invalidate via invalidateCacheForTable('bookings').
-  /// When [filterByStayOverlap] is true, [startDate] and [endDate] filter by stay overlap
-  /// (check_out_date >= startDate AND check_in_date <= endDate) instead of created_at.
-  /// Use this for dashboard to fetch only bookings overlapping a date range (~20-50 rows).
   Future<List<Map<String, dynamic>>> getBookings({
     DateTime? startDate,
     DateTime? endDate,
@@ -321,8 +306,6 @@ class DataService {
     });
   }
 
-  /// Atomically creates a staff booking as [Checked-in] and marks the room [Occupied]
-  /// (see `staff_create_booking_and_check_in` in non_destructive_upgrade.sql).
   Future<String> staffCreateBookingAndCheckIn({
     required String roomId,
     String? requestedRoomType,
@@ -378,7 +361,6 @@ class DataService {
     });
   }
 
-  // Room Types
   Future<List<Map<String, dynamic>>> getRoomTypes() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -389,7 +371,6 @@ class DataService {
     });
   }
 
-  /// Updates a room type's price (in kobo). Management only.
   Future<void> updateRoomTypePrice(String typeId, int priceKobo) async {
     await _retryOperation(() async {
       await _supabase
@@ -400,8 +381,6 @@ class DataService {
     invalidateCacheForTable('room_types');
   }
 
-  // Rooms
-  /// Returns room IDs that currently have a Checked-in booking (for dynamic status display).
   Future<Set<String>> getCheckedInRoomIds() async {
     return _retryOperation(() async {
       final response = await _supabase
@@ -418,8 +397,6 @@ class DataService {
     });
   }
 
-  /// Fetches rooms with pagination. Use limit 20-50 per page for list screens.
-  /// Each page is cached separately; invalidate via invalidateCacheForTable('rooms').
   Future<List<Map<String, dynamic>>> getRooms({
     int limit = 500,
     int offset = 0,
@@ -435,7 +412,6 @@ class DataService {
             .order('room_number')
             .range(offset, offset + limit - 1);
         final list = List<Map<String, dynamic>>.from(response);
-        // Postgres TEXT room_number sorts lexicographically; normalize to numeric 101→212 for UI parity.
         sortRoomMapsByNumber(list);
         return list;
       }),
@@ -455,7 +431,6 @@ class DataService {
     });
   }
 
-  /// Adds a room. [typeId] and [type] from room_types; [type] is the display name (e.g. "Classic Room").
   Future<void> addRoom({
     required String roomNumber,
     required String typeId,
@@ -479,9 +454,6 @@ class DataService {
     invalidateCacheForTable('rooms');
   }
 
-  /// Logs an operational activity for audit. Call after successful Add/Update in Inventory, Kitchen, Reception, MiniMart.
-  /// [staffProfileId] must be a valid profiles.id (e.g. from StaffAuthHelper.requireStaffProfileId at call site).
-  /// No-op if [staffProfileId] is null or empty.
   Future<void> logActivity(
     String? staffProfileId,
     String action,
@@ -499,7 +471,6 @@ class DataService {
     });
   }
 
-  // Stock Items
   Future<List<Map<String, dynamic>>> getStockItems() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -540,7 +511,6 @@ class DataService {
     });
   }
 
-  // Suppliers
   Future<List<Map<String, dynamic>>> getSuppliers() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -573,7 +543,6 @@ class DataService {
     });
   }
 
-  // Locations
   Future<List<Map<String, dynamic>>> getLocations() async {
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: 'getLocations',
@@ -589,7 +558,6 @@ class DataService {
     );
   }
 
-  // Departments
   Future<List<Map<String, dynamic>>> getDepartments() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -601,7 +569,6 @@ class DataService {
     });
   }
 
-  // Stock Levels (per location)
   Future<List<Map<String, dynamic>>> getStockLevels({String? locationName}) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -617,8 +584,6 @@ class DataService {
     });
   }
 
-  // Staff Profiles (using profiles table with role filtering).
-  // Excludes guests and owners; owners are administrative only, not employable staff.
   Future<List<Map<String, dynamic>>> getStaffProfiles() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -629,7 +594,6 @@ class DataService {
           .order('full_name')
           .limit(500); // Limit for performance
       final list = List<Map<String, dynamic>>.from(response);
-      // Exclude owner: owners are not staff (no payroll, suspend, sack, etc.)
       return list.where((p) {
         final roles = (p['roles'] as List<dynamic>? ?? [])
             .map((e) => e.toString().toLowerCase())
@@ -639,7 +603,6 @@ class DataService {
     });
   }
 
-  /// Guest-only profiles (single role `guest`) for hire-from-guest conversion.
   Future<List<Map<String, dynamic>>> getGuestProfilesForHiring() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -662,7 +625,6 @@ class DataService {
     return roles.length == 1 && roles.first == 'guest';
   }
 
-  /// Sum of positive (total_amount - paid_amount) across all bookings for this guest (kobo).
   Future<int> getGuestOutstandingBalanceKobo(String guestProfileId) async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -681,7 +643,6 @@ class DataService {
     });
   }
 
-  // Inventory & Stock
   Future<List<Map<String, dynamic>>> getInventoryItems() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -693,8 +654,6 @@ class DataService {
     });
   }
 
-  /// Adds an inventory item (bar sellable product). Optionally link to an existing
-  /// [stock_item_id] for stock tracking; if provided, stock levels will use that stock item.
   Future<void> addInventoryItem(Map<String, dynamic> item) async {
     await _retryOperation(() async {
       final payload = <String, dynamic>{
@@ -714,8 +673,6 @@ class DataService {
     });
   }
 
-  /// Fetches stock transactions with pagination. Use limit 20-50 per page for list screens.
-  /// Each page is cached separately; invalidate via invalidateCacheForTable('stock_transactions').
   Future<List<Map<String, dynamic>>> getStockTransactions({
     String? locationId,
     String? staffId,
@@ -776,8 +733,6 @@ class DataService {
     });
   }
 
-  /// Single atomic sale mutation across flow-specific tables and department totals.
-  /// Returns {applied: bool, duplicate: bool, ...}.
   Future<Map<String, dynamic>> processUnifiedSale({
     required List<Map<String, dynamic>> items,
     required Map<String, dynamic> paymentData,
@@ -798,8 +753,6 @@ class DataService {
     });
   }
 
-  /// Ledger insert for storekeeper restock. [clientRequestId] enables server-side deduplication.
-  /// Returns false if this request id was already applied.
   Future<bool> recordDirectStockEntry({
     required String clientRequestId,
     required String stockItemId,
@@ -827,7 +780,6 @@ class DataService {
 
   Future<bool> recordStockTransaction(Map<String, dynamic> transaction) async {
     return await _retryOperation(() async {
-      // Validate foreign key relationships before insert
       final stockItemId = transaction['stock_item_id'] as String?;
       final locationId = transaction['location_id'] as String?;
       final staffProfileId = transaction['staff_profile_id'] as String?;
@@ -842,7 +794,6 @@ class DataService {
         throw Exception('staff_profile_id is required');
       }
       
-      // Verify stock_item exists
       final stockItemExists = await _supabase
           .from('stock_items')
           .select('id')
@@ -853,7 +804,6 @@ class DataService {
         throw Exception('Stock item not found. Please verify the stock_item_id is valid.');
       }
       
-      // Verify location exists
       final locationExists = await _supabase
           .from('locations')
           .select('id')
@@ -864,7 +814,6 @@ class DataService {
         throw Exception('Location not found. Please verify the location_id is valid.');
       }
       
-      // Verify staff profile exists
       final staffExists = await _supabase
           .from('profiles')
           .select('id')
@@ -875,7 +824,6 @@ class DataService {
         throw Exception('Staff profile not found. Please verify the staff_profile_id is valid.');
       }
       
-      // All validations passed, insert transaction
       await _supabase.from('stock_transactions').insert({
         'stock_item_id': stockItemId,
         'location_id': locationId,
@@ -883,14 +831,11 @@ class DataService {
         'transaction_type': transaction['transaction_type'], // Required: 'Purchase', 'Transfer_In', 'Transfer_Out', 'Sale', 'Wastage'
         'quantity': transaction['quantity'], // Required: positive or negative
         'notes': transaction['notes'], // Optional
-        // shift_id removed - bartender_shifts table no longer exists
       });
       return true;
     });
   }
 
-  // Stock Transfers (Main Store -> Department)
-  /// Returns null if [clientRequestId] was already used (idempotent duplicate).
   Future<String?> createStockTransfer({
     required String stockItemId,
     required String sourceLocationId,
@@ -920,9 +865,6 @@ class DataService {
     });
   }
 
-  // Financial Data
-  /// When [light] is true, only fetches columns needed for dashboard totals (smaller payload).
-  /// Default false for Finance screen and other callers that need full rows (e.g. description).
   Future<List<Map<String, dynamic>>> getExpenses({
     DateTime? startDate,
     DateTime? endDate,
@@ -1000,8 +942,6 @@ class DataService {
     });
   }
 
-  /// When [light] is true, only fetches id, amount, date (smaller payload for dashboard).
-  /// Default false for Finance screen and other callers that need full rows.
   Future<List<Map<String, dynamic>>> getIncomeRecords({
     DateTime? startDate,
     DateTime? endDate,
@@ -1089,7 +1029,6 @@ class DataService {
         'p_notes': payroll['notes'],
         'p_processed_by': payroll['processed_by'],
         'p_approval_status': payroll['approval_status'] ?? 'pending',
-        // Optional idempotency key if caller provides one.
         'p_client_request_id': payroll['client_request_id'],
       });
 
@@ -1136,7 +1075,6 @@ class DataService {
     });
   }
 
-  /// Updates a staff profile's monthly gross salary (in kobo). Used to prefill payroll entry and configuration checks only — not for financial totals.
   Future<void> updateStaffMonthlySalary(String profileId, int amountKobo) async {
     await _retryOperation(() async {
       await _supabase.from('profiles').update({
@@ -1146,9 +1084,6 @@ class DataService {
     });
   }
 
-  /// Sums **approved** `payroll_records` only (kobo). No imputation from `monthly_salary`.
-  /// Uses the same month window as [getPayrollRecords] (first-of-month bounds). If multiple
-  /// approved rows exist for the same staff and calendar month, keeps the latest by `approved_at` then `created_at`.
   Future<num> calculatePeriodPayroll(DateTime start, DateTime end) async {
     final startMonth = DateTime(start.year, start.month, 1);
     final endMonth = DateTime(end.year, end.month, 1);
@@ -1266,9 +1201,6 @@ class DataService {
     return changes.take(3).join('; ');
   }
 
-  /// Returns a unified auditor activity feed:
-  /// - sales/collections lines (kitchen, mini mart, bars, dispatches, booking charges, debt claims)
-  /// - catalog changes and sales mutations from finance_audit_logs
   Future<List<Map<String, dynamic>>> getAuditorTransactions({
     DateTime? startDate,
     DateTime? endDate,
@@ -1608,8 +1540,6 @@ class DataService {
     });
   }
 
-  /// Record a payment for a debt
-  /// Updates debt paid_amount, status, and linked booking automatically
   Future<void> recordDebtPayment({
     required String debtId,
     required int amount, // Amount in kobo
@@ -1620,7 +1550,6 @@ class DataService {
     String? notes,
   }) async {
     await _retryOperation(() async {
-      // Insert payment record (trigger will auto-update debt)
       await _supabase.from('debt_payments').insert({
         'debt_id': debtId,
         'amount': amount,
@@ -1633,7 +1562,6 @@ class DataService {
     });
   }
 
-  /// Record a debt payment claim (staff). Requires management approval before balance is updated.
   Future<void> recordDebtPaymentClaim({
     required String debtId,
     required int amount,
@@ -1655,7 +1583,6 @@ class DataService {
     });
   }
 
-  /// Get debt payment claims (optionally filtered by status)
   Future<List<Map<String, dynamic>>> getDebtPaymentClaims({
     String? status,
     DateTime? startDate,
@@ -1679,7 +1606,6 @@ class DataService {
     });
   }
 
-  /// Approve a debt payment claim: moves it to debt_payments (trigger updates debt)
   Future<void> approveDebtPaymentClaim(String claimId, String approvedBy) async {
     await _retryOperation(() async {
       final claim = await _supabase.from('debt_payment_claims').select().eq('id', claimId).single();
@@ -1704,7 +1630,6 @@ class DataService {
     });
   }
 
-  /// Reject a debt payment claim
   Future<void> rejectDebtPaymentClaim(String claimId, String rejectedBy) async {
     await _retryOperation(() async {
       await _supabase.from('debt_payment_claims').update({
@@ -1716,7 +1641,6 @@ class DataService {
     });
   }
 
-  /// Get payment history for a debt
   Future<List<Map<String, dynamic>>> getDebtPayments(String debtId) async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -1729,7 +1653,6 @@ class DataService {
     });
   }
 
-  /// Get debt with full details including payment history
   Future<Map<String, dynamic>?> getDebtDetails(String debtId) async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -1754,11 +1677,6 @@ class DataService {
     });
   }
 
-  // Financial Summary
-  /// Total Income = Manual Income + Kitchen + Mini Mart + Bar Sales (VIP/Outside) + Room Revenue.
-  /// Available Cash (cash-on-hand for selected period) =
-  ///   cash sales inflows + other cash income - approved cash expenses - cash deposits.
-  /// Payroll is intentionally excluded from available cash (hotel policy: salaries are not paid in cash).
   Future<Map<String, dynamic>> getFinancialSummary({
     DateTime? startDate,
     DateTime? endDate,
@@ -1769,7 +1687,6 @@ class DataService {
       final startStr = rangeStart.toIso8601String().split('T')[0];
       final endStr = rangeEnd.toIso8601String().split('T')[0];
 
-      // Build typed futures so that Future.wait receives an Iterable<Future>.
       final Future<dynamic> incomeFuture = _supabase
           .from('income_records')
           .select('amount')
@@ -1795,7 +1712,6 @@ class DataService {
           .gte('sale_date', startStr)
           .lte('sale_date', endStr);
 
-      // Cash-only flows for available_cash.
       final Future<dynamic> cashIncomeFuture = _supabase
           .from('income_records')
           .select('amount')
@@ -1867,7 +1783,6 @@ class DataService {
         cashDepositsFuture,
       ]);
 
-      // Unpack results with safe typing.
       final incomeResp = results[0] as List;
       final deptResp = results[1] as List;
       final kResp = results[2] as List;
@@ -1913,7 +1828,6 @@ class DataService {
         (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
       );
 
-      // Cash-only inflows/outflows for available cash.
       double cashSalesByDepartment = 0;
       for (final row in deptResp) {
         final breakdownRaw = row['payment_method_breakdown'];
@@ -1926,7 +1840,6 @@ class DataService {
         }
       }
 
-      // Fallback to source sales tables if department breakdown has no cash values.
       if (cashSalesByDepartment == 0) {
         for (final r in cashKitchenResp) {
           cashSalesByDepartment += (r['total_amount'] as num?)?.toDouble() ?? 0;
@@ -1962,7 +1875,6 @@ class DataService {
         'total_expenses': totalExpenses,
         'net_profit': totalIncome - totalExpenses,
         'available_cash': availableCash,
-        // Cash deposits tab breakdown fields (same period as selected range).
         'cash_sales_inflow': cashSalesByDepartment,
         'cash_other_income': cashOtherIncome,
         'cash_total_inflow': cashInflows,
@@ -1972,8 +1884,6 @@ class DataService {
     });
   }
 
-  /// Department Performance based on actual operational sales (getDepartmentSales).
-  /// Uses department_sales / kitchen_sales / mini_mart_sales, plus expenses by department.
   Future<List<Map<String, dynamic>>> getDepartmentPerformance({
     DateTime? startDate,
     DateTime? endDate,
@@ -1984,7 +1894,6 @@ class DataService {
       final startStr = rangeStart.toIso8601String().split('T')[0];
       final endStr = rangeEnd.toIso8601String().split('T')[0];
 
-      // 1. Operational sales by department (department_sales, with fallbacks)
       final Map<String, double> revenueByDept = {};
       try {
         final deptResp = await _supabase
@@ -2024,15 +1933,11 @@ class DataService {
         } catch (_) {}
       }
 
-      // 1b. Reception room bookings revenue (bookings)
-      // We treat room bookings like a "department" called `reception` for performance calculations.
-      // Use checked-in bookings (money realized at check-in), not checked-out.
       try {
         final bookingResp = await _supabase
             .from('bookings')
             .select('total_amount, paid_amount')
             .inFilter('status', ['Checked-in', 'checked_in', 'checked-in', 'Checked in', 'checked in'])
-            // Money is realized at check-in for reception revenue.
             .gte('check_in_date', startStr)
             .lte('check_in_date', endStr);
 
@@ -2049,7 +1954,6 @@ class DataService {
         }
       } catch (_) {}
 
-      // 2. Expenses by department
       final Map<String, double> expensesByDept = {};
       try {
         final expenses = await _supabase
@@ -2104,7 +2008,6 @@ class DataService {
     });
   }
 
-  // Dashboard Statistics
   Future<Map<String, dynamic>> getDashboardStats() async {
     return await _retryOperation(() async {
       final bookings = await _supabase
@@ -2120,7 +2023,6 @@ class DataService {
       final totalRooms = (rooms as List).length;
       final occupancyRate = totalRooms > 0 ? ((checkedIn / totalRooms) * 100).round() : 0;
 
-      // Get revenue from income records
       final revenue = await _supabase
           .from('income_records')
           .select('amount')
@@ -2170,7 +2072,6 @@ class DataService {
 
   Future<List<Map<String, dynamic>>> getRecentActivities() async {
     return await _retryOperation(() async {
-      // Combine recent activities from multiple tables
       final recentBookings = await _supabase
           .from('bookings')
           .select('id, guest_name, created_at, status')
@@ -2187,7 +2088,6 @@ class DataService {
     });
   }
 
-  // Mini Mart
   Future<List<Map<String, dynamic>>> getMiniMartItems() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -2199,7 +2099,6 @@ class DataService {
     });
   }
 
-  /// Adds a mini-mart item. Price in kobo.
   Future<void> addMiniMartItem({
     required String name,
     String? description,
@@ -2274,7 +2173,6 @@ class DataService {
     });
   }
 
-  // Kitchen
   Future<List<Map<String, dynamic>>> getKitchenOrders() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -2296,7 +2194,6 @@ class DataService {
     });
   }
 
-  /// Adds a menu item (kitchen/restaurant). Price in kobo.
   Future<void> addMenuItem({
     required String name,
     String? description,
@@ -2327,9 +2224,6 @@ class DataService {
     invalidateCacheForTable('menu_items');
   }
 
-  /// Generic update for product tables (inventory_items, mini_mart_items, menu_items, stock_items).
-  /// [updates] must contain only valid columns for [tableName]. Adds updated_at when supported.
-  /// If the table does not have updated_at, the update is retried without it (no crash).
   Future<void> updateProduct(String tableName, String id, Map<String, dynamic> updates) async {
     final payload = Map<String, dynamic>.from(updates);
     if (!payload.containsKey('updated_at')) {
@@ -2357,7 +2251,6 @@ class DataService {
     invalidateCacheForTable(tableName);
   }
 
-  /// Generic delete for product tables. Use with caution: ensure no foreign key references.
   Future<void> deleteProduct(String tableName, String id) async {
     await _retryOperation(() async {
       await _supabase.from(tableName).delete().eq('id', id);
@@ -2365,7 +2258,6 @@ class DataService {
     invalidateCacheForTable(tableName);
   }
 
-  // POS methods
   Future<List<Map<String, dynamic>>> getPosMenuItems() async {
     return getMenuItems();
   }
@@ -2380,7 +2272,6 @@ class DataService {
     });
   }
 
-  // Checked-in Guests
   Future<List<Map<String, dynamic>>> getCheckedInGuests() async {
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: 'getCheckedInGuests',
@@ -2396,7 +2287,6 @@ class DataService {
     );
   }
 
-  // Department Sales
   Future<List<Map<String, dynamic>>> getDepartmentSales({
     String? department,
     DateTime? startDate,
@@ -2408,7 +2298,6 @@ class DataService {
       key: key,
       tables: const ['department_sales'],
       fetch: () => _retryOperation(() async {
-        // Thin select: dashboard only needs these for totals and range filtering
         const selectCols = 'id, department, total_sales, date, created_at, updated_at';
         var query = _supabase
             .from('department_sales')
@@ -2445,7 +2334,6 @@ class DataService {
     });
   }
 
-  // Recent Purchases (purchase_orders level: supplier_name, total_cost, created_at; items in purchase_order_items)
   Future<List<Map<String, dynamic>>> getRecentPurchases() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -2460,7 +2348,6 @@ class DataService {
     });
   }
 
-  // HR methods
   Future<void> assignRoleToStaff(String staffId, String role, {bool isTemporary = false, DateTime? expiryDate}) async {
     await _retryOperation(() async {
       final assignedBy = _supabase.auth.currentUser?.id;
@@ -2490,7 +2377,6 @@ class DataService {
     });
   }
 
-  // Department Transfers (Kitchen Dispatch)
   Future<List<Map<String, dynamic>>> getDepartmentTransfers({
     DateTime? startDate,
     DateTime? endDate,
@@ -2528,7 +2414,6 @@ class DataService {
     });
   }
 
-  /// Uses SECURITY DEFINER RPC (claim + insert). Returns null if [clientRequestId] was already applied.
   Future<String?> createDepartmentTransfer(
     Map<String, dynamic> transfer, {
     String? clientRequestId,
@@ -2557,7 +2442,6 @@ class DataService {
     });
   }
 
-  // Kitchen Sales (dedicated history)
   Future<List<Map<String, dynamic>>> getKitchenSalesHistory({
     DateTime? startDate,
     DateTime? endDate,
@@ -2608,7 +2492,6 @@ class DataService {
     });
   }
 
-  // Maintenance Work Orders
   Future<List<Map<String, dynamic>>> getMaintenanceWorkOrders({
     DateTime? startDate,
     DateTime? endDate,
@@ -2665,7 +2548,6 @@ class DataService {
     });
   }
 
-  // Purchase Orders
   Future<List<Map<String, dynamic>>> getPurchaseOrders({
     String? status,
     DateTime? startDate,
@@ -2741,7 +2623,6 @@ class DataService {
       final orderId = orderResponse['id']?.toString() ?? '';
       if (orderId.isEmpty) throw Exception('Failed to create purchase order: no id returned');
 
-      // Insert items
       if (order['items'] != null) {
         final items = order['items'] as List;
         for (var item in items) {
@@ -2756,7 +2637,6 @@ class DataService {
     });
   }
 
-  // Posts/Announcements
   Future<List<Map<String, dynamic>>> getPosts({bool? isAnnouncement}) async {
     return await _retryOperation(() async {
       var query = _supabase
@@ -2810,7 +2690,6 @@ class DataService {
     });
   }
 
-  // Bartender Shift Management
   Future<Map<String, dynamic>?> getActiveShift({
     required String bartenderId,
     required String bar,
@@ -2953,7 +2832,6 @@ class DataService {
     });
   }
 
-  // Pending Purchases (for Store View)
   Future<List<Map<String, dynamic>>> getPendingPurchases() async {
     return await _retryOperation(() async {
       final response = await _supabase
@@ -2966,9 +2844,6 @@ class DataService {
     });
   }
 
-  // Create staff profile (Owner only - requires Admin API)
-  // Note: This requires Supabase Admin API access
-  // The auth user must be created first via Admin API, then this updates the profile
   Future<Map<String, dynamic>> createStaffProfile({
     required String email,
     required String password,
@@ -2976,12 +2851,9 @@ class DataService {
     required String role,
     String? phone,
     String? department,
-    String? userId, // Optional: if provided, use it directly instead of querying
+    String? userId,
   }) async {
     return await _retryOperation(() async {
-      // Always use the database function instead of direct UPDATE
-      // The function uses SECURITY DEFINER and bypasses RLS, which is more reliable
-      // especially after signOut() when the session might be lost
       await _supabase.rpc('create_staff_profile', params: {
         'p_email': email,
         'p_full_name': fullName,
@@ -2989,9 +2861,7 @@ class DataService {
         'p_role': role,
         'p_department': department,
       });
-      
-      // Get the created/updated profile
-      // Use userId if provided, otherwise use email
+
       final profile = userId != null
           ? await _supabase
               .from('profiles')
@@ -3008,7 +2878,6 @@ class DataService {
     });
   }
 
-  // Position management
   Future<void> createPosition(Map<String, dynamic> position) async {
     await _retryOperation(() async {
       await _supabase.from('positions').insert({
@@ -3031,7 +2900,6 @@ class DataService {
     });
   }
 
-  // Update staff status (for resigning/terminating staff)
   Future<void> updateStaffStatus(String profileId, String status) async {
     await _retryOperation(() async {
       await _supabase
@@ -3045,9 +2913,10 @@ class DataService {
   }
 
   int _collectedAmountKobo(int? totalAmount, int? paidAmount) {
-    // Collected-first rule: if paid_amount exists (including 0 for credit), it is the truth.
     if (paidAmount != null) return paidAmount;
     return totalAmount ?? 0;
   }
 
 }
+
+

@@ -20,33 +20,26 @@ class AppStateManager extends ChangeNotifier {
   }
   AppConnectivity? _connectivity;
   
-  // App state
   bool _isInitialized = false;
   bool _isLoading = false;
   String? _error;
   
-  // User state
   AppUser? _currentUser;
   List<AppRole> _userRoles = [];
   List<String> _accessibleFeatures = [];
   
-  // Navigation state
   int _currentIndex = 0;
   String _currentRoute = '/dashboard';
   
-  // Theme state
   bool _isDarkMode = false;
   String _selectedLanguage = 'en';
   
-  // Notifications state
   int _unreadNotifications = 0;
   List<Map<String, dynamic>> _notifications = [];
   
-  // Cache state
   Map<String, dynamic> _cache = {};
   DateTime? _lastCacheUpdate;
   
-  // Getters
   bool get isInitialized => _isInitialized;
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -62,11 +55,9 @@ class AppStateManager extends ChangeNotifier {
   Map<String, dynamic> get cache => _cache;
   DateTime? get lastCacheUpdate => _lastCacheUpdate;
   
-  // Connectivity getters
   bool get isOnline => _connectivity?.isOnline ?? true;
   ConnectivityResult get connectionStatus => _connectivity?.connectionStatus ?? ConnectivityResult.wifi;
   
-  // Initialize the state manager - critical path first, defer non-critical work
   Future<void> initialize() async {
     if (_isInitialized) return;
     
@@ -77,7 +68,6 @@ class AppStateManager extends ChangeNotifier {
       await _initializeCache();
       _isInitialized = true;
       _setError(null);
-      // Defer notifications and realtime - run in background after first interactive
       _deferNonCriticalInit();
     } catch (e, stack) {
       if (kDebugMode) debugPrint('DEBUG initialize: $e\n$stack');
@@ -98,7 +88,6 @@ class AppStateManager extends ChangeNotifier {
     });
   }
   
-  // User management
   Future<void> _loadUserData() async {
     try {
       if (_useMock || _supabase == null) {
@@ -133,7 +122,6 @@ class AppStateManager extends ChangeNotifier {
     return features.toList();
   }
   
-  // Navigation management
   void setCurrentIndex(int index) {
     if (_currentIndex == index) return;
     _currentIndex = index;
@@ -146,7 +134,6 @@ class AppStateManager extends ChangeNotifier {
     notifyListeners();
   }
   
-  // Theme management
   void toggleDarkMode() {
     _isDarkMode = !_isDarkMode;
     notifyListeners();
@@ -158,7 +145,6 @@ class AppStateManager extends ChangeNotifier {
     notifyListeners();
   }
   
-  // Notification management
   Future<void> _loadNotifications() async {
     try {
       if (_useMock || _supabase == null || !isOnline) {
@@ -172,7 +158,6 @@ class AppStateManager extends ChangeNotifier {
           .limit(50);
       final newNotifications = List<Map<String, dynamic>>.from(response);
       final newUnread = newNotifications.where((n) => !n['is_read']).length;
-      // Only notify when notification state actually changed
       if (_notifications.length == newNotifications.length &&
           _unreadNotifications == newUnread) {
         return;
@@ -213,7 +198,6 @@ class AppStateManager extends ChangeNotifier {
     }
   }
   
-  // Cache management
   Future<void> _initializeCache() async {
     _cache = {};
     _lastCacheUpdate = DateTime.now();
@@ -238,7 +222,6 @@ class AppStateManager extends ChangeNotifier {
     if (notify) notifyListeners();
   }
   
-  // Data refresh
   Future<void> refreshData() async {
     if (!isOnline) {
       _setError('Cannot refresh data while offline');
@@ -258,7 +241,6 @@ class AppStateManager extends ChangeNotifier {
     }
   }
   
-  // Error handling
   void _setError(String? error) {
     if (_error == error) return;
     _error = error;
@@ -269,14 +251,12 @@ class AppStateManager extends ChangeNotifier {
     _setError(null);
   }
   
-  // Loading state
   void _setLoading(bool loading) {
     if (_isLoading == loading) return;
     _isLoading = loading;
     notifyListeners();
   }
   
-  // Logout
   Future<void> logout() async {
     try {
       if (!(_useMock || _supabase == null)) {
@@ -295,7 +275,6 @@ class AppStateManager extends ChangeNotifier {
     }
   }
   
-  // Utility methods
   bool hasPermission(String feature) {
     return _accessibleFeatures.contains(feature);
   }
@@ -308,7 +287,6 @@ class AppStateManager extends ChangeNotifier {
     return _userRoles.contains(AppRole.owner) || _userRoles.contains(AppRole.manager);
   }
   
-  // Real-time subscriptions
   void startRealtimeSubscriptions() {
     if (_useMock || _supabase == null || !isOnline) return;
     _supabase!
@@ -345,7 +323,6 @@ class AppStateManager extends ChangeNotifier {
   }
 }
 
-// App state provider widget
 class AppStateProvider extends StatelessWidget {
   final Widget child;
   
@@ -363,7 +340,6 @@ class AppStateProvider extends StatelessWidget {
   }
 }
 
-// App state consumer widget
 class AppStateConsumer extends StatelessWidget {
   final Widget Function(BuildContext context, AppStateManager state, Widget? child) builder;
   final Widget? child;
@@ -382,3 +358,4 @@ class AppStateConsumer extends StatelessWidget {
     );
   }
 }
+

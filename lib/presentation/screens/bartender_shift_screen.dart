@@ -7,8 +7,6 @@ import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
-/// Bartender Shift Management Screen
-/// Allows bartenders to record opening stock, transfers from other departments, and closing stock
 class BartenderShiftScreen extends StatefulWidget {
   const BartenderShiftScreen({super.key});
 
@@ -20,22 +18,17 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   late TabController _tabController;
   final DataService _dataService = DataService();
   
-  // Shift state
   bool _hasActiveShift = false;
   Map<String, dynamic>? _currentShift;
   String _selectedBar = 'vip_bar'; // vip_bar or outside_bar
   
-  // Opening stock
   List<Map<String, dynamic>> _openingStockItems = [];
   
-  // Transfers
   List<Map<String, dynamic>> _shiftTransfers = [];
   List<Map<String, dynamic>> _pendingDirectSupplies = [];
   
-  // Closing stock
   List<Map<String, dynamic>> _closingStockItems = [];
   
-  // Available items for the bar
   List<Map<String, dynamic>> _availableItems = [];
   List<Map<String, dynamic>> _locations = [];
   
@@ -81,7 +74,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             (role) => role == AppRole.owner || role == AppRole.manager,
           ) ??
           false;
-      // Check for active shift
       final activeShift = await _dataService.getActiveShift(
         bartenderId: staffId,
         bar: _selectedBar,
@@ -227,7 +219,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
               )
             : null,
         actions: [
-          // Bar selector
           if (canSelectBar)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -290,7 +281,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Shift Status Card
           Card(
             color: _hasActiveShift ? Colors.green[50] : Colors.grey[100],
             child: Padding(
@@ -335,7 +325,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
           
           const SizedBox(height: 24),
           
-          // Action Buttons
           if (!_hasActiveShift)
             ElevatedButton.icon(
               onPressed: _startShift,
@@ -361,7 +350,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
           
           const SizedBox(height: 16),
           
-          // Quick Stats
           if (_hasActiveShift) ...[
             const Text('Shift Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
@@ -798,7 +786,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
                       throw Exception('Source and destination cannot be the same.');
                     }
 
-                  // If source is another bar, ensure it has enough stock to transfer (ledger-based)
                   if (source == 'vip_bar' || source == 'outside_bar') {
                     final sourceLevels = await _dataService.getStockLevels(
                       locationName: sourceLocationName,
@@ -847,7 +834,6 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
 
                   }
 
-                  // Stock ledger is the source of truth; no direct inventory_items update
 
                   setState(() {
                     _shiftTransfers.add({
@@ -1097,3 +1083,5 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
     }
   }
 }
+
+

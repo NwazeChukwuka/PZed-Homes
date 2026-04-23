@@ -89,7 +89,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   Future<void> _fetchRoomPrice() async {
     try {
-      // Query room_types table, not menu_items - room prices are stored in room_types
       final priceResponse = await _supabase
           .from('room_types')
           .select('price')
@@ -102,7 +101,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           _roomBasePriceKobo = priceInKobo;
         });
       } else {
-        // Room type not found - set to 0 or show error
         setState(() {
           _roomBasePriceKobo = 0;
         });
@@ -132,7 +130,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
   Future<void> _performCheckIn() async {
     try {
-      // Check if room is assigned
       if (_currentBooking.roomId == null) {
         if (mounted) {
           ErrorHandler.showWarningMessage(
@@ -141,7 +138,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
             duration: const Duration(seconds: 4),
           );
         }
-        // Navigate to room assignment screen
         final assigned = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
@@ -149,12 +145,10 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           ),
         );
         if (assigned != true) return;
-        // Reload booking data after assignment
         await _reloadBooking();
         return;
       }
 
-      // Show confirmation dialog
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -183,13 +177,11 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
       });
 
       if (result == true) {
-        // Update local state
         setState(() {
           _currentBooking = _currentBooking.copyWith(status: 'Checked-in');
           _isLoading = false;
         });
 
-        // Show success message
         if (mounted) {
           ErrorHandler.showSuccessMessage(
             context,
@@ -197,7 +189,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           );
         }
 
-        // Return updated booking to previous screen
         if (mounted) {
           Navigator.of(context).pop(_currentBooking);
         }
@@ -350,7 +341,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
 
     setState(() => _isLoading = true);
     try {
-      // Use database function for check-out (handles status updates correctly)
       final result = await _supabase.rpc('check_out_guest', params: {
         'booking_id': _currentBooking.id,
       });
@@ -445,7 +435,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         );
         reopened = rpcResult == true;
       } catch (_) {
-        // Backward-safe fallback while database migration is rolling out.
         await _supabase
             .from('bookings')
             .update({'status': 'Pending Check-in', 'updated_at': DateTime.now().toIso8601String()})
@@ -540,7 +529,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         );
         updated = rpcResult == true;
       } catch (_) {
-        // Backward-safe fallback for deployments where the RPC is not yet applied.
         await _supabase
             .from('bookings')
             .update({'status': newStatus, 'updated_at': DateTime.now().toIso8601String()})
@@ -998,7 +986,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Show assign room button if room not assigned
             ElevatedButton.icon(
               icon: const Icon(Icons.room),
               label: const Text('Assign Room'),
@@ -1042,7 +1029,6 @@ class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
           ],
         );
       }
-      // Show check-in button if room is assigned
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [

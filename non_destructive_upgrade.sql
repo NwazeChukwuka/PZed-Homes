@@ -1,3 +1,163 @@
+-- P-ZED Homes: non-destructive schema upgrades
+
+BEGIN;
+
+
+-- Shared runtime config for payment/transfer toggles and values.
+CREATE TABLE IF NOT EXISTS public.app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Keep updated_at fresh.
+CREATE OR REPLACE FUNCTION public.set_updated_at_app_config()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_app_config_updated_at ON public.app_config;
+CREATE TRIGGER trg_app_config_updated_at
+BEFORE UPDATE ON public.app_config
+FOR EACH ROW
+EXECUTE FUNCTION public.set_updated_at_app_config();
+
+-- Ensure bookings has fields required by current app flows.
+ALTER TABLE public.bookings
+  ADD COLUMN IF NOT EXISTS payment_provider TEXT,
+  ADD COLUMN IF NOT EXISTS payment_verified BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS terms_version TEXT,
+  ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Default values used by the guest transfer checkout flow.
+INSERT INTO public.app_config (key, value)
+VALUES
+  ('transfer_bank_accounts', '[]'),
+  ('transfer_display_count', '1'),
+  ('transfer_support_phone', '+2348157505978')
+ON CONFLICT (key) DO NOTHING;
+
+COMMIT;
+
+-- Compatibility shims for app code paths that still depend on these objects.
+CREATE TABLE IF NOT EXISTS public.departments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.access_delegations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  granted_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.smartlock_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  lock_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor_user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  details JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.site_media (
+  content_key TEXT PRIMARY KEY,
+  title TEXT,
+  media_url TEXT,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.gallery_media (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title TEXT,
+  media_url TEXT NOT NULL,
+  sort_order INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.kitchen_orders (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  booking_id UUID REFERENCES public.bookings(id),
+  staff_id UUID REFERENCES public.profiles(id),
+  items JSONB,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- bartender_shifts was removed historically, but current app code still queries it.
+CREATE TABLE IF NOT EXISTS public.bartender_shifts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  bartender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  bar TEXT NOT NULL,
+  opening_cash INT8 DEFAULT 0,
+  closing_cash INT8,
+  total_sales INT8 DEFAULT 0,
+  opening_stock JSONB DEFAULT '[]'::jsonb,
+  closing_stock JSONB DEFAULT '[]'::jsonb,
+  transfers JSONB DEFAULT '[]'::jsonb,
+  status TEXT DEFAULT 'active',
+  start_time TIMESTAMPTZ DEFAULT now(),
+  end_time TIMESTAMPTZ,
+  date DATE DEFAULT CURRENT_DATE,
+  closed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION public.check_in_guest(booking_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.bookings
+        WHERE id = booking_id
+        AND room_id IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'Room must be assigned before check-in';
+    END IF;
+
+    UPDATE public.bookings
+    SET status = 'Checked-in',
+        updated_at = now()
+    WHERE id = booking_id AND status = 'Pending Check-in';
+
+    UPDATE public.rooms
+    SET status = 'Occupied',
+        updated_at = now()
+    WHERE id = (SELECT room_id FROM public.bookings WHERE id = booking_id);
+
+    RETURN FOUND;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.check_out_guest(booking_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE public.bookings
+    SET status = 'Checked-out',
+        updated_at = now()
+    WHERE id = booking_id AND status = 'Checked-in';
+
+    UPDATE public.rooms
+    SET status = 'Dirty',
+        updated_at = now()
+    WHERE id = (SELECT room_id FROM public.bookings WHERE id = booking_id);
+
+    RETURN FOUND;
+END;
+$$;
 -- ==============================================
 -- NON-DESTRUCTIVE UPGRADE SCRIPT (TEST PERIOD)
 -- ==============================================

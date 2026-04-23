@@ -43,16 +43,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Hero Section
             _buildHeroSection(context),
             
-            // Contact Information
             _buildContactInfo(context),
             
-            // Contact Form
             _buildContactForm(context),
             
-            // Map Section
             _buildMapSection(context),
           ],
         ),
@@ -419,7 +415,6 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Stack(
           children: [
-            // RepaintBoundary isolates map tile rendering from parent repaints
             RepaintBoundary(
               child: FlutterMap(
               options: MapOptions(
@@ -476,13 +471,11 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
             ),
             ),
             
-            // Map Controls
             Positioned(
               top: 16,
               right: 16,
               child: Column(
                 children: [
-                  // Get Directions Button
                   ElevatedButton.icon(
                     onPressed: _openMaps,
                     icon: const Icon(Icons.directions),
@@ -500,7 +493,6 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ),
             ),
             
-            // Address Info at Bottom
             Positioned(
               bottom: 0,
               left: 0,
@@ -574,7 +566,6 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   }
 
   Future<void> _openMaps() async {
-    // Coordinates for Abakaliki (approximate)
     const double latitude = 6.3242;
     const double longitude = 8.1131;
     
@@ -602,10 +593,8 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Simulate form submission
       await Future.delayed(const Duration(seconds: 2));
       
-      // Show success message
       if (mounted) {
         ErrorHandler.showSuccessMessage(
           context,
@@ -613,7 +602,6 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
         );
       }
 
-      // Clear form
       _nameController.clear();
       _emailController.clear();
       _phoneController.clear();
@@ -637,3 +625,4 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     }
   }
 }
+

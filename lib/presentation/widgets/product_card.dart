@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Universal square product card for Inventory, Mini Mart, and Kitchen grids.
-/// - Icon area: 67% of card height
-/// - Text area: name (max 2 lines, scales down if too long) + price on next line
 class ProductCard extends StatelessWidget {
   final String name;
   final String price;
@@ -60,7 +57,6 @@ class ProductCard extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Name: wraps to 2 lines at base font; scales down only if 2 lines overflow
                             ConstrainedBox(
                               constraints: const BoxConstraints(maxHeight: 34),
                               child: FittedBox(
@@ -82,7 +78,6 @@ class ProductCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            // Price: line 2 when name is 1 line, line 3 when name wraps to 2 lines
                             Text(
                               price,
                               style: TextStyle(
@@ -107,3 +102,5 @@ class ProductCard extends StatelessWidget {
     );
   }
 }
+
+

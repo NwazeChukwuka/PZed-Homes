@@ -72,7 +72,6 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
               setState(() {
                 category.isExpanded = !category.isExpanded;
                 if (category.isExpanded && category.items == null) {
-                  // Load images only when expanded for the first time
                   category.items = _getCategoryItems(category.path, category.prefix);
                 }
               });
@@ -133,8 +132,6 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
   List<GalleryItem> _getCategoryItems(String path, String prefix) {
     List<GalleryItem> items = [];
     
-    // Define the actual images that exist for each category
-    // Only include images that are actually in the assets folder (from pubspec.yaml)
     final Map<String, List<String>> categoryImages = {
       'Front View': ['Front View 1.JPG', 'Front View 2.JPG', 'Front View 3.jpg', 'Front View 4.jpg', 'Front View 5.JPG', 'Front View 6.jpg'],
       'Reception': ['Reception 1.JPG', 'Reception 2.png', 'Reception 3.jpg', 'Reception 4.jpg'],
@@ -149,10 +146,8 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
       'Executive Room': ['Executive 1.png', 'Executive 2.png', 'Executive 3.jpg'],
     };
     
-    // Get the list of actual images for this category
     final imageFiles = categoryImages[path] ?? [];
     
-    // Only add items for images that actually exist
     for (var imageFile in imageFiles) {
       final imagePath = 'assets/images/$path/$imageFile';
       items.add(GalleryItem(
@@ -164,3 +159,4 @@ class _GalleryFolderScreenState extends State<GalleryFolderScreen> {
     return items;
   }
 }
+

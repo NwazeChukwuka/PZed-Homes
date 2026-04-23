@@ -22,14 +22,9 @@ class _ManageWebsiteScreenState extends State<ManageWebsiteScreen> {
     final fileName = '$contentKey-${DateTime.now().millisecondsSinceEpoch}';
     
     try {
-      // 1. Upload new image to a 'site_assets' bucket
-      // (You must create a public bucket named 'site_assets' in Supabase Storage)
       await _supabase.storage.from('site_assets').uploadBinary(fileName, fileBytes);
-      
-      // 2. Get the new public URL
       final newUrl = _supabase.storage.from('site_assets').getPublicUrl(fileName);
 
-      // 3. Update the database table with the new URL
       await _supabase
           .from('site_media')
           .update({'media_url': newUrl})

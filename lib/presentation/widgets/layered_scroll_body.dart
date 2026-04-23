@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-/// Layer B + C scroll contract for management screens:
-/// - [topSection] scrolls away with the page.
-/// - [content] keeps its own local scroll behavior.
 class LayeredScrollBody extends StatefulWidget {
   final Widget topSection;
   final Widget content;
@@ -65,9 +62,6 @@ class _LayeredScrollBodyState extends State<LayeredScrollBody> {
                       final atTop = metrics.pixels <= metrics.minScrollExtent + 0.5;
                       final atBottom = metrics.pixels >= metrics.maxScrollExtent - 0.5;
 
-                      // Keep parent locked while Layer C can still scroll.
-                      // But when at an edge and user keeps pushing in that same
-                      // direction, unlock parent so Layer B can move.
                       final canHandoffToParent =
                           (atTop && delta < 0) || (atBottom && delta > 0);
                       _setOuterScrollLock(!canHandoffToParent);
@@ -103,3 +97,5 @@ class _LayeredScrollBodyState extends State<LayeredScrollBody> {
     );
   }
 }
+
+

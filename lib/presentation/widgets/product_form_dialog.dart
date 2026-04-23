@@ -4,14 +4,9 @@ import 'package:pzed_homes/core/config/product_catalog_config.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 
-/// Generic edit dialog for product catalog (Name, Price(s), Category).
-/// Adapts to table via [tableName] using [ProductCatalogConfig.priceFieldsByTable].
-/// Prices are entered in Naira and saved as Kobo via [PaymentService].
-/// When a price changes, [onSave] is called with optional [priceChangeDetails] for auditing.
 class ProductFormDialog extends StatefulWidget {
   final String tableName;
   final Map<String, dynamic> product;
-  /// Called with [updates] and optionally [priceChangeDetails] when any price changed (e.g. "Changed X price from ₦1,500 to ₦1,800").
   final Future<void> Function(Map<String, dynamic> updates, [String? priceChangeDetails]) onSave;
 
   const ProductFormDialog({
@@ -94,7 +89,6 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
           }
         }
       }
-      // Build audit log for price changes (e.g. "Changed [Item Name] price from ₦1,500 to ₦1,800")
       String? priceChangeDetails;
       final itemName = widget.product['name']?.toString() ?? 'Item';
       final lines = <String>[];
@@ -193,8 +187,6 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   }
 }
 
-/// Shows a standard "Are you sure?" confirmation before deleting a product.
-/// When user taps Delete, [onConfirm] is awaited; dialog shows loading and only closes on success.
 Future<void> showDeleteProductConfirmation(
   BuildContext context, {
   required String productName,
@@ -208,9 +200,7 @@ Future<void> showDeleteProductConfirmation(
       onConfirm: onConfirm,
     ),
   );
-  // Dialog pops with true only after onConfirm completed successfully; no follow-up needed
   if (confirmed == true && context.mounted) {
-    // Caller already refreshed in onConfirm
   }
 }
 
@@ -292,3 +282,5 @@ class _DeleteProductConfirmationDialogState
     );
   }
 }
+
+

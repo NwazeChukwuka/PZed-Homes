@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -86,7 +86,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   bool _hasPerformedInitialLoad = false;
   TabController? _tabController;
 
-  // Phase 4: History pagination (load 50 per page, load more on scroll)
   static const int _historyPageSize = 50;
   int _dispatchOffset = 0;
   int _salesOffset = 0;
@@ -95,7 +94,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   bool _historyLoadingMore = false;
   final ScrollController _historyScrollController = ScrollController();
 
-  // Add Menu Item (owner/manager)
   final _addMenuNameController = TextEditingController();
   final _addMenuPriceController = TextEditingController();
   final _addMenuSavingNotifier = ValueNotifier<bool>(false);
@@ -845,7 +843,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Run load once to avoid duplicate I/O when dependencies change (e.g. theme, locale)
     if (_hasPerformedInitialLoad) return;
     _hasPerformedInitialLoad = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -862,8 +859,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final isReceptionist = (user?.roles.any((r) => r == AppRole.receptionist) ?? false);
     final isVipBartender = (user?.roles.any((r) => r == AppRole.vip_bartender) ?? false);
     
-    // Owner/Manager/Receptionist/VIP Bartender can view dispatches without assuming role
-    // But need to assume role for full functionality
     final canAccess = isKitchenStaff || isAssumedKitchenStaff || isOwnerOrManager || isReceptionist || isVipBartender;
 
     if (!canAccess) {
@@ -892,7 +887,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       final isManagement =
           user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
       final staffId = user?.id;
-      // Run all independent fetches in parallel (Phase 1: no sequential await)
       final results = await Future.wait([
         _dataService.getMenuItems(),
         _dataService.getLocations(),
@@ -1155,7 +1149,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         throw Exception('Source location not configured');
       }
 
-      // Optional local stock check for faster feedback
       final selected = _stockItems.firstWhere(
         (s) => s['id'] == _selectedStockItemId,
         orElse: () => <String, dynamic>{},
@@ -1164,8 +1157,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       if (selected['stock_item_id'] == null) {
         throw Exception('This menu item is not linked to a stock item. Link it before dispatching.');
       }
-      // Note: menu_items do not track per-location stock directly here.
-      // Stock checks should be handled via stock_transactions/stock_levels if needed.
 
       final destinationDepartment = _selectedDestinationDepartment!;
       final isValidDepartment = _departments.any((d) => d['name'] == destinationDepartment);
@@ -1261,7 +1252,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         );
       }
 
-      // Optional stock deduction when menu item is linked to stock item
       final stockItemId = selected['stock_item_id']?.toString();
       if (stockItemId != null && _sourceLocationId != null) {
         await _dataService.recordStockTransaction({
@@ -1274,7 +1264,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         });
       }
 
-      // Clear form and refresh
       _formKey.currentState?.reset();
       _quantityController.clear();
       _dispatchUnitPriceController.clear();
@@ -1430,14 +1419,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }
       firstSaleId = unifiedRes['first_sale_id']?.toString();
 
-      // Non-core side effects (room charges/debts) stay separate intentionally.
       for (final saleItem in _currentSale) {
         final itemName = _safeStr(saleItem['name']).isEmpty ? 'Item' : _safeStr(saleItem['name']);
         final quantity = _safeInt(saleItem['quantity'], 1);
         final unitPriceKobo = PaymentService.nairaToKobo(_safeDouble(saleItem['price']));
         if (_chargeToRoom && _selectedBookingId != null) {
           try {
-            // RLS: booking_charges INSERT allows vip_bartender (non_destructive_upgrade.sql)
             await _dataService.addBookingCharge(
               bookingId: _selectedBookingId!,
               itemName: itemName,
@@ -2390,8 +2377,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     }
   }
 
-  /// Tab count: 3 for operational roles (Dispatch, Sales, History), 2 for Owner/Manager only (Menu, History).
-  /// Matches Inventory (2 tabs for management) and Mini Mart (2 tabs for management).
   static int _selectorTabCount(AuthService auth) {
     final user = auth.currentUser;
     final isKitchenStaff = (user?.roles.any((r) => r == AppRole.kitchen_staff) ?? false);
@@ -2410,7 +2395,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         final destinations = _departments;
         final isOperational = tabCount == 3;
 
-        // Update tab controller if length changed (e.g. role assumption)
         if (_tabController != null && _tabController!.length != tabCount) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -2478,7 +2462,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: [
-                                  // Mobile uses global assume-role and FAB for actions.
                                   IconButton(
                                     icon: const Icon(Icons.refresh, color: Colors.white),
                                     onPressed: _loadStockAndLocations,
@@ -2521,7 +2504,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
             content: TabBarView(
                         controller: _tabController,
                         children: isOperational ? [
-                          // Dispatch tab
                           Column(
                             children: [
                               Expanded(
@@ -2722,7 +2704,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               ),
                             ],
                           ),
-                          // Sales tab
                           Column(
                             children: [
                               Expanded(
@@ -2744,7 +2725,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                               ),
                             ],
                           ),
-                          // History tab - shows all transactions (sales + dispatch + restock)
                           _buildHistoryTab(),
                         ]
                         : [
@@ -2758,7 +2738,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     );
   }
 
-  /// Read-only menu grid for Owner/Manager (2-tab view). No add-to-sale functionality.
   Widget _buildKitchenMenuReadOnly() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -2944,10 +2923,8 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
     final isManagement = authService.currentUser?.roles
             .any((r) => r == AppRole.owner || r == AppRole.manager) ??
         false;
-    // Combine sales history and dispatch history
     final allTransactions = <Map<String, dynamic>>[];
     
-    // Add sales with type and staff info (API returns sold_by_profile from profiles!sold_by join)
     for (var sale in _salesHistory) {
       final profile = _safeMap(sale['sold_by_profile']);
       allTransactions.add({
@@ -2958,7 +2935,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       });
     }
     
-    // Add dispatches with type and staff info (API returns dispatched_by_profile from profiles!dispatched_by_id join)
     for (var dispatch in _dispatchHistory) {
       final profile = _safeMap(dispatch['dispatched_by_profile']);
       allTransactions.add({
@@ -2969,15 +2945,12 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       });
     }
     
-    // Apply filters
     List<Map<String, dynamic>> filteredTransactions = allTransactions;
     
-    // Filter by type
     if (_historyFilterType != 'all') {
       filteredTransactions = filteredTransactions.where((t) => t['transaction_type'] == _historyFilterType).toList();
     }
     
-    // Filter by staff
     if (_historyFilterStaffId != 'all') {
       filteredTransactions = filteredTransactions.where((t) {
         final staffId = t['sold_by'] ?? t['dispatched_by_id'];
@@ -2985,7 +2958,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }).toList();
     }
     
-    // Filter by date range
     if (_historyFilterRange != null) {
       filteredTransactions = filteredTransactions.where((t) {
         final timestamp = _parseTimestamp(t['timestamp']);
@@ -2995,7 +2967,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       }).toList();
     }
     
-    // Sort by timestamp (most recent first)
     filteredTransactions.sort((a, b) {
       final aTime = _parseTimestamp(a['timestamp']);
       final bTime = _parseTimestamp(b['timestamp']);
@@ -3005,7 +2976,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
       return bTime.compareTo(aTime);
     });
     
-    // Get unique staff for filter dropdown
     final uniqueStaff = allTransactions
         .map((t) => {
               'id': t['sold_by'] ?? t['dispatched_by_id'],
@@ -3036,7 +3006,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                 ],
               ),
               const SizedBox(height: 16),
-              // Filters
               Row(
                 children: [
                   Expanded(
@@ -3159,7 +3128,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                           iconColor: Colors.orange,
                         );
                       } else {
-                        // Dispatch - use same SaleListItem format
                         final miName = _safeStr(_safeMap(transaction['menu_items'])?['name']);
                         final itemName = miName.isNotEmpty ? miName : 'Item';
                         final qty = _safeInt(transaction['quantity'], 0);
@@ -3196,7 +3164,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
   }
 }
 
-/// Extracted subwidget: reduces build cost and isolates warning UI.
 class _KitchenMissingStockWarning extends StatelessWidget {
   final List<String> missingLinks;
   final VoidCallback onDismiss;
@@ -3250,3 +3217,5 @@ class _KitchenMissingStockWarning extends StatelessWidget {
     );
   }
 }
+
+

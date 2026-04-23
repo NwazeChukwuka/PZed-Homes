@@ -43,7 +43,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   void didUpdateWidget(UserProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Clear performance data when switching to a different profile
     final newProfileId = widget.userProfile['id'] as String?;
     if (newProfileId != null && newProfileId != _currentProfileId) {
       setState(() {
@@ -51,11 +50,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         _isLoadingPerformance = false;
         _currentProfileId = newProfileId;
       });
-      // Reload performance data for new profile (will be loaded when build method is called with context)
     }
   }
 
-  // Load real permissions from database
   Future<void> _loadUserPermissions() async {
     setState(() => _isLoadingPermissions = true);
     try {
@@ -111,7 +108,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  // Update permission in database
   Future<void> _onPermissionChanged(bool newValue) async {
     try {
       final userId = widget.userProfile['id'] as String;
@@ -123,7 +119,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       }
       
       if (newValue) {
-        // Grant permission
         await _supabase
             .from('access_delegations')
             .upsert({
@@ -132,7 +127,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               'granted_by_id': currentUserId,
             });
       } else {
-        // Revoke permission
         await _supabase
             .from('access_delegations')
             .delete()
@@ -171,7 +165,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           customMessage: 'Failed to update permission. Please try again.',
         );
       }
-      // Revert on error
       setState(() {
         _hasSmartlockPermission = !newValue;
       });
@@ -190,7 +183,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return;
     }
 
-    // Use consolidated password service
     await PasswordService.showPasswordResetDialog(context);
   }
 
@@ -433,7 +425,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   onPressed: isLoading
                       ? null
                       : () async {
-                          // Validation
                           if (oldPasswordController.text.isEmpty) {
                             ErrorHandler.showWarningMessage(
                               context,
@@ -463,20 +454,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           try {
                             final passwordService = PasswordService();
                             
-                            // Verify old password by attempting to re-authenticate
                             final authService = Provider.of<AuthService>(context, listen: false);
                             final currentUser = authService.currentUser;
                             if (currentUser?.email == null) {
                               throw Exception('User email not found');
                             }
 
-                            // Re-authenticate with old password
                             await Supabase.instance.client.auth.signInWithPassword(
                               email: currentUser!.email,
                               password: oldPasswordController.text,
                             );
 
-                            // Update to new password
                             await passwordService.updatePassword(newPasswordController.text);
 
                             oldPasswordController.dispose();
@@ -631,10 +619,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Owner/Manager have full access to all profiles
-                  // Non-management staff should not reach this screen for other users (hidden in UI)
 
-                  // Limited view for non-management when viewing other staff
                   if (!viewingSelf && !isAdmin) ...[
                     Card(
                       child: Padding(
@@ -655,7 +640,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                   ],
                   if (viewingSelf || isAdmin) ...[
-                  // User Avatar
                   Center(
                     child: CircleAvatar(
                       radius: 50,
@@ -669,7 +653,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // User Information
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -711,7 +694,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Change Password Section (for users viewing their own profile)
                   if (viewingSelf) ...[
                     Card(
                       child: Padding(
@@ -750,19 +732,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     const SizedBox(height: 24),
                   ],
 
-                  // Permission Delegation Section (Owner only)
                   if (isOwner && !viewingSelf) ...[
                     _buildPermissionsCard(isOwner: true),
                     const SizedBox(height: 24),
                   ],
 
-                  // View-only permissions for users viewing their own profile
                   if (viewingSelf && !isOwner) ...[
                     _buildViewOnlyPermissions(),
                     const SizedBox(height: 24),
                   ],
 
-                  // Management-only performance overview when viewing another staff
                   if (isManagement && !viewingSelf) ...[
                     const SizedBox(height: 24),
                     const Text(
@@ -1134,7 +1113,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     supportPhoneController.dispose();
   }
 
-  // Permission Delegation Card (for Owners managing other users)
   Widget _buildPermissionsCard({required bool isOwner}) {
     return Card(
       elevation: 2,
@@ -1172,7 +1150,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // View-only permissions for regular users
   Widget _buildViewOnlyPermissions() {
     return Card(
       elevation: 2,
@@ -1211,7 +1188,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // Load performance data from database
   Future<void> _loadPerformanceData(String profileId, {BuildContext? context}) async {
     if (_isLoadingPerformance) return;
 
@@ -1399,12 +1375,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  // Performance overview with real data from database
   Widget _buildPerformanceOverviewSection(Map<String, dynamic> profile) {
     final staffName = (profile['full_name']?.toString() ?? 'Staff');
     final profileId = profile['id'] as String?;
 
-    // Load performance data if not loaded
     final context = this.context;
     if (profileId != null && _performanceData == null && !_isLoadingPerformance) {
       _loadPerformanceData(profileId, context: context);

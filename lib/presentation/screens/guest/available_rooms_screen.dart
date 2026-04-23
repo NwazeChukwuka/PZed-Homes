@@ -21,7 +21,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   Future<List<Map<String, dynamic>>>? _availableRoomsFuture;
   bool _isRefreshing = false;
 
-  // Get Supabase client safely (returns null if not initialized)
   SupabaseClient? get _supabase {
     try {
       return Supabase.instance.client;
@@ -33,7 +32,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
   @override
   void initState() {
     super.initState();
-    // Fallback values
     checkInDate = DateTime.now();
     checkOutDate = DateTime.now().add(const Duration(days: 1));
   }
@@ -47,7 +45,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       final state = GoRouterState.of(context);
       final extra = state.extra as Map<String, dynamic>?;
       if (extra != null) {
-        // Check if dates are provided
         if (extra['checkInDate'] != null) {
           final date = extra['checkInDate'];
           if (date is DateTime) {
@@ -67,24 +64,19 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       }
     } catch (e) {
       debugPrint('Error getting dates from router: $e');
-      // Use fallback values from initState
     }
     
-    // Always fetch rooms (will use default dates if not provided)
     if (mounted) {
       _availableRoomsFuture = _fetchAvailableRooms();
     }
   }
 
   Future<List<Map<String, dynamic>>> _fetchAvailableRooms() async {
-    // Check if Supabase is initialized
     if (_supabase == null) {
-      // Return empty list - UI will show a generic unavailable message
       return [];
     }
 
     try {
-      // Validate dates
       if (checkInDate.isAfter(checkOutDate) || checkInDate.isAtSameMomentAs(checkOutDate)) {
         throw Exception('Check-out date must be after check-in date');
       }
@@ -125,7 +117,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
     }
   }
 
-  /// Returns the placeholder asset path for a room type when image_url is empty.
   static String _getPlaceholderForRoomType(String? roomTypeName) {
     final t = (roomTypeName ?? '').toString().trim();
     switch (t) {
@@ -166,13 +157,11 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
       setState(() {
         if (isCheckIn) {
           checkInDate = picked;
-          // Ensure check-out is after check-in
           if (checkOutDate.isBefore(checkInDate) || checkOutDate.isAtSameMomentAs(checkInDate)) {
             checkOutDate = checkInDate.add(const Duration(days: 1));
           }
         } else {
           checkOutDate = picked;
-          // Ensure check-out is after check-in
           if (checkOutDate.isBefore(checkInDate) || checkOutDate.isAtSameMomentAs(checkInDate)) {
             checkInDate = checkOutDate.subtract(const Duration(days: 1));
           }
@@ -201,7 +190,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
         onRefresh: _refreshRooms,
         child: Column(
           children: [
-            // Date selection card
             Container(
               margin: ResponsiveHelper.getResponsivePadding(
                 context,
@@ -356,7 +344,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                       ],
                     ),
             ),
-            // Rooms list
             Expanded(
               child: FutureBuilder<List<Map<String, dynamic>>>(
                 future: _availableRoomsFuture,
@@ -398,7 +385,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
             
             final availableRooms = snapshot.data;
             
-            // Check if Supabase is not configured
             if (_supabase == null) {
               return Center(
                 child: Padding(
@@ -572,7 +558,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Room Type Name - with overflow handling
                                 Text(
                                   '${roomType['type']}',
                                   style: TextStyle(
@@ -588,7 +573,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 
-                                // Description if available
                                 if (roomType['description'] != null && 
                                     (roomType['description'] as String).isNotEmpty) ...[
                                   const SizedBox(height: 6),
@@ -608,7 +592,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                   ),
                                 ],
                                 
-                                // Amenities if available
                                 if (roomType['amenities'] != null && 
                                     (roomType['amenities'] as List).isNotEmpty) ...[
                                   const SizedBox(height: 6),
@@ -649,7 +632,6 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
                                 
                                 const SizedBox(height: 8),
                                 
-                                // Availability and Price
                                 isMobile
                                     ? Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,

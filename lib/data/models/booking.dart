@@ -23,7 +23,6 @@ class Booking {
     required this.extraCharges,
   });
 
-  // Add copyWith method that your UI code expects
   Booking copyWith({
     String? id,
     String? guestName,
@@ -49,9 +48,7 @@ class Booking {
     );
   }
 
-  // Keep your existing fromMap and toMap methods for database operations
   factory Booking.fromMap(Map<String, dynamic> map) {
-    // Handle both direct map and nested structure from Supabase joins
     final room = map['rooms'] as Map<String, dynamic>?;
     final profile = map['profiles'] as Map<String, dynamic>?;
     

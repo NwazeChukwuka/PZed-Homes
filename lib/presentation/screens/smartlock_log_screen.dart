@@ -12,14 +12,11 @@ class SmartLockLogScreen extends StatefulWidget {
 
 class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
   final _supabase = Supabase.instance.client;
-  // Use a stream for real-time updates
   late final Stream<List<Map<String, dynamic>>> _logStream;
 
   @override
   void initState() {
     super.initState();
-    // Fetch logs with room number, ordered by most recent
-    // Note: Streams don't support joins, so we'll fetch room data separately if needed
     _logStream = _supabase
         .from('smartlock_logs')
         .stream(primaryKey: ['id'])
@@ -27,12 +24,10 @@ class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
         .limit(100); // Limit to recent logs for performance
   }
 
-  // Helper to format the timestamp
   String _formatTimestamp(String? isoTimestamp) {
     if (isoTimestamp == null) return 'N/A';
     try {
       final dateTime = DateTime.parse(isoTimestamp).toLocal();
-      // Example format: Oct 30, 2025 - 12:55 AM
       return DateFormat('MMM d, yyyy - h:mm a').format(dateTime);
     } catch (e) {
       return 'Invalid Date';
@@ -73,7 +68,6 @@ class _SmartLockLogScreenState extends State<SmartLockLogScreen> {
             itemCount: logs.length,
             itemBuilder: (context, index) {
               final log = logs[index];
-              // Fetch room number separately since streams don't support joins
               final roomId = log['room_id'];
               final roomNumber = roomId != null ? 'Room $roomId' : 'N/A';
               final eventType = log['event_type'] ?? 'UNKNOWN_EVENT';

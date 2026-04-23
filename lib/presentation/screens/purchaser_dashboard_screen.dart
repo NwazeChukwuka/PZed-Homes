@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
@@ -20,7 +20,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   TabController? _tabController;
   final _dataService = DataService();
   
-  // Form controllers
   final _amountController = TextEditingController();
   final _itemNameController = TextEditingController();
   final _quantityController = TextEditingController();
@@ -29,7 +28,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   final _supplierController = TextEditingController();
   final _notesController = TextEditingController();
   
-  // Budget tracking (stored in kobo)
   int _monthlyBudgetKobo = 0;
   int _spentKobo = 0;
   int _varianceKobo = 0;
@@ -44,7 +42,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
   @override
   void initState() {
     super.initState();
-    // Initialize with default tab count
     _tabController = TabController(length: 2, vsync: this);
     _loadBudgetData();
     _loadSuppliers();
@@ -91,7 +88,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       final nextMonthStart = DateTime(now.year, now.month + 1, 1);
       final monthEnd = nextMonthStart.subtract(const Duration(milliseconds: 1));
 
-      // Load purchase orders for current month
       final orders = await _dataService.getPurchaseOrders(
         startDate: monthStart,
         endDate: monthEnd,
@@ -104,7 +100,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         }
       }
 
-      // Load monthly budget (set by management/accountant)
       final budget = await _dataService.getMonthlyPurchaseBudget(monthStart);
       _budgetSet = budget != null;
       _monthlyBudgetKobo = (budget?['amount'] as num?)?.toInt() ?? 0;
@@ -112,7 +107,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
       _varianceKobo = _monthlyBudgetKobo - _spentKobo;
       _budgetExceeded = _varianceKobo < 0;
       
-      // Convert purchase orders to history format
       _purchaseHistory = orders.where((o) => o['status'] == 'Confirmed').map((order) {
         final items = order['purchase_order_items'] as List?;
         final firstItem = items?.isNotEmpty == true ? items![0] : null;
@@ -243,7 +237,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
 
     if (mounted) setState(() => _recordPurchaseLoading = true);
     try {
-      // Get or create stock item
       final stockItems = await _dataService.getStockItems();
       final existingItem = stockItems.firstWhere(
         (item) => item['name']?.toString().toLowerCase() == _itemNameController.text.trim().toLowerCase(),
@@ -255,7 +248,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         stockItemId = existingItem['id']?.toString();
       } else {
         final supplier = await _resolveSupplier();
-        // Create new stock item if it doesn't exist
         stockItemId = await _dataService.addStockItem(
           name: _itemNameController.text.trim(),
           description: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
@@ -270,7 +262,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         throw Exception('Failed to get or create stock item');
       }
 
-      // Create purchase order
       final totalCost = (amount * 100).toInt(); // Convert to kobo
       final supplier = await _resolveSupplier();
       await _dataService.createPurchaseOrder({
@@ -286,7 +277,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
         ],
       });
 
-      // Clear form
       _amountController.clear();
       _itemNameController.clear();
       _quantityController.clear();
@@ -329,7 +319,6 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
           final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
           final showRecordPurchase = (isPurchaser || isAssumedPurchaser) && !(isOwnerOrManager && !isAssumedPurchaser);
           
-          // Update tab controller if needed
           final tabCount = showRecordPurchase ? 3 : 2;
           if (_tabController == null) {
             _tabController = TabController(length: tabCount, vsync: this);
@@ -965,3 +954,4 @@ class _PurchaserDashboardScreenState extends State<PurchaserDashboardScreen> wit
     );
   }
 }
+

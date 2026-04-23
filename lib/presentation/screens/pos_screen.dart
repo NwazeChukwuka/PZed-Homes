@@ -152,7 +152,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       return;
     }
 
-    // Verify user is logged in
     final authService = Provider.of<AuthService>(context, listen: false);
     if (authService.currentUser == null) {
       if (mounted) {
@@ -173,7 +172,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
         throw Exception('No booking linked to this order');
       }
 
-      // Create order charges for each item
       for (var orderItem in _currentOrder) {
         await _supabase.from('booking_charges').insert({
           'booking_id': _linkedBooking!['id'],
@@ -299,7 +297,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
           children: [
             Row(
               children: [
-                // Menu Grid Section
                 Expanded(
                   flex: 2,
                   child: TabBarView(
@@ -311,7 +308,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                   ),
                 ),
 
-                // Order Cart Section
                 Expanded(
                   flex: 1,
                   child: _buildOrderCart(),
@@ -392,7 +388,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Linked Guest Info
           Card(
             child: ListTile(
               leading: Icon(Icons.person, color: _linkedBooking != null ? Colors.green : Colors.grey),
@@ -407,7 +402,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
           ),
           const SizedBox(height: 16),
 
-          // Order Items List
           Expanded(
             child: _currentOrder.isEmpty
                 ? const Center(
@@ -462,7 +456,6 @@ class _PosScreenState extends State<PosScreen> with SingleTickerProviderStateMix
                   ),
           ),
 
-          // Order Total and Actions
           const Divider(),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),

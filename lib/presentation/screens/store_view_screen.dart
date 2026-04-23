@@ -6,9 +6,6 @@ import '../../core/error/error_handler.dart';
 import '../../core/services/payment_service.dart';
 import '../../presentation/widgets/layered_scroll_body.dart';
 
-/// Read-only store view for Owner/Manager to see what's available in the store
-/// without the ability to record or modify stock.
-/// Data source: stock_levels ledger (stock_transactions). Only Main Store items shown.
 const String _kCentralStoreLocationName = 'Main Store';
 
 class StoreViewScreen extends StatefulWidget {
@@ -47,16 +44,12 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
   Future<void> _loadStoreData() async {
     setState(() => _isLoading = true);
     try {
-      // Invalidate cache so we read fresh ledger data on open/refresh
       _dataService.invalidateCacheForTable('stock_transactions');
 
-      // Data source: stock_levels ledger (stock_transactions). Filter by Main Store only;
-      // issued items no longer appear as available in central store.
       final stockLevels = await _dataService.getStockLevels(locationName: _kCentralStoreLocationName);
       final stockItems = await _dataService.getStockItems();
       final stockItemsById = {for (var s in stockItems) s['id']?.toString(): s};
 
-      // Merge stock_levels with stock_items for category/unit; map to UI shape
       final items = stockLevels.map((sl) {
         final si = stockItemsById[sl['id']?.toString()];
         return <String, dynamic>{
@@ -70,7 +63,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
         };
       }).toList();
 
-      // Filter transactions by Main Store location
       final locations = await _dataService.getLocations();
       String? mainStoreId;
       for (final l in locations) {
@@ -86,7 +78,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
         limit: 50,
       );
 
-      // Transform to shape expected by _buildTransactionCard
       final transactions = rawTransactions.map((t) {
         final stockItem = t['stock_items'] as Map<String, dynamic>?;
         return <String, dynamic>{
@@ -201,7 +192,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
   Widget _buildCurrentStockTab() {
     return Column(
       children: [
-        // Search and Filter Bar
         Container(
           padding: const EdgeInsets.all(16),
           color: Colors.grey[100],
@@ -245,7 +235,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
           ),
         ),
         
-        // Stock Summary
         Container(
           padding: const EdgeInsets.all(16),
           color: Colors.blue[50],
@@ -269,7 +258,6 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
           ),
         ),
         
-        // Items List
         Expanded(
           child: _filteredItems.isEmpty
               ? Center(
@@ -587,3 +575,5 @@ class _StoreViewScreenState extends State<StoreViewScreen> with SingleTickerProv
     }
   }
 }
+
+

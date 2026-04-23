@@ -40,7 +40,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
       final allRooms = await dataService.getRooms();
       final type = (widget.roomType['type'] as String?)?.toLowerCase() ?? '';
       
-      // Get conflicting bookings
       final supabase = Supabase.instance.client;
       final conflictingBookings = await supabase
           .from('bookings')
@@ -93,7 +92,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
       setState(() {
         if (isCheckIn) {
           _checkInDate = picked;
-          // Reset availability when dates change
           _availableRooms = [];
         } else {
           _checkOutDate = picked;
@@ -123,7 +121,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
       return;
     }
 
-    // Navigate to booking screen with selected parameters
     if (mounted) {
       ErrorHandler.showInfoMessage(
         context,
@@ -166,7 +163,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Room Image Gallery
             if (images.isNotEmpty) ...[
               SizedBox(
                 height: 250,
@@ -194,7 +190,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Image indicator dots
               if (images.length > 1)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -225,7 +220,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                 ),
               ),
 
-            // Room Details
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -257,7 +251,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             const Divider(),
             const SizedBox(height: 16),
 
-            // Date Selection
             const Text(
               'Select Dates',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -304,7 +297,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
             const SizedBox(height: 24),
 
-            // Availability Results
             if (_availableRooms.isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

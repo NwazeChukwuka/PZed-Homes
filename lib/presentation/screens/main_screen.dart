@@ -506,7 +506,6 @@ class _DesktopAppBar extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () {
-              // Navigate to user profile screen (settings)
               context.push('/profile');
             },
           ),

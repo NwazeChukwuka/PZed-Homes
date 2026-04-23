@@ -3,7 +3,6 @@
 import 'dart:html' as html;
 import 'dart:convert';
 
-/// Web: triggers a file download with the given content and filename.
 Future<void> triggerCsvDownload(String content, String filename) async {
   final bytes = utf8.encode(content);
   final blob = html.Blob([bytes]);
@@ -13,3 +12,4 @@ Future<void> triggerCsvDownload(String content, String filename) async {
     ..click();
   html.Url.revokeObjectUrl(url);
 }
+

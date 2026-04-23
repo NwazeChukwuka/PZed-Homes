@@ -18,7 +18,6 @@ class GuestHomeScreen extends StatefulWidget {
 }
 
 class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderStateMixin {
-  /// Luxury gold (aligned with [GuestPortalTheme.gold]).
   static const Color _guestGold = GuestPortalTheme.gold;
 
   final DateFormat _dateFormatter = DateFormat('EEE, MMM d, yyyy');
@@ -58,7 +57,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     super.dispose();
   }
 
-  /// Same confirm + logout + landing navigation as [MainScreen] staff flow.
   void _showGuestLogoutDialog() {
     showDialog<void>(
       context: context,
@@ -120,7 +118,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     return diff > 0 ? diff : 0;
   }
 
-  /// Explicit ₦ (Unicode U+20A6) + formatted naira amount.
   String _money(num? amountKobo) {
     final kobo = amountKobo?.toInt() ?? 0;
     final naira = PaymentService.koboToNaira(kobo);
@@ -128,7 +125,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     return '₦$formatted';
   }
 
-  /// Catalog grid: null price → Contact Reception; zero kobo → TBD; else formatted money.
   String _catalogPriceLabel(dynamic rawPrice) {
     if (rawPrice == null) return 'Contact Reception';
     final kobo = rawPrice is num ? rawPrice.toInt() : int.tryParse(rawPrice.toString()) ?? 0;
@@ -598,7 +594,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     );
   }
 
-  /// Dense name + price rows; full tab height, pull-to-refresh.
   Widget _buildCompactCatalogTab({
     required String emptyTitle,
     required String emptySubtitle,
@@ -753,7 +748,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
     );
   }
 
-  /// Future stay booking — distinct from the active stay statement above.
   Widget _buildPlanNextVisitCard(BuildContext context) {
     return Material(
       color: Colors.transparent,
@@ -976,7 +970,6 @@ class _GuestHomeScreenState extends State<GuestHomeScreen> with TickerProviderSt
   }
 }
 
-/// Subtle diagonal foil-like strokes for luxury hero cards.
 class _GoldLeafPatternPainter extends CustomPainter {
   _GoldLeafPatternPainter({required this.color, required this.opacity});
 

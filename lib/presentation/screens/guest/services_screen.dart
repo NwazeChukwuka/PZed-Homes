@@ -17,19 +17,14 @@ class ServicesScreen extends StatelessWidget {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Hero Section
             _buildHeroSection(context),
             
-            // Accommodation Services
             _buildAccommodationServices(context),
             
-            // Dining Services
             _buildDiningServices(context),
             
-            // Additional Services
             _buildAdditionalServices(context),
             
-            // Contact CTA
             _buildContactCTA(context),
           ],
         ),
@@ -441,9 +436,7 @@ class ServicesScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: () {
-              // Navigate to contact page
-            },
+            onPressed: () {},
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.green[800],

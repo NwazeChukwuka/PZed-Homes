@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pzed_homes/data/data.dart';
-// Import the new screen with alias to avoid conflict
 import 'package:pzed_homes/presentation/screens/booking_details_screen.dart' as details;
 
 class BookingListItem extends StatelessWidget {
   final Booking booking;
-  // Add a callback to notify the dashboard of an update
   final ValueChanged<details.Booking> onUpdate;
 
   const BookingListItem({
@@ -15,7 +13,6 @@ class BookingListItem extends StatelessWidget {
     required this.onUpdate,
   });
 
-  // ... (The _getStatusColor method remains the same)
   Color _getStatusColor(String status) {
     switch (status) {
       case 'Checked-in':
@@ -42,7 +39,6 @@ class BookingListItem extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () async {
-          // Navigate and wait for a result
           final updatedBooking = await Navigator.push<details.Booking>(
             context,
             MaterialPageRoute(
@@ -61,13 +57,11 @@ class BookingListItem extends StatelessWidget {
             ),
           );
 
-          // If we got an updated booking back, notify the dashboard
           if (updatedBooking != null) {
             onUpdate(updatedBooking);
           }
         },
         child: ListTile(
-          // ... (The ListTile content remains the same)
           leading: CircleAvatar(
             backgroundColor: _getStatusColor(booking.status),
             child: const Icon(Icons.person, color: Colors.white),

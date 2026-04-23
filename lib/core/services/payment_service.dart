@@ -6,14 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Service for handling Paystack payment processing.
-/// All amounts are in KOBO (smallest currency unit).
-///
-/// Keys and API calls are managed via Supabase:
-/// - Public key: stored in app_config table (paystack_public_key)
-/// - Secret key: PAYSTACK_SECRET_KEY in Edge Function secrets only
-/// - Payment link creation: create_paystack_payment Edge Function
-/// - Verification: verify_guest_booking_payment Edge Function
 class PaymentService {
   static final PaymentService _instance = PaymentService._internal();
   factory PaymentService() => _instance;
@@ -24,8 +16,6 @@ class PaymentService {
   static const String _transferDisplayCountKey = 'transfer_display_count';
   static const String _transferSupportPhoneKey = 'transfer_support_phone';
 
-  /// Initialize by fetching Paystack config from Supabase app_config table.
-  /// Payment is configured when paystack_public_key is set in Supabase.
   Future<void> initialize() async {
     if (_isInitialized) return;
 
@@ -45,8 +35,7 @@ class PaymentService {
       if (value.isNotEmpty) {
         _isInitialized = true;
         if (kDebugMode) {
-          // Don't log the key
-          debugPrint('Paystack: initialized (config from Supabase)');
+          debugPrint('Paystack: initialized');
         }
       } else {
         if (kDebugMode) {
@@ -57,24 +46,12 @@ class PaymentService {
       if (kDebugMode) {
         debugPrint('Paystack init error: $e\n$stack');
       }
-      // app_config table may not exist yet - treat as not configured
       _isInitialized = false;
     }
   }
 
-  /// Whether payment is configured (public key present in Supabase app_config).
   bool get isInitialized => _isInitialized;
 
-  /// Process payment: create link via Edge Function, launch Paystack, await user confirmation.
-  /// Verification is done by verify_guest_booking_payment when the caller confirms the booking.
-  ///
-  /// [context] - BuildContext for showing payment UI
-  /// [amountInKobo] - Amount in kobo (smallest currency unit)
-  /// [email] - Customer email
-  /// [reference] - Unique transaction reference
-  /// [metadata] - Additional metadata (e.g. booking_id, guest_name)
-  ///
-  /// Returns true when user indicates payment is complete (caller must then verify via Edge Function).
   Future<bool> processPayment({
     required BuildContext context,
     required int amountInKobo,
@@ -156,19 +133,16 @@ class PaymentService {
     }
   }
 
-  /// Generate unique payment reference
   String generateReference() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final random = (timestamp % 10000).toString().padLeft(4, '0');
     return 'PZED_${timestamp}_$random';
   }
 
-  /// Convert naira to kobo
   static int nairaToKobo(double naira) {
     return (naira * 100).round();
   }
 
-  /// Convert kobo to naira
   static double koboToNaira(int kobo) {
     return kobo / 100.0;
   }
@@ -188,7 +162,6 @@ class PaymentService {
           ]);
       rows = List<Map<String, dynamic>>.from(response as List);
     } catch (_) {
-      // Backward-safe defaults when app_config is missing or inaccessible.
       rows = [];
     }
 
@@ -278,7 +251,6 @@ class PaymentService {
       try {
         await supabase.from('app_config').insert({'key': key, 'value': value});
       } catch (_) {
-        // Handle race where another writer inserted the same key.
         await supabase
             .from('app_config')
             .update({
@@ -290,3 +262,5 @@ class PaymentService {
     }
   }
 }
+
+

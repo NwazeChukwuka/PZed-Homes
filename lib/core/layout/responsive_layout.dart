@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Layout mode for hysteresis - prevents flicker when width oscillates near breakpoints.
 enum _LayoutMode { mobile, tablet, desktop, largeDesktop }
 
 class ResponsiveLayout extends StatefulWidget {
@@ -25,7 +24,6 @@ class _ResponsiveLayoutState extends State<ResponsiveLayout> {
   _LayoutMode _mode = _LayoutMode.mobile;
   static const _hysteresis = 15.0; // px buffer to prevent flip at breakpoint edges
 
-  /// Pure computation: derive next layout mode from current mode and width (hysteresis).
   _LayoutMode _computeNextMode(double w) {
     _LayoutMode next = _mode;
     switch (_mode) {
@@ -313,7 +311,6 @@ class ResponsiveSpacing extends StatelessWidget {
   }
 }
 
-// Breakpoint constants - standardized: 600 mobile, 800 tablet, 1200 desktop
 class Breakpoints {
   static const double mobile = 600;
   static const double tablet = 800;
@@ -321,7 +318,6 @@ class Breakpoints {
   static const double largeDesktop = 1200;
 }
 
-// Responsive helper functions
 class ResponsiveHelper {
   static bool isMobile(BuildContext context) {
     return MediaQuery.sizeOf(context).width < Breakpoints.mobile;
@@ -355,3 +351,5 @@ class ResponsiveHelper {
     return mobile;
   }
 }
+
+

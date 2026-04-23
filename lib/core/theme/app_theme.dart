@@ -2,33 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class AppTheme {
-  // Brand Colors - Green, Grey, White palette
   static const Color primaryColor = Color(0xFF2E7D32); // Deep Green
   static const Color primaryVariant = Color(0xFF1B5E20);
   static const Color secondaryColor = Color(0xFFFFC107); // Amber/Gold accent
   static const Color secondaryVariant = Color(0xFFFF8F00);
   
-  // Desktop sidebar colors
   static const Color sidebarBackground = Color(0xFF1B5E20); // Dark green
   static const Color sidebarAccent = Color(0xFFFFC107); // Amber
   
-  // Status Colors
   static const Color successColor = Color(0xFF4CAF50);
   static const Color warningColor = Color(0xFFFF9800);
   static const Color errorColor = Color(0xFFF44336);
   static const Color infoColor = Color(0xFF2196F3);
   
-  // Neutral Colors
   static const Color surfaceColor = Color(0xFFFAFAFA);
   static const Color backgroundColor = Color(0xFFF5F5F5);
   static const Color cardColor = Colors.white;
   
-  // Text Colors
   static const Color textPrimary = Color(0xFF212121);
   static const Color textSecondary = Color(0xFF757575);
   static const Color textDisabled = Color(0xFFBDBDBD);
   
-  // Border Colors
   static const Color borderColor = Color(0xFFE0E0E0);
   static const Color dividerColor = Color(0xFFE0E0E0);
 
@@ -293,7 +287,6 @@ class AppTheme {
   }
 }
 
-// Custom color extensions
 extension AppColors on Color {
   static const Color success = Color(0xFF4CAF50);
   static const Color warning = Color(0xFFFF9800);
@@ -306,7 +299,6 @@ extension AppColors on Color {
   static const Color lightBlue = Color(0xFFE3F2FD);
 }
 
-// Status color helpers
 class StatusColors {
   static const Color checkedIn = AppColors.success;
   static const Color pending = AppColors.warning;
@@ -337,3 +329,4 @@ class StatusColors {
     }
   }
 }
+

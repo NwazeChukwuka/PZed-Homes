@@ -2,10 +2,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pzed_homes/data/models/room.dart';
 import 'package:pzed_homes/data/models/menu_item.dart';
 
-// Time filters - now includes yearly and custom
 enum TimePeriod { today, thisWeek, thisMonth, lastMonth, last30Days, yearly, custom }
 
-// Existing class for operational reports (keep this for backward compatibility)
 class ReportData {
   final int totalRevenue;
   final double occupancyRate;
@@ -20,7 +18,6 @@ class ReportData {
   });
 }
 
-// New enhanced class for P&L data with detailed items (first page only; use paginated methods for more)
 class PLData {
   final int totalRevenue;
   final int totalExpenses;
@@ -31,7 +28,6 @@ class PLData {
   final int totalExpenseCount;
   final List<CategoryAmount> revenueBreakdown;
   final List<CategoryAmount> expenseBreakdown;
-  /// Payroll lines for PDF / audit: all statuses in period (capped); P&L still uses approved totals only.
   final List<Map<String, dynamic>> payrollPdfRows;
 
   PLData({
@@ -48,7 +44,6 @@ class PLData {
   });
 }
 
-// Category amount class for breakdown data
 class CategoryAmount {
   final String category;
   final int amount;
@@ -80,12 +75,10 @@ class _UnifiedRevenueData {
 class ReportingService {
   final _supabase = Supabase.instance.client;
   
-  // Cache for room types to avoid repeated queries
   Map<String, int>? _roomTypePrices;
   DateTime? _roomTypeCacheTime;
   static const _cacheExpiryMinutes = 5;
 
-  // --- Keep existing methods for backward compatibility ---
   ReportData generateReport(
     TimePeriod period, {
     required List<Map<String, dynamic>> bookings,
@@ -177,12 +170,8 @@ class ReportingService {
   }
 
   int _calculateTotalRevenue(List<Map<String, dynamic>> filteredBookings) {
-    // This method is used in the old generateReport method
-    // For backward compatibility, we'll use a synchronous approach
-    // but it requires room prices to be pre-loaded
     return filteredBookings.fold(0, (total, booking) {
       final roomType = booking['roomType'] as String;
-      // Try to get price from cache, otherwise use 0
       final roomPrice = _roomTypePrices?[roomType] ?? 0;
 
       final extras = (booking['extraCharges'] as List)
@@ -212,16 +201,12 @@ class ReportingService {
                 sales[menuItem.department]! + (charge['price'] as int);
           }
         } catch (_) {
-          // Item not in menu, ignore
         }
       }
     }
     return sales;
   }
 
-  // --- New Enhanced Profit & Loss Reporting with Supabase ---
-  // Unified: Room Bookings + Mini Mart + Kitchen/Restaurant + Bar Sales
-  // Expenses: Inventory Restocking + Staff Payroll + General Maintenance + Utility bills
   Future<PLData> getProfitAndLoss({
     required TimePeriod period,
     DateTime? customStart,
@@ -244,7 +229,6 @@ class ReportingService {
       final vipBarSales = unifiedRevenue.vipBarSales;
       final outsideBarSales = unifiedRevenue.outsideBarSales;
 
-      // 5. Expenses
       final expenseResponse = await _supabase
           .from('expenses')
           .select('*')
@@ -253,7 +237,6 @@ class ReportingService {
           .order('transaction_date', ascending: false);
       final expenseItems = expenseResponse;
 
-      // 6. Payroll (approved only — matches dashboard / period payroll)
       final payrollResponse = await _supabase
           .from('payroll_records')
           .select('amount')
@@ -262,7 +245,6 @@ class ReportingService {
           .lte('month', endStr);
       final payrollTotal = (payrollResponse as List).fold<int>(0, (s, r) => s + ((r['amount'] as num?)?.toInt() ?? 0));
 
-      // 6b. Payroll detail for PDF (all statuses; newest months first, capped)
       List<Map<String, dynamic>> payrollPdfRows = [];
       try {
         final payrollDetailResp = await _supabase
@@ -280,13 +262,11 @@ class ReportingService {
         }).toList();
       } catch (_) {}
 
-      // 7. Load room type prices for breakdown
       if (_roomTypePrices == null || _roomTypeCacheTime == null ||
           DateTime.now().difference(_roomTypeCacheTime!).inMinutes > _cacheExpiryMinutes) {
         await _loadRoomTypePrices();
       }
 
-      // 8. Unified revenue sum from all transaction rows.
       final totalRevenue = revenueItems.fold<int>(
         0,
         (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0),
@@ -294,7 +274,6 @@ class ReportingService {
 
       var totalExpenses = expenseItems.fold<int>(0, (s, e) => s + ((e['amount'] ?? 0) as int)) + payrollTotal;
 
-      // 9. Revenue breakdown aligned to checked-in room revenue + sales sources.
       final revenueBreakdown = _generateUnifiedRevenueBreakdown(
         unifiedRevenue.checkedInBookings,
         miniMartSales,
@@ -303,7 +282,6 @@ class ReportingService {
         outsideBarSales,
       );
 
-      // 10. Inventory restocking (purchase orders) and maintenance
       int inventoryRestocking = 0;
       int maintenanceTotal = 0;
       try {
@@ -335,7 +313,6 @@ class ReportingService {
 
       final totalExpensesWithExtras = totalExpenses + inventoryRestocking + maintenanceTotal;
 
-      // 11. Expense breakdown (always include standard categories, use ₦0 if zero)
       final expenseBreakdown = _generateUnifiedExpenseBreakdown(
         expenseItems,
         payrollTotal,
@@ -363,7 +340,6 @@ class ReportingService {
 
   static const int detailPageSize = 10;
 
-  /// Fetches a page of unified revenue transaction items.
   Future<List<Map<String, dynamic>>> getRevenueItemsPage({
     required TimePeriod period,
     DateTime? customStart,
@@ -384,7 +360,6 @@ class ReportingService {
     return unifiedRevenue.rows.sublist(offset, endIndex);
   }
 
-  /// Fetches a page of expense detail items. Use after getProfitAndLoss for "Load more".
   Future<List<Map<String, dynamic>>> getExpenseItemsPage({
     required TimePeriod period,
     DateTime? customStart,
@@ -406,7 +381,6 @@ class ReportingService {
     return List<Map<String, dynamic>>.from(response as List);
   }
 
-  /// Canonical room types - always displayed in Revenue Breakdown (show ₦0.00 if no revenue)
   static const _roomTypes = [
     'Standard Room',
     'Classic Room',
@@ -415,14 +389,12 @@ class ReportingService {
     'Executive Room',
   ];
 
-  /// Normalize room type for matching (handles requested_room_type, rooms.type, case variants)
   String _normalizeRoomType(String? raw) {
     if (raw == null || raw.trim().isEmpty) return 'Standard Room';
     final s = raw.trim();
     for (final rt in _roomTypes) {
       if (s.toLowerCase() == rt.toLowerCase()) return rt;
     }
-    // Partial match (e.g. "Standard" -> "Standard Room")
     final lower = s.toLowerCase();
     if (lower.contains('standard')) return 'Standard Room';
     if (lower.contains('classic')) return 'Classic Room';
@@ -439,14 +411,12 @@ class ReportingService {
     int vipBarSales,
     int outsideBarSales,
   ) {
-    // Initialize all room types with 0 (always show each, even if ₦0.00)
     final roomRevenue = <String, int>{};
     for (final rt in _roomTypes) {
       roomRevenue[rt] = 0;
     }
     int otherRoomRevenue = 0;
 
-    // Aggregate room revenue from checked-in bookings.
     for (var booking in checkedInBookings) {
       String rawType = 'Standard Room';
       final rooms = booking['rooms'];
@@ -470,7 +440,6 @@ class ReportingService {
       }
     }
 
-    // Build result: room types first (fixed order), then department categories
     final result = <CategoryAmount>[];
     for (final rt in _roomTypes) {
       result.add(CategoryAmount(category: rt, amount: roomRevenue[rt] ?? 0));
@@ -492,7 +461,6 @@ class ReportingService {
     final startStr = start.toIso8601String().split('T')[0];
     final endStr = end.toIso8601String().split('T')[0];
 
-    // Checked-in bookings (room revenue is recognized at check-in).
     final bookingResp = await _supabase
         .from('bookings')
         .select('''
@@ -593,7 +561,6 @@ class ReportingService {
             .order('created_at', ascending: false);
         barSales = List<Map<String, dynamic>>.from(barResp as List);
       } catch (_) {
-        // Backward compatible fallback for databases without snapshot columns.
         final barResp = await _supabase
             .from('stock_transactions')
             .select('created_at, quantity, total_cost, transaction_type, stock_items(name), locations(name)')
@@ -648,7 +615,6 @@ class ReportingService {
       barLineLevelLoaded = false;
     }
 
-    // Final safety fallback: if line-level bar query is blocked (RLS/join/schema), use department aggregates.
     if (!barLineLevelLoaded) {
       try {
         final deptResp = await _supabase
@@ -676,7 +642,6 @@ class ReportingService {
           });
         }
       } catch (_) {
-        // Keep financial tab resilient even if both sources fail.
       }
     }
 
@@ -727,7 +692,6 @@ class ReportingService {
     breakdown['Inventory Restocking'] = inventoryRestockingFromPO;
     breakdown['General Maintenance'] = maintenanceFromMWO;
 
-    // Map expense category/department to standard categories
     for (var expense in expenseItems) {
       final category = (expense['category'] as String?)?.toLowerCase() ?? '';
       final department = (expense['department'] as String?)?.toLowerCase() ?? '';
@@ -761,7 +725,6 @@ class ReportingService {
     )).toList();
   }
 
-  // Load room type prices from database
   Future<void> _loadRoomTypePrices() async {
     try {
       final response = await _supabase
@@ -772,19 +735,15 @@ class ReportingService {
       for (var row in response) {
         final type = row['type'] as String;
         final price = row['price'] as int;
-        // Convert from kobo to naira for display (divide by 100)
-        // But keep in kobo for calculations
         _roomTypePrices![type] = price;
       }
       _roomTypeCacheTime = DateTime.now();
     } catch (e) {
-      // If loading fails, use empty map
       _roomTypePrices = {};
       _roomTypeCacheTime = DateTime.now();
     }
   }
 
-  /// Booking stats for the Guest tab (counts by status, total revenue, avg per booking).
   Future<Map<String, dynamic>> getGuestStats({
     required TimePeriod period,
     DateTime? customStart,
@@ -852,7 +811,6 @@ class ReportingService {
     };
   }
 
-  /// Fetches a page of guest booking rows for the detail table. Use after getGuestStats for "Load more".
   Future<List<Map<String, dynamic>>> getGuestBookingRowsPage({
     required TimePeriod period,
     DateTime? customStart,
@@ -877,22 +835,18 @@ class ReportingService {
     try {
       await _supabase.rpc('reconcile_assigned_bookings');
     } catch (_) {
-      // Keep reporting resilient if migration is not yet applied.
     }
     try {
       await _supabase.rpc('auto_update_expired_bookings');
     } catch (_) {
-      // Keep reporting resilient if lifecycle RPC is unavailable.
     }
   }
 
   int _collectedAmountKobo(int? totalAmount, int? paidAmount) {
-    // Collected-first rule: paid_amount is authoritative when present.
     if (paidAmount != null) return paidAmount;
     return totalAmount ?? 0;
   }
 
-  /// Operations stats for the Operations tab (staff activity, stock adjustments).
   Future<Map<String, dynamic>> getOperationsStats({
     required TimePeriod period,
     DateTime? customStart,
@@ -955,7 +909,6 @@ class ReportingService {
     };
   }
 
-  /// Fetches a page of staff activity items for the detail table. Use after getOperationsStats for "Load more".
   Future<List<Map<String, dynamic>>> getOperationsActivitiesPage({
     required TimePeriod period,
     DateTime? customStart,
@@ -975,14 +928,12 @@ class ReportingService {
     return List<Map<String, dynamic>>.from(response as List);
   }
 
-  // Enhanced date range helper with custom date support
   ({DateTime start, DateTime end}) _getDateRange(
     TimePeriod period,
     DateTime now,
     DateTime? customStart,
     DateTime? customEnd,
   ) {
-    // Handle custom date range
     if (period == TimePeriod.custom && customStart != null && customEnd != null) {
       return (
         start: DateTime(customStart.year, customStart.month, customStart.day),

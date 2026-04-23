@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -49,7 +48,6 @@ class AppRouter {
 
   static GoRouter get router => _router;
 
-  // Safe navigation helper methods
   static Future<T?> safePush<T>(BuildContext context, String location, {Object? extra}) async {
     try {
       return await context.push<T>(location, extra: extra);
@@ -133,14 +131,12 @@ class AppRouter {
       ),
     ),
     routes: [
-      // Root route - decides between guest and staff
       GoRoute(
         path: '/',
         name: 'root',
         builder: (context, state) => const RootDecider(),
       ),
       
-      // Guest routes (separate shell from staff chrome)
       ShellRoute(
         builder: (context, state, child) => GuestScaffold(child: child),
         routes: [
@@ -193,7 +189,6 @@ class AppRouter {
         ],
       ),
 
-      // Authentication routes
       GoRoute(
         path: '/login',
         name: 'login',
@@ -210,7 +205,6 @@ class AppRouter {
         builder: (context, state) => const ResetPasswordScreen(),
       ),
 
-      // Staff routes with role-based access
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) => MainScreen(child: child),
@@ -220,7 +214,6 @@ class AppRouter {
             name: 'dashboard',
             builder: (context, state) {
               final user = Provider.of<AuthService>(context, listen: false).currentUser;
-              // Persistent identity: dashboard type is ALWAYS based on primary role, never assumed roles
               final primaryRole = user?.role;
               final isManagement = primaryRole == AppRole.owner ||
                   primaryRole == AppRole.manager ||
@@ -291,7 +284,6 @@ class AppRouter {
                 ...authService.activeAssumedRoles,
               };
               
-              // Management should only see approval screen, not recording screen
               final isManagement = roles.contains(AppRole.owner) ||
                   roles.contains(AppRole.manager) ||
                   roles.contains(AppRole.supervisor);
@@ -345,7 +337,6 @@ class AppRouter {
             builder: (context, state) {
               final userProfile = state.extra as Map<String, dynamic>?;
 
-              // If no profile data passed, load current user's profile from database
               if (userProfile == null || userProfile.isEmpty) {
                 final authService = Provider.of<AuthService>(
                   context,
@@ -390,7 +381,6 @@ class AppRouter {
         ],
       ),
 
-      // Detail routes (full screen)
       GoRoute(
         path: '/room',
         name: 'room-details',
@@ -436,7 +426,6 @@ class AppRouter {
       try {
         final authService = Provider.of<AuthService>(context, listen: false);
         
-        // If still loading, show loading screen
         if (authService.isLoading) {
           return null;
         }
@@ -447,13 +436,10 @@ class AppRouter {
         final isGuestUser = currentUser != null &&
             currentUser.roles.any((role) => role == AppRole.guest);
 
-        // Guest portal is for signed-in guests only — anonymous users go to public landing.
         if (!isLoggedIn && location == '/guest/home') {
           return '/guest';
         }
 
-        // Guest role hardening: guest users are restricted to guest area only.
-        // Allowed funnel: /guest/home → /guest/rooms → /guest/booking (repeat bookings).
         if (isGuestUser) {
           if (location == '/guest/booking-lookup') return '/guest/home';
           if (location.startsWith('/guest')) return null;
@@ -461,19 +447,16 @@ class AppRouter {
           return '/guest/home';
         }
 
-        // Public guest routes
         if (location.startsWith('/guest') || location == '/') {
           return null;
         }
 
-        // Authentication routes
         if (location == '/login' ||
             location.startsWith('/auth/reset-password') ||
             location.startsWith('/auth/callback')) {
           return null;
         }
 
-        // Staff routes - require authentication
         if (location.startsWith('/dashboard') || 
             location.startsWith('/housekeeping') ||
             location.startsWith('/inventory') ||
@@ -492,49 +475,21 @@ class AppRouter {
             location.startsWith('/booking/') ||
             location.startsWith('/profile')) {
           
-          // Session loss / refresh: staff should sign in again. Intentional logout uses
-          // MainScreen (etc.) to navigate to /guest after AuthService.logout().
           if (!isLoggedIn) {
             return '/login';
           }
 
-          // Role-based access control
           if (currentUser != null) {
             final authService = Provider.of<AuthService>(context, listen: false);
             
-            // Check user roles + assumed roles (view injection: assumed roles grant access)
-            bool hasAccess = false;
-            AppRole? checkedRole;
+            var hasAccess = false;
             final effectiveRoles = [...currentUser.roles, ...authService.activeAssumedRoles];
             for (final role in effectiveRoles) {
               if (_hasAccessToRoute(role, location)) {
                 hasAccess = true;
-                checkedRole = role;
                 break;
               }
             }
-            
-            // #region agent log
-            debugLog({
-              'location': 'app_router.dart:446',
-              'message': 'Router access check',
-              'data': {
-                'route': location,
-                'userId': currentUser.id,
-                'userRoles': currentUser.roles.map((r) => r.name).toList(),
-                'primaryRole': currentUser.role.name,
-                'activeAssumedRoles': authService.activeAssumedRoles.map((r) => r.name).toList(),
-                'checkedRole': checkedRole?.name,
-                'hasAccess': hasAccess
-              },
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
-              'sessionId': 'debug-session',
-              'runId': 'run1',
-              'hypothesisId': 'S'
-            });
-            // if (kDebugMode) debugPrint('DEBUG Router: route=$location, roles=${currentUser.roles.map((r) => r.name)}, hasAccess=$hasAccess');
-            // #endregion
-            
             if (!hasAccess) {
               return '/dashboard'; // Redirect to dashboard if no access
             }
@@ -561,7 +516,6 @@ class AppRouter {
                location.startsWith('/housekeeping') ||
                location.startsWith('/mini_mart') ||
                location.startsWith('/kitchen') ||
-               // Removed '/inventory' - receptionists don't work with bars
                location.startsWith('/stock') ||
                location.startsWith('/booking/') ||
                location.startsWith('/profile');
@@ -656,7 +610,6 @@ class AppRouter {
   }
 }
 
-/// Helper function to load user profile from database
 Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
   try {
     SupabaseClient? supabase;
@@ -680,7 +633,6 @@ Future<Map<String, dynamic>> _loadUserProfile(String userId) async {
   }
 }
 
-/// Root decider widget that determines initial route
 class RootDecider extends StatefulWidget {
   const RootDecider({super.key});
 
@@ -693,8 +645,6 @@ class _RootDeciderState extends State<RootDecider> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if Supabase is initialized
-    // In Supabase Flutter 2.x, accessing instance.client throws if not initialized
     bool isSupabaseInitialized = false;
     String? initError;
     try {
@@ -706,37 +656,24 @@ class _RootDeciderState extends State<RootDecider> {
       initError = ErrorHandler.getFriendlyErrorMessage(e);
     }
     
-    // For guest users, allow the app to work without Supabase (images from assets)
-    // Only require Supabase for authenticated features
     return Consumer<AuthService>(
       builder: (context, authService, child) {
-        // PRIORITY: Show guest page immediately if not logged in
-        // Don't wait for auth check - render first, check auth in background
-        // Even if isLoading is true, show guest page (non-blocking)
         if (!authService.isLoggedIn || authService.currentUser == null) {
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is logged in but still loading user data, show loading with short timeout
-        // After 3 seconds, force show dashboard anyway
         if (authService.isLoading) {
           return _LoadingScreenWithTimeout(maxWaitSeconds: 3);
         }
 
-        // For authenticated users, Supabase is required
         if (!isSupabaseInitialized) {
           return _buildConfigErrorScreen(initError);
         }
 
-        // CRITICAL: Only navigate if user is fully loaded (has user data)
-        // This prevents showing dashboard without proper initialization
         if (authService.currentUser == null) {
           return _buildGuestPageWithWarning(isSupabaseInitialized);
         }
 
-        // If user is logged in and fully loaded, navigate to dashboard route (which includes MainScreen with sidebar)
-        // This ensures the sidebar/drawer is always available
-        // Only schedule once - prevents re-navigation on every AuthService notify
         if (!_navigationScheduled) {
           _navigationScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -756,8 +693,6 @@ class _RootDeciderState extends State<RootDecider> {
           });
         }
         
-        // Show a loading screen while navigating
-        // This prevents showing the dashboard without sidebar
         return const Scaffold(
           body: Center(
             child: CircularProgressIndicator(),
@@ -850,7 +785,6 @@ class _RootDeciderState extends State<RootDecider> {
   }
 }
 
-// Loading screen with timeout to prevent infinite loading
 class _LoadingScreenWithTimeout extends StatefulWidget {
   final int maxWaitSeconds;
   const _LoadingScreenWithTimeout({this.maxWaitSeconds = 3});
@@ -865,13 +799,11 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
   @override
   void initState() {
     super.initState();
-    // After maxWaitSeconds, force show dashboard anyway
     Future.delayed(Duration(seconds: widget.maxWaitSeconds), () {
       if (mounted) {
         setState(() {
           _showTimeout = true;
         });
-        // Force navigation to dashboard after timeout
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             try {
@@ -906,7 +838,6 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  // Force show guest page
                   context.go('/guest/home');
                 },
                 child: const Text('Continue as Guest'),
@@ -919,3 +850,5 @@ class _LoadingScreenWithTimeoutState extends State<_LoadingScreenWithTimeout> {
     );
   }
 }
+
+

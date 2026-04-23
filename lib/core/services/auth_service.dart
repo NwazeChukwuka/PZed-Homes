@@ -2,12 +2,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/data_service.dart';
-import 'package:pzed_homes/core/utils/debug_logger.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// True when the browser is on a password-recovery or auth-callback route (or recovery tokens in URL).
 bool _isAuthRecoveryNavigationUri(Uri uri) {
   final p = uri.path;
   if (p.contains('reset-password') || p.contains('auth/callback')) return true;
@@ -21,22 +19,15 @@ class AuthService with ChangeNotifier {
   SupabaseClient? _supabase;
   AppUser? _currentUser;
   bool _isLoading = true;
-  bool _initializationComplete = false; // Track if initialization is done
+  bool _initializationComplete = false;
   bool _isLoggedIn = false;
-  /// Session-only list of assumed roles. Never persisted; cleared on logout/refresh.
   final List<AppRole> _activeAssumedRoles = [];
   StreamSubscription<AuthState>? _authStateSubscription;
   
-  // Track if user data is currently loading to prevent concurrent loads
   bool _isLoadingUserData = false;
-  // Track if we're currently performing a login to prevent auth state listener interference
   bool _isLoggingIn = false;
-  // Track if we're creating a staff account (owner creating new user) - ignore auth state changes
   bool _isCreatingStaffAccount = false;
-  /// True when user is in password recovery flow (from reset link). Prevents sign-out of recovery session.
   bool _isRecovering = false;
-  
-  // Session management
   Timer? _sessionRefreshTimer;
   Timer? _sessionWarningTimer;
   static const int _sessionWarningMinutes = 5; // Warn 5 minutes before expiry
@@ -46,25 +37,17 @@ class AuthService with ChangeNotifier {
 
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _isLoggedIn;
-  /// True if any roles are currently assumed (for backward compatibility).
   bool get isRoleAssumed => _activeAssumedRoles.isNotEmpty;
-  /// First assumed role, or null. Kept for backward compat during migration.
   AppRole? get assumedRole => _activeAssumedRoles.isNotEmpty ? _activeAssumedRoles.first : null;
-  /// Read-only list of all active assumed roles.
   List<AppRole> get activeAssumedRoles => List.unmodifiable(_activeAssumedRoles);
-  /// Check if a specific role is currently assumed.
   bool hasAssumedRole(AppRole role) => _activeAssumedRoles.contains(role);
   
-  /// Set flag to ignore auth state changes during staff account creation
-  /// This prevents the app from auto-logging in as the newly created staff member
   void setCreatingStaffAccount(bool value) {
     _isCreatingStaffAccount = value;
   }
 
-  /// True when user landed via password reset link. UI should show update-password screen.
   bool get isRecovering => _isRecovering;
 
-  /// Clear recovery state after password update. Call after successful password change.
   void clearRecoveryState() {
     if (_isRecovering) {
       _isRecovering = false;
@@ -80,7 +63,6 @@ class AuthService with ChangeNotifier {
     Future.microtask(() => _initializeAuth());
   }
 
-  /// Ensure Supabase is initialized with retry mechanism
   Future<bool> _ensureSupabaseInitialized({int maxRetries = 5, Duration retryDelay = const Duration(milliseconds: 500)}) async {
     if (_supabase != null) {
       return true;
@@ -95,7 +77,6 @@ class AuthService with ChangeNotifier {
           _supabase = null;
         }
       } catch (e) {
-        // Supabase not ready yet, wait and retry
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
         }
@@ -107,84 +88,58 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> _initializeAuth() async {
-    // Try to get Supabase with retry
     final isInitialized = await _ensureSupabaseInitialized();
     if (!isInitialized) {
       notifyListeners();
       return;
     }
 
-    // ALWAYS start at guest page - don't auto-login on app start
-    // This prevents persistent login issues and ensures users explicitly log in
-    // Clear any existing session to force re-login
-    // EXCEPTION: Do NOT sign out when user landed on password reset URL (recovery flow)
     try {
       final uri = Uri.base;
       final isRecoveryUrl = _isAuthRecoveryNavigationUri(uri);
       final initialSession = _supabase!.auth.currentSession;
       if (initialSession != null && !isRecoveryUrl) {
-        // Sign out any existing session to force explicit login
         await _supabase!.auth.signOut();
       }
       if (initialSession != null && isRecoveryUrl) {
         _isRecovering = true;
       }
-    } catch (e) {
-      // Ignore errors during sign out
-    }
-    
-    // Always start logged out
+    } catch (_) {}
+
     _isLoading = false;
     _isLoggedIn = false;
     _currentUser = null;
     notifyListeners();
-    
-    // Mark initialization as complete after a short delay
-    // This allows the sign-out to complete before we start listening
+
     Future.delayed(const Duration(milliseconds: 500), () {
       _initializationComplete = true;
     });
     
     if (_supabase != null) {
       _authStateSubscription = _supabase!.auth.onAuthStateChange.listen((data) async {
-        // CRITICAL: Skip ALL auth state changes during initialization or explicit login
-        // This prevents auto-login when browser reopens
         if (_isLoggingIn || _isLoadingUserData || _isCreatingStaffAccount) {
           return;
         }
 
-        // CRITICAL: Do NOT sign out when user is in password recovery flow
         if (data.event == AuthChangeEvent.passwordRecovery) {
           _isRecovering = true;
           _isLoading = false;
           notifyListeners();
           return;
         }
-        
-        // CRITICAL: If initialization is not complete, ignore ALL auth state changes
-        // This prevents auto-login from localStorage persistence
+
         if (!_initializationComplete) {
-          // If we see a session during initialization, sign it out immediately
-          // (passwordRecovery is handled above). Never sign out on reset-password / auth-callback URLs.
           final session = data.session;
           if (session != null && !_isAuthRecoveryNavigationUri(Uri.base)) {
             try {
               await _supabase!.auth.signOut();
-            } catch (e) {
-              // Ignore errors
-            }
+            } catch (_) {}
           }
           return;
         }
-        
-        // IMPORTANT: If initialization just completed and we see a session,
-        // it's from localStorage persistence - sign out to force explicit login
-        // UNLESS it's password recovery (handled above) or we're on the reset-password URL
+
         final session = data.session;
         if (session != null) {
-          // If we don't have a current user, this session is from localStorage - sign out immediately
-          // EXCEPT when in recovery flow (isRecovering keeps the session alive)
-          // EXCEPT when on reset-password URL (handles PKCE where passwordRecovery may not fire)
           final uri = Uri.base;
           final onResetPasswordPage = _isAuthRecoveryNavigationUri(uri);
           if (_currentUser == null && onResetPasswordPage) {
@@ -203,7 +158,6 @@ class AuthService with ChangeNotifier {
               notifyListeners();
               return;
             } catch (e) {
-              // If sign out fails, still don't auto-login
               _currentUser = null;
               _isLoggedIn = false;
               _isLoading = false;
@@ -211,9 +165,7 @@ class AuthService with ChangeNotifier {
               return;
             }
           }
-          
-          // If we have a current user, this is a legitimate session change
-          // Only reload if user ID changed
+
           if (_currentUser != null && _currentUser!.id != session.user.id) {
             _isLoading = true;
             notifyListeners();
@@ -225,7 +177,6 @@ class AuthService with ChangeNotifier {
             }
           }
         } else {
-          // User logged out
           _currentUser = null;
           _isLoggedIn = false;
           _isLoading = false;
@@ -236,9 +187,7 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// Centralized method to load user data
   Future<void> _loadUserData(User user) async {
-    // Prevent concurrent loads
     if (_isLoadingUserData) {
       return;
     }
@@ -255,7 +204,6 @@ class AuthService with ChangeNotifier {
     }
 
     try {
-      // Fetch profile and permissions in parallel with timeouts
       final profileFuture = _supabase!
           .from('profiles')
           .select()
@@ -281,7 +229,6 @@ class AuthService with ChangeNotifier {
         throw Exception('Profile not found');
       }
 
-      // Safely extract roles - handle any format
       final rolesRaw = profileResponse['roles'];
       final roles = (rolesRaw is List) 
           ? rolesRaw.map((r) => r.toString()).toList()
@@ -291,34 +238,11 @@ class AuthService with ChangeNotifier {
         try {
           final trimmed = roleName.trim();
           if (trimmed.isEmpty) return null;
-
-          if (kDebugMode && trimmed == 'outside_bartender') {
-            debugPrint('DEBUG: Looking for outside_bartender');
-            debugPrint(
-              'DEBUG: Available roles: ${AppRole.values.map((r) => r.name).join(', ')}',
-            );
-          }
-
           for (final role in AppRole.values) {
-            if (role.name == trimmed) {
-              if (kDebugMode && trimmed == 'outside_bartender') {
-                debugPrint('DEBUG: Found exact match: ${role.name}');
-              }
-              return role;
-            }
+            if (role.name == trimmed) return role;
           }
-
           for (final role in AppRole.values) {
-            if (role.name.toLowerCase() == trimmed.toLowerCase()) {
-              if (kDebugMode && trimmed == 'outside_bartender') {
-                debugPrint('DEBUG: Found case-insensitive match: ${role.name}');
-              }
-              return role;
-            }
-          }
-
-          if (kDebugMode && trimmed == 'outside_bartender') {
-            debugPrint('DEBUG: No match found for: $trimmed');
+            if (role.name.toLowerCase() == trimmed.toLowerCase()) return role;
           }
           return null;
         } catch (e) {
@@ -328,8 +252,7 @@ class AuthService with ChangeNotifier {
           return null;
         }
       }
-      
-      // Parse roles with error handling - never throw
+
       final parsedRoles = <AppRole>[];
       for (final roleStr in roles) {
         try {
@@ -345,14 +268,12 @@ class AuthService with ChangeNotifier {
             }
           }
         } catch (e) {
-          // Skip invalid role names - never throw
           if (kDebugMode) {
             print('WARNING: Error parsing role: $roleStr - $e');
           }
         }
       }
-      
-      // Determine primary role from parsed roles (first valid role, or guest)
+
       final primaryRole = parsedRoles.isNotEmpty 
           ? parsedRoles.first
           : AppRole.guest;
@@ -360,33 +281,11 @@ class AuthService with ChangeNotifier {
       final permissions = permissionsResponse
           .map((p) => p['permission'] as String)
           .toList();
-      
-      // #region agent log
-      debugLog({
-        'location': 'auth_service.dart:297',
-        'message': 'User roles loaded',
-        'data': {
-          'userId': profileResponse['id'],
-          'rawRoles': roles.map((r) => r.toString()).toList(),
-          'parsedRoles': parsedRoles.map((r) => r.name).toList(),
-          'primaryRole': primaryRole.name,
-          'hasVipBartender': parsedRoles.contains(AppRole.vip_bartender),
-          'hasOutsideBartender': parsedRoles.contains(AppRole.outside_bartender)
-        },
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'sessionId': 'debug-session',
-        'runId': 'run1',
-        'hypothesisId': 'U'
-      });
-      // if (kDebugMode) debugPrint('DEBUG AuthService: userId=${profileResponse['id']}, rawRoles=$roles, parsedRoles=${parsedRoles.map((r) => r.name)}');
-      // #endregion
-      
-      // Ensure we have at least one role
+
       if (parsedRoles.isEmpty) {
         parsedRoles.add(AppRole.guest);
       }
 
-      // Create user object with comprehensive error handling
       try {
         _currentUser = AppUser(
           id: profileResponse['id'],
@@ -398,7 +297,6 @@ class AuthService with ChangeNotifier {
           department: profileResponse['department'] as String?,
         );
       } catch (e) {
-        // If creating AppUser fails, log and use guest role
         if (kDebugMode) {
           print('ERROR creating AppUser: $e');
           print('Stack trace: ${StackTrace.current}');
@@ -419,7 +317,6 @@ class AuthService with ChangeNotifier {
       _isLoadingUserData = false;
       notifyListeners();
     } catch (e) {
-      // On any error, clear user and fail
       _currentUser = null;
       _isLoggedIn = false;
       _isLoading = false;
@@ -435,7 +332,6 @@ class AuthService with ChangeNotifier {
     required String fullName,
     required AppRole role,
   }) async {
-    // Ensure Supabase is initialized before attempting signup
     final isInitialized = await _ensureSupabaseInitialized();
     if (!isInitialized) {
       return 'Service is not configured. Please contact support.';
@@ -474,13 +370,11 @@ class AuthService with ChangeNotifier {
     required String password,
     bool rememberMe = false,
   }) async {
-    // Ensure Supabase is initialized before attempting login
     final isInitialized = await _ensureSupabaseInitialized();
     if (!isInitialized) {
       return 'Service is not configured. Please contact support.';
     }
     
-    // Prevent concurrent login attempts
     if (_isLoggingIn) {
       return 'Login already in progress. Please wait.';
     }
@@ -490,7 +384,6 @@ class AuthService with ChangeNotifier {
     notifyListeners();
     
     try {
-      // Step 1: Authenticate with timeout
       final response = await _supabase!.auth.signInWithPassword(
         email: email,
         password: password,
@@ -504,39 +397,33 @@ class AuthService with ChangeNotifier {
       if (response.user == null) {
         throw Exception('Login failed: No user returned');
       }
-      
-      // Step 2: Load user data with timeout
+
       await _loadUserData(response.user!).timeout(
         const Duration(seconds: 8),
         onTimeout: () {
           throw TimeoutException('Loading user data timed out. Please try again.');
         },
       );
-      
-      // Step 3: Verify we have user data
+
       if (_currentUser == null) {
         await _supabase!.auth.signOut();
         throw Exception('Failed to load user data');
       }
-      
-      // Step 4: Save remember me preference
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('remember_me', rememberMe);
-      
-      // Step 5: Start session monitoring if remember me is enabled
+
       if (rememberMe && response.session != null) {
         _startSessionMonitoring(response.session!);
       } else {
-        // Clear timers if remember me is disabled
         _sessionRefreshTimer?.cancel();
         _sessionWarningTimer?.cancel();
       }
-      
-      // Give listeners time to update
+
       await Future.delayed(const Duration(milliseconds: 100));
-      
-      return null; // Success
-      
+
+      return null;
+
     } on TimeoutException catch (e) {
       _isLoading = false;
       _isLoggedIn = false;
@@ -551,7 +438,6 @@ class AuthService with ChangeNotifier {
       _isLoggingIn = false;
       notifyListeners();
       
-      // Check if this is an invalid credentials error
       final errorMessage = e.message.toLowerCase();
       final isInvalidCredentials = errorMessage.contains('invalid login credentials') ||
           errorMessage.contains('invalid password') ||
@@ -566,7 +452,6 @@ class AuthService with ChangeNotifier {
         return 'Incorrect username and/or password';
       }
       
-      // For other auth errors, return the original message
       return e.message;
     } catch (e, stackTrace) {
       _isLoading = false;
@@ -584,8 +469,6 @@ class AuthService with ChangeNotifier {
   }
 
 
-  /// Update user password. For recovery flow, call clearRecoveryState() after success.
-  /// Returns null on success, or a user-friendly error message on failure.
   Future<String?> updateUserPassword(String newPassword) async {
     if (_supabase == null) {
       return 'Service is currently unavailable. Please try again later.';
@@ -612,7 +495,6 @@ class AuthService with ChangeNotifier {
     DataService().invalidateAllCache();
     await _supabase!.auth.signOut();
     
-    // Clear remember me preference if requested
     if (clearRememberMe) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('remember_me', false);
@@ -645,7 +527,6 @@ class AuthService with ChangeNotifier {
     return _currentUser != null;
   }
 
-  /// Add a role to the active assumed roles (stacking). Idempotent if already assumed.
   void assumeRole(AppRole role) {
     if (!_activeAssumedRoles.contains(role)) {
       _activeAssumedRoles.add(role);
@@ -653,14 +534,12 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// Remove a specific assumed role.
   void dropAssumedRole(AppRole role) {
     if (_activeAssumedRoles.remove(role)) {
       notifyListeners();
     }
   }
 
-  /// Clear all assumed roles. Called on logout/refresh.
   void clearAssumedRoles() {
     if (_activeAssumedRoles.isNotEmpty) {
       _activeAssumedRoles.clear();
@@ -710,9 +589,7 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// Start monitoring session for refresh and timeout warnings
   void _startSessionMonitoring(Session session) {
-    // Stop existing timers
     _sessionRefreshTimer?.cancel();
     _sessionWarningTimer?.cancel();
     
@@ -723,11 +600,9 @@ class AuthService with ChangeNotifier {
     final now = DateTime.now();
     final timeUntilExpiry = expiryTime.difference(now);
     
-    // If session expires in less than 5 minutes, refresh immediately
     if (timeUntilExpiry.inMinutes < 5) {
       _refreshSessionIfNeeded();
     } else {
-      // Schedule refresh 5 minutes before expiry
       final refreshTime = timeUntilExpiry - const Duration(minutes: 5);
       if (refreshTime.inMinutes > 0) {
         _sessionRefreshTimer = Timer(refreshTime, () {
@@ -736,7 +611,6 @@ class AuthService with ChangeNotifier {
       }
     }
     
-    // Schedule warning 5 minutes before expiry
     final warningTime = timeUntilExpiry - const Duration(minutes: _sessionWarningMinutes);
     if (warningTime.inMinutes > 0) {
       _sessionWarningTimer = Timer(warningTime, () {
@@ -745,7 +619,6 @@ class AuthService with ChangeNotifier {
     }
   }
   
-  /// Refresh session if needed (called automatically or manually)
   Future<void> _refreshSessionIfNeeded() async {
     try {
       if (_supabase == null) return;
@@ -760,7 +633,6 @@ class AuthService with ChangeNotifier {
       final now = DateTime.now();
       final timeUntilExpiry = expiryTime.difference(now);
       
-      // Refresh if expiring in less than 5 minutes
       if (timeUntilExpiry.inMinutes < 5) {
         final refreshedSession = await _supabase!.auth.refreshSession();
         if (refreshedSession.session != null) {
@@ -774,19 +646,13 @@ class AuthService with ChangeNotifier {
       if (kDebugMode) {
         debugPrint('Failed to refresh session: $e');
       }
-      // If refresh fails, session might be invalid - will require re-login
     }
   }
   
-  /// Show session timeout warning (5 minutes before expiry)
   void _showSessionTimeoutWarning() {
-    // This will be handled by a dialog in the UI
-    // For now, we'll just log it
     if (kDebugMode) {
       debugPrint('Session will expire in 5 minutes');
     }
-    // TODO: Show dialog to user with option to extend session
-    // This can be implemented later with a callback to show UI
   }
 
   @override

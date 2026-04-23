@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// A reusable scrollable widget with visible scroll arrows (up/down buttons)
-/// Automatically applies to any scrollable content
 class ScrollableListWithArrows extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
@@ -52,7 +50,6 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
     super.dispose();
   }
 
-  /// Uses ValueNotifier instead of setState to scope rebuilds to arrow widgets only.
   void _updateArrowVisibility() {
     if (!_scrollController.hasClients) {
       _showUpArrow.value = false;
@@ -95,7 +92,6 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
 
     return Stack(
       children: [
-        // Main scrollable content
         widget.showScrollbar
             ? Scrollbar(
                 controller: _scrollController,
@@ -111,7 +107,6 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
                 padding: widget.padding,
                 child: widget.child,
               ),
-        // Up arrow button (ValueListenableBuilder scopes rebuild to arrows only)
         ValueListenableBuilder<bool>(
           valueListenable: _showUpArrow,
           builder: (context, showUp, _) => showUp
@@ -139,7 +134,6 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
                 )
               : const SizedBox.shrink(),
         ),
-        // Down arrow button (ValueListenableBuilder scopes rebuild to arrows only)
         ValueListenableBuilder<bool>(
           valueListenable: _showDownArrow,
           builder: (context, showDown, _) => showDown
@@ -172,7 +166,6 @@ class _ScrollableListWithArrowsState extends State<ScrollableListWithArrows> {
   }
 }
 
-/// A scrollable ListView with arrows
 class ScrollableListViewWithArrows extends StatelessWidget {
   final int itemCount;
   final Widget Function(BuildContext, int) itemBuilder;
@@ -311,7 +304,6 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
 
     return Stack(
       children: [
-        // Main ListView
         Scrollbar(
           controller: _scrollController,
           thumbVisibility: true,
@@ -324,7 +316,6 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
             physics: widget.physics ?? const AlwaysScrollableScrollPhysics(),
           ),
         ),
-        // Up arrow button (ValueListenableBuilder scopes rebuild to arrows only)
         ValueListenableBuilder<bool>(
           valueListenable: _showUpArrow,
           builder: (context, showUp, _) => showUp
@@ -352,7 +343,6 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
                 )
               : const SizedBox.shrink(),
         ),
-        // Down arrow button (ValueListenableBuilder scopes rebuild to arrows only)
         ValueListenableBuilder<bool>(
           valueListenable: _showDownArrow,
           builder: (context, showDown, _) => showDown
@@ -384,3 +374,5 @@ class _ScrollableListViewWithArrowsStatefulState extends State<_ScrollableListVi
     );
   }
 }
+
+

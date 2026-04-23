@@ -53,12 +53,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
             },
           ),
           
-          // Scanner overlay
           CustomPaint(
             painter: ScannerOverlay(),
           ),
           
-          // Instructions
           Positioned(
             bottom: 32,
             left: 0,
@@ -94,26 +92,21 @@ class ScannerOverlay extends CustomPainter {
     
     canvas.drawRect(Rect.fromLTWH(left, top, width, height), paint);
     
-    // Draw corner marks
     final cornerLength = 20.0;
     final cornerPaint = Paint()
       ..color = Colors.green
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke;
     
-    // Top-left corner
     canvas.drawLine(Offset(left, top), Offset(left + cornerLength, top), cornerPaint);
     canvas.drawLine(Offset(left, top), Offset(left, top + cornerLength), cornerPaint);
     
-    // Top-right corner
     canvas.drawLine(Offset(left + width, top), Offset(left + width - cornerLength, top), cornerPaint);
     canvas.drawLine(Offset(left + width, top), Offset(left + width, top + cornerLength), cornerPaint);
     
-    // Bottom-left corner
     canvas.drawLine(Offset(left, top + height), Offset(left + cornerLength, top + height), cornerPaint);
     canvas.drawLine(Offset(left, top + height), Offset(left, top + height - cornerLength), cornerPaint);
     
-    // Bottom-right corner
     canvas.drawLine(Offset(left + width, top + height), Offset(left + width - cornerLength, top + height), cornerPaint);
     canvas.drawLine(Offset(left + width, top + height), Offset(left + width, top + height - cornerLength), cornerPaint);
   }

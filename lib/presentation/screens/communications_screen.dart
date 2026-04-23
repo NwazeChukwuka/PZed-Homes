@@ -42,7 +42,6 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
   Future<void> _loadPosts() async {
     setState(() => _isLoading = true);
     try {
-      // Always include the default "Welcome to PZED" announcement
       final defaultPost = {
         'id': 'welcome_post',
         'title': 'Welcome to P-ZED Luxury Hotels & Suites',
@@ -51,14 +50,11 @@ class _CommunicationsScreenState extends State<CommunicationsScreen> {
         'created_at': DateTime.now().toIso8601String(),
       };
 
-      // Load announcements from database
       final dbPosts = await _dataService.getPosts(isAnnouncement: true);
       
       setState(() {
         _posts.clear();
-        // Add default welcome post first
         _posts.add(defaultPost);
-        // Add database posts
         _posts.addAll(dbPosts.map((post) {
           final profile = post['profiles'] as Map<String, dynamic>?;
           return {

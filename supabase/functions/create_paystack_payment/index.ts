@@ -35,7 +35,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Paystack Transaction Initialize - standard one-time payment flow
     const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {

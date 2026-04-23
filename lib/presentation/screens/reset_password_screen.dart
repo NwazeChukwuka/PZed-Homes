@@ -14,7 +14,6 @@ class ResetPasswordScreen extends StatefulWidget {
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
 }
 
-/// Standard message when the reset link is expired or invalid (hide form, show only error UI).
 const String _kExpiredLinkMessage = 'This reset link has expired or was already used.';
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
@@ -24,7 +23,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _sessionReady = false;
   String? _statusMessage;
   bool _initChecked = false;
-  /// When true, hide password form and show only error message + "Request New Reset Link" button.
   bool _isLinkError = false;
   StreamSubscription<AuthState>? _authSubscription;
 
@@ -43,7 +41,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     super.dispose();
   }
 
-  /// If PASSWORD_RECOVERY fires but session is null, treat as invalid/expired link.
   void _onAuthStateChange(AuthState state) {
     if (state.event != AuthChangeEvent.passwordRecovery) return;
     if (state.session != null) return;
@@ -54,7 +51,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     });
   }
 
-  /// Parse error, error_code, error_description from URL query and # fragment.
   bool _hasErrorInUrl(Uri uri) {
     final query = uri.queryParameters;
     final fragmentParams = uri.fragment.isNotEmpty ? Uri.splitQueryString(uri.fragment) : <String, String>{};
@@ -64,7 +60,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     return error != null || errorCode != null || (description?.isNotEmpty ?? false);
   }
 
-  /// Message for error state: otp_expired or invalid link -> standard message.
   String? _getErrorMessageFromUrl(Uri uri) {
     if (!_hasErrorInUrl(uri)) return null;
     final query = uri.queryParameters;
@@ -355,3 +350,4 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 }
+

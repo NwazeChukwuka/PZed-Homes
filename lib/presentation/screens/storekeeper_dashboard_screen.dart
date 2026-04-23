@@ -34,7 +34,6 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Use context.select to avoid full rebuilds on every AuthService notify - only rebuild when role state changes
     final selected = context.select<AuthService, ({bool showFull, bool ownerManager, bool isAssumed})>((auth) {
       final u = auth.currentUser;
       final isStorekeeper = u?.roles.any((r) => r.name == 'storekeeper') ?? false;
@@ -46,8 +45,6 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
     final ownerManager = selected.ownerManager;
     final isAssumedStorekeeper = selected.isAssumed;
         
-    // Owner/Manager can view store items without assuming role
-    // But need to assume role for full functionality
     if (ownerManager && !isAssumedStorekeeper) {
       return Scaffold(
         body: LayeredScrollBody(
@@ -157,8 +154,6 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
 
   Widget _buildReadOnlyStoreView() {
     final dataService = DataService();
-    // Data source: stock_levels ledger (stock_transactions). Filter by Main Store only so
-    // issued items (transferred to departments) no longer appear as available in central store.
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: dataService.getStockLevels(locationName: 'Main Store'),
       builder: (context, snapshot) {
@@ -209,7 +204,6 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   }
 }
 
-// --- The New Direct Stock Entry Form Widget ---
 class DirectStockEntryForm extends StatefulWidget {
   const DirectStockEntryForm({super.key});
   @override
@@ -245,8 +239,6 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   Future<void> _loadData() async {
     try {
       final items = await _dataService.getStockItems();
-      // Get locations from departments or use a locations table
-      // For now, we'll use a predefined list from database or create a locations table
       final locations = await _getLocations();
       setState(() {
         _stockItems = items;
@@ -267,11 +259,9 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   }
 
   Future<List<Map<String, dynamic>>> _getLocations() async {
-    // Query locations from database
     try {
       final locations = await _dataService.getLocations();
       if (locations.isEmpty) {
-        // Fallback: If no locations in database, return empty list with error message
         if (mounted) {
           ErrorHandler.showWarningMessage(
             context,
@@ -393,7 +383,6 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
         children: [
           const Text('Use this form to record stock that did not come from a purchaser (e.g., direct delivery from management).', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 16),
-          // Dropdown to select a stock item
           _stockItems.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
@@ -411,7 +400,6 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
                   validator: (val) => val == null ? 'Please select an item' : null,
                 ),
           const SizedBox(height: 16),
-          // Dropdown to select the location where the stock is being added
           _locations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : DropdownButtonFormField<String>(
@@ -454,7 +442,6 @@ class _DirectStockEntryFormState extends State<DirectStockEntryForm> {
   }
 }
 
-// --- Stock Transfer Form (Main Store -> Department) ---
 class StockTransferForm extends StatefulWidget {
   const StockTransferForm({super.key});
   @override
@@ -518,7 +505,6 @@ class _StockTransferFormState extends State<StockTransferForm> {
   }
 
   String? _defaultMainStoreLocationId() {
-    // Guard: avoid .first / .firstWhere on empty list to prevent runtime exception.
     if (_locations.isEmpty) return null;
     final match = _locations.firstWhere(
       (loc) {

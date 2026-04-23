@@ -1,7 +1,6 @@
 class ProductCatalogConfig {
   ProductCatalogConfig._();
 
-  /// Supported product tables for management CRUD.
   static const List<String> productTables = [
     'inventory_items',
     'mini_mart_items',
@@ -9,8 +8,6 @@ class ProductCatalogConfig {
     'stock_items',
   ];
 
-  /// Map from logical department/screen to table name.
-  /// Used by screens to know which table they are managing.
   static const Map<String, String> departmentToTable = {
     'bars': 'inventory_items',
     'inventory': 'inventory_items',
@@ -21,7 +18,6 @@ class ProductCatalogConfig {
     'store': 'stock_items',
   };
 
-  /// Department display name per table for activity logging (e.g. "Price Update").
   static const Map<String, String> tableToDepartmentName = {
     'inventory_items': 'Inventory',
     'mini_mart_items': 'MiniMart',
@@ -29,8 +25,6 @@ class ProductCatalogConfig {
     'stock_items': 'Store',
   };
 
-  /// Which price field(s) each table uses. Keys are column names, value is display label.
-  /// Empty list = no price field (e.g. stock_items).
   static Map<String, List<({String key, String label})>> get priceFieldsByTable =>
       {
         'inventory_items': [
@@ -47,3 +41,4 @@ class ProductCatalogConfig {
     return list.length <= 1;
   }
 }
+

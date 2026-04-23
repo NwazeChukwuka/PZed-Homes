@@ -71,7 +71,6 @@ class _ConfirmPurchasesScreenState extends State<ConfirmPurchasesScreen> {
     return List<Map<String, dynamic>>.from(response);
   }
 
-  /// Returns true on success, false on error (caller can keep dialog open or pop).
   Future<bool> _confirmOrder(String orderId, {String? locationId}) async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final storekeeperId = StaffAuthHelper.requireStaffProfileId(

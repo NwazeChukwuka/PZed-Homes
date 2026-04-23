@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -40,16 +40,14 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     super.didChangeDependencies();
     if (_hasPrecached || !mounted) return;
     _hasPrecached = true;
-    // Precache asynchronously - do NOT block UI
     WidgetsBinding.instance.addPostFrameCallback((_) => _precachePriorityImages());
   }
 
-  /// Precaches Hero images + first Facility card only (priority above-the-fold content)
   Future<void> _precachePriorityImages() async {
     if (!mounted) return;
     final priorityPaths = [
       ..._heroImages,
-      'assets/images/VIP Bar/VIP Bar 1.JPG', // First facility card user sees
+      'assets/images/VIP Bar/VIP Bar 1.JPG',
     ];
     for (final path in priorityPaths) {
       if (!mounted) return;
@@ -65,8 +63,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   void initState() {
     super.initState();
     _loadRoomTypes();
-    
-    // Initialize with asset images IMMEDIATELY (synchronous)
+
     _heroImages = [
       'assets/images/Front View/Front View 1.JPG',
       'assets/images/Front View/Front View 2.JPG',
@@ -95,7 +92,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         'assets/images/Deluxe Room/Deluxe 2.JPG',
         'assets/images/Deluxe Room/Deluxe 3.png',
       ],
-      'Executive Room': [ // Fixed: Use 'Executive Room' to match room type name
+      'Executive Room': [
         'assets/images/Executive Room/Executive 1.png',
         'assets/images/Executive Room/Executive 2.png',
         'assets/images/Executive Room/Executive 3.jpg',
@@ -122,7 +119,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     }
   }
 
-  /// Get price for a room type from database, fallback to hardcoded if not found
   int _getRoomPrice(String roomTypeName) {
     try {
       final roomType = _roomTypes.firstWhere(
@@ -138,7 +134,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       if (kDebugMode) debugPrint('DEBUG _getRoomPrice: $e\n$stack');
     }
     
-    // Fallback to hardcoded prices if database query fails
     final fallbackPrices = {
       'Standard Room': PaymentService.nairaToKobo(20000.0),
       'Classic Room': PaymentService.nairaToKobo(25000.0),
@@ -149,7 +144,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     return fallbackPrices[roomTypeName] ?? 0;
   }
 
-  /// Gallery items - loaded from assets only (no database)
   List<Map<String, dynamic>> _getGalleryItems() {
     return [
       {
@@ -180,7 +174,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     ];
   }
   
-  // Navigate to a specific route
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
@@ -214,7 +207,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   Future<void> _navigateTo(String route) async {
     if (!mounted) return;
     
-    // Close the drawer if it's open
     if (Scaffold.maybeOf(context)?.isEndDrawerOpen ?? false) {
       Navigator.pop(context);
     }
@@ -341,7 +333,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     }
   }
 
-  // Toggle theme mode
   void _toggleTheme() {
     if (mounted) {
       final appState = Provider.of<AppState>(context, listen: false);
@@ -465,7 +456,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         backgroundColor: Colors.green[800],
         elevation: 0,
         actions: [
-          // Hamburger Menu Button
           IconButton(
             icon: const Icon(Icons.menu, color: Colors.white),
             onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
@@ -475,13 +465,11 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
       body: SingleChildScrollView(
                 child: Column(
                   children: [
-                    // == 1. Hero Section ==
                     AnimatedFadeIn(
                       delay: Duration.zero,
                       child: _buildHeroSection(context),
                     ),
 
-                    // == 2. "Our Rooms & Suites" Section ==
                     AnimatedSlideIn(
                       delay: const Duration(milliseconds: 300),
                       child: _buildSectionHeader(context, 'Our Rooms & Suites'),
@@ -544,7 +532,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         name: 'Executive Room',
                         description: 'A generously sized room crafted for refined comfort, combining elegant finishes with enhanced space, ideal for work, privacy, and relaxation.',
                         price: _getRoomPrice('Executive Room'),
-                        imageUrls: _roomImages['Executive Room'] ?? [ // Fixed: Use 'Executive Room' not 'Executive Suite'
+                        imageUrls: _roomImages['Executive Room'] ?? [
                           'assets/images/Executive Room/Executive 1.png',
                           'assets/images/Executive Room/Executive 2.png',
                           'assets/images/Executive Room/Executive 3.jpg',
@@ -552,7 +540,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       ),
                     ),
 
-                    // == 3. "Our Facilities" Section ==
                     AnimatedSlideIn(
                       delay: const Duration(milliseconds: 800),
                       child: _buildSectionHeader(context, 'Our Facilities'),
@@ -590,7 +577,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       ),
                     ),
                     
-                    // == 4. "Hotel Gallery" Section ==
                     AnimatedSlideIn(
                       delay: const Duration(milliseconds: 1000),
                       child: _buildSectionHeader(context, 'Hotel Gallery'),
@@ -600,7 +586,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildGallerySection(context, _getGalleryItems()),
                     ),
 
-                    // == 5. Footer ==
                     AnimatedFadeIn(
                       delay: const Duration(milliseconds: 1200),
                       child: _buildFooter(context),
@@ -611,7 +596,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     );
   }
 
-  // --- GALLERY SECTION WIDGET ---
   Widget _buildGallerySection(BuildContext context, List<Map<String, dynamic>> items) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -646,7 +630,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Image with shimmer
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: item.isVideo
@@ -698,7 +681,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                               },
                             ),
                 ),
-                // Gradient overlay
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
@@ -712,7 +694,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     ),
                   ),
                 ),
-                // Title
                 Positioned(
                   left: 8,
                   right: 8,
@@ -728,7 +709,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // Video indicator
                 if (item.isVideo)
                   const Positioned(
                     top: 8,
@@ -743,9 +723,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     );
   }
 
-  // --- Helper Widgets for building the page sections ---
-
-  // Auto-scrolling hero section with front view images
   Widget _buildHeroSection(BuildContext context) {
     return _HeroSectionWidget(heroImages: _heroImages);
   }
@@ -826,7 +803,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                   itemCount: imageUrls.length,
                   itemBuilder: (context, index) {
                     final imagePath = imageUrls[index];
-                    // Check if it's a network URL or local asset
                     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
                       return CachedNetworkImage(
                         imageUrl: imagePath,
@@ -1350,7 +1326,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Name (Optional)
                 TextFormField(
                   controller: nameController,
                   decoration: const InputDecoration(
@@ -1361,7 +1336,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 ),
                 const SizedBox(height: 12),
                 
-                // Email (Optional)
                 TextFormField(
                   controller: emailController,
                   decoration: const InputDecoration(
@@ -1379,7 +1353,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 ),
                 const SizedBox(height: 12),
                 
-                // Phone (Optional)
                 TextFormField(
                   controller: phoneController,
                   decoration: const InputDecoration(
@@ -1391,7 +1364,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 ),
                 const SizedBox(height: 12),
                 
-                // Subject (Required)
                 TextFormField(
                   controller: subjectController,
                   decoration: const InputDecoration(
@@ -1408,7 +1380,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 ),
                 const SizedBox(height: 12),
                 
-                // Message (Required)
                 TextFormField(
                   controller: messageController,
                   decoration: const InputDecoration(
@@ -1445,8 +1416,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
           ElevatedButton(
             onPressed: () {
               if (formKey.currentState?.validate() ?? false) {
-                // Here you would typically send the message to your backend
-                // For now, we'll just show a success message and close the dialog
                 Navigator.pop(context);
                 if (mounted) {
                   ErrorHandler.showSuccessMessage(
@@ -1479,8 +1448,6 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
         imageUrls: imageUrls,
         onBookNow: () {
           context.pop();
-          // Navigate directly to availability screen with room type info
-          // Then user can select dates and proceed to booking
           context.push('/guest/rooms', extra: {
             'roomType': {
               'name': name,
@@ -1522,10 +1489,8 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
     super.dispose();
   }
 
-  // Auto-scroll functionality (pauses when user interacts)
   void _startAutoScroll() {
     _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      // Don't auto-scroll if user is manually swiping
       if (_isUserInteracting) return;
       
       if (_currentPage < widget.heroImages.length - 1) {
@@ -1550,11 +1515,9 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
   }
 
   void _onUserInteraction() {
-    // Pause auto-scroll when user starts swiping
     setState(() {
       _isUserInteracting = true;
     });
-    // Resume auto-scroll after 5 seconds of no interaction
     Future.delayed(const Duration(seconds: 5), () {
       if (mounted) {
         setState(() {
@@ -1579,7 +1542,6 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // PageView for auto-scrolling images (allows manual swipe)
           GestureDetector(
             onPanStart: (_) => _onUserInteraction(),
             onPanUpdate: (_) => _onUserInteraction(),
@@ -1646,7 +1608,6 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
             ),
           ),
           
-          // Page indicator
           Positioned(
             bottom: 20,
             left: 0,
@@ -1668,7 +1629,6 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
             ),
           ),
           
-          // Dark overlay for better text readability
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -1683,13 +1643,11 @@ class _HeroSectionWidgetState extends State<_HeroSectionWidget> {
             ),
           ),
 
-          // Content - Welcome text only (no booking card)
           Padding(
             padding: const EdgeInsets.all(20.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Welcome Text
                 Text(
                   'Welcome to P-ZED Luxury Hotels & Suites',
                   textAlign: TextAlign.center,
@@ -1774,7 +1732,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
         height: MediaQuery.sizeOf(context).height * 0.8,
         child: Column(
           children: [
-            // Header with close button
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1802,7 +1759,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
               ),
             ),
             
-            // Image carousel
             Expanded(
               flex: 3,
               child: Stack(
@@ -1813,17 +1769,43 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                     },
                     itemCount: widget.imageUrls.length,
                     itemBuilder: (context, index) {
-                      return CachedNetworkImage(
-                        imageUrl: widget.imageUrls[index],
+                      final imagePath = widget.imageUrls[index];
+                      if (imagePath.startsWith('http://') ||
+                          imagePath.startsWith('https://')) {
+                        return CachedNetworkImage(
+                          imageUrl: imagePath,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 800,
+                          memCacheHeight: 600,
+                          placeholder: (context, url) => Shimmer.fromColors(
+                            baseColor: Colors.grey.shade300,
+                            highlightColor: Colors.grey.shade100,
+                            child: Container(color: Colors.grey.shade300),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.green[200]!, Colors.green[400]!],
+                              ),
+                            ),
+                            child: Image.asset(
+                              'assets/images/PZED logo.png',
+                              height: 60,
+                              width: 60,
+                              fit: BoxFit.contain,
+                              color: Colors.white.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Image.asset(
+                        imagePath,
                         fit: BoxFit.cover,
-                        memCacheWidth: 800,
-                        memCacheHeight: 600,
-                        placeholder: (context, url) => Shimmer.fromColors(
-                          baseColor: Colors.grey.shade300,
-                          highlightColor: Colors.grey.shade100,
-                          child: Container(color: Colors.grey.shade300),
-                        ),
-                        errorWidget: (context, url, error) => Container(
+                        cacheWidth: 800,
+                        cacheHeight: 600,
+                        gaplessPlayback: true,
+                        errorBuilder: (context, error, stackTrace) => Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [Colors.green[200]!, Colors.green[400]!],
@@ -1841,7 +1823,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                     },
                   ),
                   
-                  // Image indicators
                   if (widget.imageUrls.length > 1)
                     Positioned(
                       bottom: 16,
@@ -1869,7 +1850,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
               ),
             ),
             
-            // Content
             Expanded(
               flex: 2,
               child: Padding(
@@ -1878,14 +1858,12 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Scrollable content (Description and Features)
                     Flexible(
                       child: SingleChildScrollView(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Description
                             Text(
                               widget.description,
                               style: TextStyle(
@@ -1899,7 +1877,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                             
                             const SizedBox(height: 20),
                             
-                            // Features
                             Text(
                               'Room Features:',
                               style: TextStyle(
@@ -1928,7 +1905,6 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                     
                     const SizedBox(height: 16),
                     
-                    // Price and Book button (Fixed at bottom)
                     Row(
                       children: [
                         Expanded(

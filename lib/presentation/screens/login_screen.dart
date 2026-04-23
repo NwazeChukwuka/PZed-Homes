@@ -30,7 +30,6 @@ class _LoginScreenState extends State<LoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenForgotPassword());
   }
 
-  /// Handle deep links: open Forgot Password dialog or show post-reset success SnackBar.
   void _maybeOpenForgotPassword() {
     if (!mounted) return;
     final query = GoRouterState.of(context).uri.queryParameters;
@@ -314,7 +313,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       : () {
                           setState(() {
                             _isSigningUp = !_isSigningUp;
-                            // Clear form when switching modes
                             _formKey.currentState?.reset();
                           });
                         },

@@ -2,7 +2,6 @@ class Profile {
   final String id;
   final String? fullName;
   final List<String> roles;
-  /// Monthly gross salary in kobo (prefill / HR config only; financial totals use approved payroll rows).
   final int? monthlySalary;
 
   Profile({
@@ -34,3 +33,4 @@ class Profile {
     };
   }
 }
+

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -67,9 +67,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   bool _dismissCreditSalesWarning = false;
   final Map<String, Map<String, int>> _stockByLocation = {};
 
-  // Search controller (Make Sale tab)
   final _searchController = TextEditingController();
-  // Current Stock tab: filter by name or category
   final _currentStockSearchController = TextEditingController();
   Timer? _filterDebounce;
   static const _searchDebounceMs = 300;
@@ -103,7 +101,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 
   void _onTransactionsScroll() {
-    // Load next page when within 200px of bottom (infinite scroll)
     if (!_transactionsScrollController.hasClients) return;
     final pos = _transactionsScrollController.position;
     if (pos.pixels >= pos.maxScrollExtent - 200) {
@@ -137,7 +134,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final user = authService.currentUser;
     final isBartender = _hasBartenderRole(authService, user);
     final tabCount = isBartender ? 3 : 2; // Current Stock, Stock Movements, Make Sale (for bartenders)
-    // Set default tab: Make Sale (index 2) for bartenders, Current Stock (index 0) for management
     final initialIndex = isBartender ? 2 : 0;
     _tabController = TabController(length: tabCount, initialIndex: initialIndex, vsync: this);
   }
@@ -205,7 +201,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }
   }
 
-  /// Loads first page of transactions (performance: small chunk, cached in DataService).
   Future<void> _loadTransactions() async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -230,7 +225,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     }
   }
 
-  /// Loads next page when user scrolls near bottom (infinite scroll).
   Future<void> _loadMoreTransactions() async {
     if (_transactionsLoadingMore || !_transactionsHasMore) return;
     _transactionsLoadingMore = true;
@@ -264,7 +258,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    // Use Selector to avoid full rebuilds on every AuthService notify - only when role/tab config changes
     return Selector<AuthService, ({bool isBartender, bool showAddItem})>(
       selector: (_, auth) {
         final u = auth.currentUser;
@@ -278,7 +271,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         final expectedTabCount = isBartender ? 3 : 2;
         final tabCountMismatch = _tabController.length != expectedTabCount;
 
-        // Schedule tab controller update in post-frame to avoid mutation during build
         if (tabCountMismatch) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
@@ -289,7 +281,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           });
         }
 
-        // While controller is mismatched, show placeholder to avoid TabBar/TabBarView assertion
         if (tabCountMismatch) {
           final showLocalRoleButton = MediaQuery.sizeOf(context).width >= 700;
           return Scaffold(
@@ -522,8 +513,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     return list;
   }
 
-  /// Groups inventory items by name (case-insensitive) for the "All Bars" view.
-  /// Each merged item carries `_vip_row` and `_outside_row` references to the original rows.
   List<Map<String, dynamic>> _mergeItemsByName(List<Map<String, dynamic>> items) {
     final grouped = <String, Map<String, dynamic>>{};
     for (final item in items) {
@@ -639,7 +628,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isMerged = item.containsKey('_vip_row') || item.containsKey('_outside_row');
     final unit = item['unit'] as String? ?? 'units';
 
-    // Build subtitle lines based on view context
     final subtitleLines = <Widget>[];
     if (isMerged) {
       final vipRow = item['_vip_row'] as Map<String, dynamic>?;
@@ -715,8 +703,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     );
   }
 
-  /// Edit handler for inventory items. For merged items, builds a combined product
-  /// map with both prices and updates both rows on save.
   Future<void> _handleEditInventoryItem(Map<String, dynamic> item, String tableName, bool isMerged) async {
     Map<String, dynamic> productForDialog;
     if (isMerged) {
@@ -804,7 +790,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     );
   }
 
-  /// Delete handler for inventory items. For merged items, deletes both bar rows.
   Future<void> _handleDeleteInventoryItem(Map<String, dynamic> item, String tableName, bool isMerged) async {
     await showDeleteProductConfirmation(
       context,
@@ -861,14 +846,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final isManagement = authService.currentUser?.roles
             .any((r) => r == AppRole.owner || r == AppRole.manager) ??
         false;
-    // Lazy rendering via ListView.builder, infinite scroll, no preload of full dataset
     final itemCount = _allTransactions.length + (_transactionsHasMore && _transactionsLoadingMore ? 1 : 0);
     return ScrollableListViewWithArrows(
       controller: _transactionsScrollController,
       itemCount: itemCount,
       itemBuilder: (context, index) {
         if (index >= _allTransactions.length) {
-          // Lightweight loading indicator at end (infinite scroll)
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 16),
             child: Center(child: SizedBox(
@@ -892,7 +875,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       flex: 2,
       child: Column(
         children: [
-          // Search bar
           Padding(
                 padding: const EdgeInsets.all(16),
                 child: TextField(
@@ -904,7 +886,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   ),
                 ),
               ),
-              // Bar selection for management
               _buildBarSelectionForSales(),
               if (_missingStockItems.isNotEmpty && !_dismissedWarnings.contains('missing_stock_linkage'))
                 Padding(
@@ -954,7 +935,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                     ),
                   ),
                 ),
-              // Items grid
               Expanded(
                 child: FutureBuilder<List<Map<String, dynamic>>>(
                   future: _inventoryFuture,
@@ -1267,8 +1247,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         role.toString().contains('manager')) ?? false;
     final isBartenderAssumed = authService.activeAssumedRoles.any(_isBartenderRole);
 
-    // Only show bar selection dropdown for management when they've assumed a bartender role
-    // Actual bartenders (VIP/Outside) don't need this - they're already restricted to their bar
     if (!isManagement || !isBartenderAssumed) {
       return const SizedBox.shrink();
     }
@@ -1306,7 +1284,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final user = authService.currentUser;
     final userDepartment = _bartenderDepartment(authService, user);
 
-    // Filter by search
     var filtered = items.where((item) {
       final searchTerm = _searchController.text.toLowerCase();
       if (searchTerm.isEmpty) return true;
@@ -1314,22 +1291,18 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
              (item['category'] as String? ?? '').toLowerCase().contains(searchTerm);
     }).toList();
 
-    // Filter by bar/department
     if (authService.activeAssumedRoles.any(_isBartenderRole)) {
-      // Management assuming bartender role (explicit bar selection)
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
         return department == _selectedBarForSales;
       }).toList();
     } else if (userDepartment != null && userDepartment.isNotEmpty) {
-      // Regular bartender
       filtered = filtered.where((item) {
         final department = item['department'] as String?;
         return department == userDepartment;
       }).toList();
     }
 
-    // Filter by stock availability
     return filtered.where((item) => ((item['vip_bar_price'] as num?)?.toDouble() ?? 0.0) > 0 || 
                                     ((item['outside_bar_price'] as num?)?.toDouble() ?? 0.0) > 0).toList();
   }
@@ -1354,7 +1327,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     final userDepartment = _bartenderDepartment(authService, user);
 
     if (authService.activeAssumedRoles.any(_isBartenderRole)) {
-      // Management assuming bartender role
       if (_selectedBarForSales == 'vip_bar') {
         return PaymentService.koboToNaira(
           (item['vip_bar_price'] as num?)?.toInt() ?? 0,
@@ -1374,7 +1346,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       );
     }
 
-    // Default to VIP bar price
     return PaymentService.koboToNaira(
       (item['vip_bar_price'] as num?)?.toInt() ?? 0,
     );
@@ -1425,7 +1396,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           ),
           const SizedBox(height: 16),
           
-          // Total
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -1453,7 +1423,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           
                           const SizedBox(height: 16),
           
-          // Items in current sale
           Expanded(
             child: _currentSale.isEmpty
                 ? const Center(
@@ -1474,7 +1443,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           
                         const SizedBox(height: 16),
           
-          // Payment method (always visible)
           DropdownButtonFormField<String>(
             initialValue: _paymentMethod,
             decoration: const InputDecoration(
@@ -1490,7 +1458,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             onChanged: (value) => setState(() => _paymentMethod = value!),
           ),
           
-          // Show customer info fields only for credit payment
           if (_paymentMethod == 'credit')
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1547,7 +1514,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           
           const SizedBox(height: 16),
           
-          // Action buttons
           Row(
                               children: [
               Expanded(
@@ -1735,7 +1701,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     _notifyInventorySaleProcessingChanged();
 
     try {
-      // Unified staff auth guard: require valid session for transactions
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = StaffAuthHelper.requireStaffProfileId(
         context,
@@ -1765,8 +1730,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         throw Exception('Select a bar before making sales.');
       }
 
-      // Get location ID for the selected bar
-      // CRITICAL: Fail fast if location not found - don't silently continue
       String? locationId;
       final locationName = (barKey ?? 'vip_bar') == 'vip_bar' ? 'VIP Bar' : 'Outside Bar';
       final locationResponse = await supabase
@@ -1788,33 +1751,21 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         throw Exception('Failed to get location ID for $locationName');
       }
 
-      // Build atomic payload for unified RPC (one transactional mutation call)
       final unifiedItems = <Map<String, dynamic>>[];
       for (final saleItem in _currentSale) {
         final item = saleItem['item'] as Map<String, dynamic>;
         final quantity = saleItem['quantity'] as int;
-        // Price from inventory_items is already in kobo (per schema)
-        // But UI displays in naira, so saleItem['price'] is in naira
-        // Convert naira to kobo for database storage
         final priceInNaira = saleItem['price'] as double;
         final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
 
-        // Check stock availability for warning (non-blocking)
-        // Sales are allowed even with zero/negative stock to accommodate delayed stock updates
         final currentStock = _getCurrentStockForBar(item, barKey ?? 'vip_bar');
         if (currentStock < quantity && mounted) {
-          // Show warning but don't block the sale
           debugPrint('Warning: Low stock for ${item['name']}. Available: $currentStock, Requested: $quantity. Sale will proceed and may result in negative stock.');
         }
 
-        // Record stock transaction for location-based stock tracking
-        // This ensures each bar maintains its own stock
-        // Find or create corresponding stock_item for this inventory_item
-        // This allows proper per-location stock tracking via stock_transactions
         String? stockItemId;
         
         try {
-          // First, try to find existing stock_item by name
           final stockItemResponse = await supabase
               .from('stock_items')
               .select('id')
@@ -1824,13 +1775,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           if (stockItemResponse != null) {
             stockItemId = stockItemResponse['id'] as String?;
           } else {
-            // CRITICAL: Don't create stock_items on-the-fly during sales
-            // This causes data inconsistency and potential duplicates
-            // Stock items must be pre-created before sales can be processed
             throw Exception(
-              'Stock item "${item['name']}" not found in stock_items table. '
-              'Please create the stock item first before processing sales. '
-              'This ensures proper inventory tracking and prevents data inconsistencies.'
+              'Stock item "${item['name']}" not found in stock_items. '
+              'Create the stock item before processing sales.',
             );
           }
           
@@ -1843,12 +1790,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
             'notes': 'Bar sale - ${item['name']} at ${_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'}',
           });
         } catch (e) {
-          // Re-throw the error from stock item lookup
           rethrow;
         }
       }
 
-      // Calculate total sale amount in kobo
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
       final today = DateTime.now().toIso8601String().split('T')[0];
@@ -1879,7 +1824,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       }
       _saleLedgerSessionId = null;
 
-      // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'credit') {
         final debt = {
           'debtor_name': _customerNameController.text.trim(),
@@ -1914,7 +1858,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
           );
         }
       } else {
-        // Show success message for regular payment
         if (mounted) {
           ErrorHandler.showLedgerConfirmedSnackBar(
             context,
@@ -2050,7 +1993,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     );
   }
 
-  /// Returns true if item was added successfully (dialog should close); false on validation or error (dialog stays open).
   Future<bool> _saveNewItem() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final vipPriceNaira = double.tryParse(_vipPriceController.text) ?? 0.0;
@@ -2063,7 +2005,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       return false;
     }
 
-    // When a specific bar is selected, we add to that bar only. When "All Bars" is selected, we add to both bars if at least one price is set.
     final addToBothBars = _selectedBar == null;
     if (addToBothBars) {
       if (vipPriceNaira <= 0 && outsidePriceNaira <= 0) {
@@ -2071,14 +2012,12 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         return false;
       }
     } else {
-      // Single bar selected
       if (vipPriceNaira <= 0 && outsidePriceNaira <= 0) {
         ErrorHandler.showWarningMessage(context, 'Enter a price for this bar.');
         return false;
       }
     }
 
-    // Require valid session for add + audit log (and for initial stock when initialQty > 0)
     final staffId = StaffAuthHelper.requireStaffProfileId(
       context,
       authService: authService,
@@ -2087,7 +2026,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
     if (staffId == null) return false; // Session dialog already shown
 
     try {
-      // 1. Create stock_items row first so bar stock can be tracked.
       final stockItemId = await _dataService.addStockItem(
         name: name,
         unit: _addItemUnit,
@@ -2107,7 +2045,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
       final outsideKobo = PaymentService.nairaToKobo(outsidePriceNaira);
 
       if (addToBothBars) {
-        // Add one row per bar so the item appears in both bars (same stock_item_id, same prices on both rows).
         await _dataService.addInventoryItem({
           'name': name,
           'unit': _addItemUnit,
@@ -2139,7 +2076,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
         await _dataService.addInventoryItem(item);
       }
 
-      // 2. Record initial stock
       if (initialQty > 0) {
         final locationNames = addToBothBars ? ['VIP Bar', 'Outside Bar'] : [_selectedBar == 'vip_bar' ? 'VIP Bar' : 'Outside Bar'];
         for (final locationName in locationNames) {
@@ -2266,8 +2202,6 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
   }
 }
 
-/// Extracted list item widget for performance: avoids Consumer/heavy logic in build.
-/// Precomputes formatting; uses const where possible.
 class _InventoryTransactionItem extends StatelessWidget {
   final Map<String, dynamic> transaction;
   final bool showStaffName;

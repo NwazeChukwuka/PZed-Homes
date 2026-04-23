@@ -16,8 +16,6 @@ import 'package:pzed_homes/data/models/booking.dart';
 import 'package:pzed_homes/data/models/user.dart';
 import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 
-/// Personalized dashboard for individual staff members
-/// Shows only their own sales, transactions, and department-specific data
 class StaffDashboardScreen extends StatefulWidget {
   const StaffDashboardScreen({super.key});
 
@@ -31,24 +29,20 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   bool _isLoading = true;
   bool _showDepartmentView = false; // Toggle between personal and department view
   
-  // Personal stats
   Map<String, dynamic> _personalStats = {};
   Map<String, dynamic> _previousPersonalStats = {};
   List<Map<String, dynamic>> _myTransactions = [];
   List<Map<String, dynamic>> _myDebts = [];
   
-  // Department stats
   Map<String, dynamic> _departmentStats = {};
   Map<String, dynamic> _previousDepartmentStats = {};
   List<Map<String, dynamic>> _departmentTransactions = [];
   List<Map<String, dynamic>> _departmentDebts = [];
   Set<String> _debtIdsWithPendingClaim = {};
   
-  // Receptionist booking data
   List<Map<String, dynamic>> _bookings = [];
   Map<String, dynamic> _bookingStats = {};
   
-  // Housekeeper/Cleaner room data
   List<Map<String, dynamic>> _rooms = [];
   Map<String, dynamic> _roomStats = {};
   
@@ -68,14 +62,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final staffId = user?.id ?? 'unknown';
     final userRole = user?.role;
     
-    // Determine department based on role
     String? department = _getDepartmentFromRole(
       userRole,
       profileDepartment: user?.department,
     );
     
     try {
-      // Phase 2: Run all independent load sections in parallel
       final loadFutures = <Future<void>>[
         _loadPersonalData(staffId, department),
         if (department != null) _loadDepartmentData(department),
@@ -129,7 +121,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final range = _getDateRangeForFilter();
     final prevRange = _getPreviousDateRangeForFilter();
 
-    // Phase 2: Run all independent fetches in parallel
     final futures = <Future>[
       _dataService.getStockTransactions(staffId: staffId),
       _dataService.getDebts(soldBy: staffId, startDate: range?.start, endDate: range?.end),
@@ -218,7 +209,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_debt_amount': totalDebtAmount,
     };
     
-    // Previous period stats (data already fetched in parallel above)
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
     for (var s in prevMiniMart) {
@@ -248,7 +238,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     };
   }
 
-  /// Maps department (e.g. 'mini_mart') to location name(s) from stock_transactions.
   static List<String> _locationNamesForDepartment(String department) {
     switch (department.toLowerCase()) {
       case 'mini_mart':
@@ -277,7 +266,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final prevRange = _getPreviousDateRangeForFilter();
     final locationNames = _locationNamesForDepartment(department);
 
-    // Phase 2: Run all independent fetches in parallel
     final futures = <Future>[
       _dataService.getStockTransactions(),
       _dataService.getDebtPaymentClaims(status: 'pending'),
@@ -354,7 +342,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       'total_debt_amount': totalDeptDebt,
     };
     
-    // Previous period stats for trend (prevDeptDebts already fetched in parallel above)
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
     if (prevRange != null) {
@@ -379,16 +366,13 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
   Future<void> _loadBookingData() async {
     final range = _getDateRangeForFilter();
-    // Load all bookings
     final allBookings = await _dataService.getBookings(
       startDate: range?.start,
       endDate: range?.end,
     );
     
-    // Filter by time
     _bookings = _filterByTime(allBookings);
     
-    // Calculate booking stats
     int pendingBookings = 0;
     int confirmedBookings = 0;
     int checkedInBookings = 0;
@@ -423,7 +407,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         case 'checked-out':
         case 'checked out':
           checkedOutBookings++;
-          // Use paid_amount instead of total_amount for actual revenue
           final amount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
           totalRevenue += amount;
           break;
@@ -503,15 +486,12 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadRoomData(String staffId) async {
-    // Load all rooms
     final allRooms = await _dataService.getRooms();
     
-    // Filter rooms cleaned by this staff member
     final myCleanedRooms = allRooms.where((r) => 
       r['cleaned_by'] == staffId || r['assigned_to'] == staffId
     ).toList();
     
-    // Calculate room stats
     int roomsCleanedToday = 0;
     int roomsCleanedWeek = 0;
     int roomsNeedCleaning = 0;
@@ -526,19 +506,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       final status = room['status']?.toString().toLowerCase();
       final cleanedAt = room['last_cleaned']?.toString();
       
-      // Count occupied vs available
       if (status == 'Occupied') {
         roomsOccupied++;
       } else if (status == 'Vacant' || status == 'Dirty') {
         roomsAvailable++;
       }
       
-      // Count rooms needing cleaning
       if (status == 'dirty' || status == 'needs_cleaning') {
         roomsNeedCleaning++;
       }
       
-      // Count cleaned rooms by this staff
       if (cleanedAt != null && myCleanedRooms.any((r) => r['id'] == room['id'])) {
         try {
           final cleanedDate = DateTime.parse(cleanedAt);
@@ -852,7 +829,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Receptionist quick actions + booking stats
         if (userRole == AppRole.receptionist) ...[
           _buildReceptionistQuickActions(),
           const SizedBox(height: 16),
@@ -866,7 +842,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(height: 24),
         ],
         
-        // Show room stats for housekeeper/cleaner
         if (userRole == AppRole.housekeeper || userRole == AppRole.cleaner) ...[
           _buildRoomStats(),
           const SizedBox(height: 24),
@@ -874,7 +849,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(height: 24),
         ],
         
-        // Show sales stats for sales roles
         if (userRole == AppRole.vip_bartender ||
             userRole == AppRole.outside_bartender ||
             userRole == AppRole.receptionist ||
@@ -1779,7 +1753,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     );
   }
 
-  // Booking widgets for receptionist
   Widget _buildBookingStats() {
     return GridView.count(
       crossAxisCount: 2,
@@ -2128,7 +2101,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
   }
 
-  // Room widgets for housekeeper/cleaner
   Widget _buildRoomStats() {
     return GridView.count(
       crossAxisCount: 2,
@@ -2242,3 +2214,5 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     );
   }
 }
+
+

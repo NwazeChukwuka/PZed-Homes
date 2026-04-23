@@ -37,7 +37,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
   void initState() {
     super.initState();
     _loadData();
-    // Defer context-dependent check to post-frame; avoids heavy work on init thread
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkIfManagement());
   }
 
@@ -103,8 +102,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
       ...authService.activeAssumedRoles,
     };
 
-    // Management should NOT be able to record stock counts - they only review
-    // Storekeeper can record counts for Store location
     final isManagement = roles.contains(AppRole.owner) ||
         roles.contains(AppRole.manager) ||
         roles.contains(AppRole.supervisor);
@@ -153,7 +150,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
     try {
       List<Map<String, dynamic>> merged = [];
       
-      // Mini Mart uses mini_mart_items table, not stock_levels
       if (locationName.toLowerCase() == 'mini mart') {
         final miniMartItems = await _supabase
             .from('mini_mart_items')
@@ -168,7 +164,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
           };
         }).toList();
       } else {
-        // Other locations use stock_levels view
         final stockLevels = await _supabase
             .from('stock_levels')
             .select('id, name, current_stock, location_name')
@@ -244,7 +239,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
       
       final List<Map<String, dynamic>> countItems = [];
 
-      // Collect all items with counts (even if same as system quantity)
       for (var item in _stockItems) {
         final itemId = item['id'] as String;
         final qtyString = _controllers[itemId]?.text.trim() ?? '';
@@ -253,10 +247,8 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
           final countedQuantity = int.tryParse(qtyString) ?? 0;
           final systemQuantity = _previousCounts[itemId] ?? 0;
           
-          // For Mini Mart items, we need to find or create corresponding stock_item
           String stockItemId = itemId;
           if (isMiniMart) {
-            // Check if stock_item exists for this mini_mart_item
             final existingStockItem = await _supabase
                 .from('stock_items')
                 .select('id')
@@ -266,7 +258,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
             if (existingStockItem != null) {
               stockItemId = existingStockItem['id'] as String;
             } else {
-              // Create corresponding stock_item for mini_mart_item
               final newStockItem = await _supabase
                   .from('stock_items')
                   .insert({
@@ -282,7 +273,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
             }
           }
           
-          // Include all items that were counted (even if no change)
           countItems.add({
             'stock_item_id': stockItemId,
             'counted_quantity': countedQuantity,
@@ -301,7 +291,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         return;
       }
 
-      // Create pending stock count record
       final countDate = DateTime.now().toIso8601String().split('T')[0];
       final countResponse = await _supabase
           .from('pending_stock_counts')
@@ -317,7 +306,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
       final countId = countResponse['id'] as String;
 
-      // Insert count items with reference to the pending count
       final itemsToInsert = countItems.map((item) => <String, dynamic>{
         'stock_count_id': countId,
         'stock_item_id': item['stock_item_id'],
@@ -327,7 +315,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
       await _supabase.from('stock_count_items').insert(itemsToInsert);
 
-      // Insert custom items if any
       if (_customItems.isNotEmpty) {
         final customItemsToInsert = _customItems.map((item) => <String, dynamic>{
           'stock_count_id': countId,
@@ -346,7 +333,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         );
       }
 
-      // Clear controllers and reload data
       _controllers.forEach((key, value) => value.clear());
       setState(() {
         _customItems.clear();
@@ -474,7 +460,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Double safety: If management somehow reaches this screen, redirect immediately
     if (_isManagement) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -512,7 +497,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
         ),
         content: Column(
               children: [
-                // Header Section
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Card(
@@ -553,14 +537,12 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                   ),
                 ),
 
-                // Stock Items List
                 Expanded(
                   child: _isLoadingData
                       ? const Center(child: CircularProgressIndicator())
                       : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     children: [
-                      // Existing stock items
                       ..._stockItems.map((item) {
                         final itemId = item['id'] as String;
                         final unit = item['unit'] as String? ?? 'units';
@@ -607,7 +589,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                         );
                       }),
 
-                      // Custom Items Section
                       const SizedBox(height: 16),
                       Card(
                         color: Colors.blue.shade50,
@@ -673,7 +654,6 @@ class _DailyStockCountScreenState extends State<DailyStockCountScreen> {
                   ),
                 ),
 
-                // Submit Button
                 if (!_isLoadingData)
                   Padding(
                     padding: const EdgeInsets.all(16.0),

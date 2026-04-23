@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/data/models/user.dart';
 
-/// Global application state management
 class AppState extends ChangeNotifier {
   bool _isInitializing = true;
   bool _isLoading = false;
@@ -131,13 +130,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _checkNetworkStatus() async {
-    // TODO: Implement network connectivity check
     _isOnline = true;
   }
 
 }
 
-/// Role-based permissions helper
 class PermissionManager {
   static bool canAccess(AppRole userRole, String feature) {
     switch (feature) {
@@ -164,7 +161,6 @@ class PermissionManager {
           AppRole.vip_bartender,
           AppRole.outside_bartender,
           AppRole.kitchen_staff,
-          // Receptionists removed - they don't work with bars, use Kitchen screen for restaurant sales
         ].contains(userRole);
       
       case 'finance':
@@ -275,3 +271,5 @@ class PermissionManager {
     return features.where((feature) => canAccess(userRole, feature)).toList();
   }
 }
+
+

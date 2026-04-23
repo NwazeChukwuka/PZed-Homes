@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -114,8 +114,6 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     _loadForTab(_tabController.index, force: false);
   }
 
-  /// Loads data for the given tab. If [force] is false, only loads when that tab's
-  /// data is not yet loaded (cached). Force reload on explicit Refresh or after period change.
   void _loadForTab(int index, {bool force = false}) {
     final alreadyLoaded = switch (index) {
       0 => _plData != null,
@@ -1822,3 +1820,4 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
     );
   }
 }
+

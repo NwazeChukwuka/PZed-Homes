@@ -120,7 +120,6 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
             onPageChanged: _onPageChanged,
             itemBuilder: (context, index) {
               final item = widget.items[index];
-              // RepaintBoundary isolates each page from cross-page repaint cascades
               return RepaintBoundary(
                 child: item.isVideo
                     ? _buildVideoPlayer()
@@ -129,9 +128,7 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
             },
           ),
           
-          // Navigation Arrows
           if (widget.items.length > 1) ...[
-            // Left Arrow
             if (_currentIndex > 0)
               Positioned(
                 left: 16,
@@ -161,7 +158,6 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
                 ),
               ),
             
-            // Right Arrow
             if (_currentIndex < widget.items.length - 1)
               Positioned(
                 right: 16,
@@ -191,7 +187,6 @@ class _GalleryViewerScreenState extends State<GalleryViewerScreen> {
                 ),
               ),
             
-            // Page Indicator Dots
             Positioned(
               bottom: 20,
               left: 0,

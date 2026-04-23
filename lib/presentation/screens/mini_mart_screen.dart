@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,7 +45,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     }
   }
   
-  // Sales data
   List<Map<String, dynamic>> _miniMartItems = [];
   final List<Map<String, dynamic>> _currentSale = [];
   List<Map<String, dynamic>> _salesHistory = [];
@@ -56,20 +55,17 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   StateSetter? _miniMartSaleModalSetState;
   bool _dismissCreditSalesWarning = false;
   
-  // Customer info
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
   final _approvedByController = TextEditingController(); // For credit sales
   String _paymentMethod = 'Cash';
   
-  // Search
   final _searchController = TextEditingController();
   final ScrollController _currentSaleScrollController = ScrollController();
   final ScrollController _salesHistoryScrollController = ScrollController();
   List<Map<String, dynamic>> _filteredItems = [];
   Timer? _filterDebounce;
 
-  // Add Item (owner/manager)
   final _addItemNameController = TextEditingController();
   final _addItemPriceController = TextEditingController();
   final _addItemStockController = TextEditingController(text: '0');
@@ -78,7 +74,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   String _addItemCategory = 'Snacks';
   static const _miniMartCategories = ['Snacks', 'Drinks', 'Toiletries', 'Other'];
 
-  // Phase 4: Sales history pagination (load 50 per page, load more on scroll)
   static const int _salesHistoryPageSize = 50;
   int _salesHistoryOffset = 0;
   bool _salesHistoryHasMore = true;
@@ -102,7 +97,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     }
   }
 
-  /// Debounced: avoid filtering on every keystroke; reduces main-thread workload during typing.
   void _onSearchChanged() {
     _filterDebounce?.cancel();
     _filterDebounce = Timer(const Duration(milliseconds: 150), () {
@@ -113,7 +107,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Tab controller will be updated in build method via Consumer
   }
 
   @override
@@ -275,7 +268,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       final isManagement =
           user?.roles.any((r) => r == AppRole.owner || r == AppRole.manager) ?? false;
       final staffId = user?.id;
-      // Run independent fetches in parallel (Phase 1); Phase 4: initial page of sales history
       final results = await Future.wait([
         _dataService.getMiniMartItems(),
         _dataService.getMiniMartSales(
@@ -293,7 +285,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
           final priceKobo = (item['price'] as num?)?.toInt() ?? 0;
           return {
             ...item,
-            // Normalize to naira for all UI calculations/display
             'price': PaymentService.koboToNaira(priceKobo),
           };
         }).toList();
@@ -443,7 +434,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     _notifyMiniMartSaleProcessingChanged();
 
     try {
-      // Unified staff auth guard: require valid session for transactions
       final authService = Provider.of<AuthService>(context, listen: false);
       final userId = StaffAuthHelper.requireStaffProfileId(
         context,
@@ -471,20 +461,14 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       final customerPhone = _customerPhoneController.text.trim();
       final saleDateOnly = DateTime.now().toIso8601String().split('T')[0];
       
-      // Build atomic payload for one RPC call
       final unifiedItems = <Map<String, dynamic>>[];
       for (final saleItem in _currentSale) {
         final itemId = saleItem['id'] as String;
         final quantity = saleItem['quantity'] as int;
-        // Price from mini_mart_items is already in kobo (per schema)
-        // But UI displays in naira, so saleItem['price'] is in naira
-        // Convert naira to kobo for database storage
         final priceInNaira = (saleItem['price'] as num).toDouble();
         final priceInKobo = PaymentService.nairaToKobo(priceInNaira);
         final totalAmountInKobo = quantity * priceInKobo;
 
-        // CRITICAL: Validate stock availability and update atomically to prevent race conditions
-        // Use a single query with WHERE clause to ensure stock is still available
         final itemData = await _supabase
             .from('mini_mart_items')
             .select('stock_quantity, name, unit')
@@ -495,8 +479,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         final itemName = itemData['name'] as String? ?? 'Item';
         final unit = itemData['unit'] as String? ?? 'units';
         
-        // Check stock for warning (non-blocking)
-        // Sales are allowed even with zero/negative stock to accommodate delayed stock updates
         if (currentStock < quantity && mounted) {
           debugPrint('Warning: Low stock for $itemName. Available: $currentStock $unit, Requested: $quantity. Sale will proceed and may result in negative stock.');
         }
@@ -510,7 +492,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         });
       }
 
-      // Calculate total sale amount in kobo for debt/income records
       final saleTotalInKobo = (_saleTotal * 100).toInt();
 
       final unifiedRes = await _dataService.processUnifiedSale(
@@ -541,11 +522,9 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
       _saleLedgerSessionId = null;
       final firstSaleId = unifiedRes['first_sale_id']?.toString();
 
-      // Capture receipt data before clearing
       final receiptItems = List<Map<String, dynamic>>.from(_currentSale);
       final receiptTotal = _saleTotal;
 
-      // If credit payment, record as debt (amount in kobo)
       if (_paymentMethod == 'Credit') {
         final debt = {
           'debtor_name': customerName,
@@ -995,7 +974,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
         final showAddItem = data.showAddItem;
         final tabCount = isReceptionist ? 3 : 2;
 
-        // Update tab controller if needed - schedule in post-frame to avoid mutation during build
         if (_tabController != null && _tabController!.length != tabCount) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -1446,7 +1424,6 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                           },
                         ),
                         
-                        // Show customer info fields only for credit payment
                         if (_paymentMethod == 'Credit')
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1998,3 +1975,5 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
     );
   }
 }
+
+

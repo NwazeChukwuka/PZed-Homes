@@ -14,14 +14,14 @@ import 'package:pzed_homes/core/navigation/app_router.dart';
 import 'package:pzed_homes/core/services/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+bool _supabaseReady = false;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (kIsWeb) {
-    // Use path URLs on web so auth fragments are not interpreted as route paths.
     usePathUrlStrategy();
   }
 
-  // Defer orientation lock - run in background so runApp is not blocked
   if (!kIsWeb) {
     unawaited(SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -31,49 +31,18 @@ Future<void> main() async {
     ]));
   }
 
-  // Get Supabase credentials from environment variables
-  // Vercel passes these via --dart-define flags in vercel_build.sh
   const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
   const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
-  
-  // Only log in debug mode to reduce production overhead
   if (kDebugMode) {
-    print('🔍 Config Check:');
+    print('Config check:');
     print('URL length: ${supabaseUrl.length}');
     print('Key length: ${supabaseAnonKey.length}');
     if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
       print('⚠️ Backend not configured. Please set required environment variables.');
     }
   }
-  
-  // Initialize Supabase before app start (with timeout to prevent blank screen)
-  // Use implicit auth flow so password reset links work cross-device: user can request
-  // reset on hotel PC and open the link on their phone; tokens are in the URL fragment.
-  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-    try {
-      await Supabase.initialize(
-        url: supabaseUrl,
-        anonKey: supabaseAnonKey,
-        authOptions: const FlutterAuthClientOptions(
-          authFlowType: AuthFlowType.implicit,
-        ),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Supabase initialization timed out');
-        },
-      );
-    } on TimeoutException catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG Supabase init timeout: $e\n$stack');
-      // Proceed - app can show offline/error state
-    } catch (e, stack) {
-      if (kDebugMode) debugPrint('DEBUG Supabase init: $e\n$stack');
-      // Proceed - app can show offline/error state
-    }
-  }
+  unawaited(_initializeSupabaseInBackground(supabaseUrl, supabaseAnonKey));
 
-  // PaymentService.initialize() runs in _AppStateManagerInitializer (non-blocking)
-  // so the UI renders immediately with a loading indicator if needed
   runApp(const PzedHomesApp());
 }
 
@@ -96,8 +65,6 @@ class PzedHomesApp extends StatelessWidget {
   }
 }
 
-/// Triggers AppStateManager.initialize() once when needed.
-/// Does not listen to providers; child rebuilds only from _ThemedMaterialApp.
 class _AppStateManagerInitializer extends StatefulWidget {
   final Widget child;
 
@@ -117,13 +84,7 @@ class _AppStateManagerInitializerState extends State<_AppStateManagerInitializer
       if (!stateManager.isInitialized && !stateManager.isLoading) {
         stateManager.initialize();
       }
-      // Initialize PaymentService in background (non-blocking)
-      unawaited(
-        PaymentService().initialize().catchError((e, stack) {
-          if (kDebugMode) debugPrint('DEBUG PaymentService init: $e\n$stack');
-          return;
-        }),
-      );
+      unawaited(_initializePaymentServiceWhenReady());
     });
   }
 
@@ -131,7 +92,41 @@ class _AppStateManagerInitializerState extends State<_AppStateManagerInitializer
   Widget build(BuildContext context) => widget.child;
 }
 
-/// Rebuilds only when theme (isDarkMode) or locale (language) changes.
+Future<void> _initializeSupabaseInBackground(String supabaseUrl, String supabaseAnonKey) async {
+  if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) return;
+  try {
+    await Supabase.initialize(
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(
+        authFlowType: AuthFlowType.implicit,
+      ),
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Supabase initialization timed out'),
+    );
+    _supabaseReady = true;
+  } on TimeoutException catch (e, stack) {
+    if (kDebugMode) debugPrint('DEBUG Supabase init timeout: $e\n$stack');
+  } catch (e, stack) {
+    if (kDebugMode) debugPrint('DEBUG Supabase init: $e\n$stack');
+  }
+}
+
+Future<void> _initializePaymentServiceWhenReady() async {
+  for (var i = 0; i < 20; i++) {
+    if (_supabaseReady) {
+      try {
+        await PaymentService().initialize();
+      } catch (e, stack) {
+        if (kDebugMode) debugPrint('DEBUG PaymentService init: $e\n$stack');
+      }
+      return;
+    }
+    await Future.delayed(const Duration(milliseconds: 300));
+  }
+}
+
 class _ThemedMaterialApp extends StatelessWidget {
   const _ThemedMaterialApp();
 

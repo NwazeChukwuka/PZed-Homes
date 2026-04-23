@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -17,7 +17,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pzed_homes/core/utils/file_download_helper.dart';
 
-/// Wraps a tab child to preserve state and isolate errors so one broken tab doesn't crash the whole screen.
 class _KeepAliveTab extends StatefulWidget {
   final Widget child;
 
@@ -38,7 +37,6 @@ class _KeepAliveTabState extends State<_KeepAliveTab> with AutomaticKeepAliveCli
   }
 }
 
-/// Builds tab content only when the tab is first selected (lazy loading).
 class _LazyTab extends StatefulWidget {
   final int index;
   final TabController controller;
@@ -90,9 +88,6 @@ class _LazyTabState extends State<_LazyTab> {
     if (!_hasBuiltOnce && widget.controller.index != widget.index) {
       return const SizedBox.shrink();
     }
-    // Important: do NOT cache the built widget instance.
-    // The finance screen relies on parent state updates (e.g. date range changes),
-    // so the tab content must be rebuilt to reflect the latest data.
     return _KeepAliveTab(child: widget.builder());
   }
 }
@@ -109,7 +104,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   late TabController _tabController;
   final DataService _dataService = DataService();
 
-  // Data lists
   List<Map<String, dynamic>> _debts = [];
   List<Map<String, dynamic>> _incomeRecords = [];
   List<Map<String, dynamic>> _expenses = [];
@@ -119,23 +113,18 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   Map<String, dynamic> _financialSummary = {};
   List<Map<String, dynamic>> _departmentPerformance = [];
   bool _isLoadingData = false;
-  /// True only after a successful load for the currently selected _summaryRange; keeps exports disabled until data matches range.
   bool _dataMatchesRange = false;
-  /// Non-null when last _loadFinancialData failed; shows banner and disables exports.
   String? _loadError;
-  /// Separate from _isLoadingData so export buttons show spinner while generating file.
   final ValueNotifier<bool> _isExporting = ValueNotifier<bool>(false);
   int _activeTabLoadToken = 0;
   DateTimeRange? _summaryRange;
   bool _showPendingExpenses = false;
-  /// Payroll tab list filter: all | pending | approved | rejected (client-side on loaded rows).
   String _payrollListFilter = 'all';
   bool _dismissPayrollConfigWarning = false;
   bool _showOverdueDebtsOnly = false;
   String? _auditFilterTable;
   String? _auditFilterAction;
 
-  // Controllers for debt recording
   final _debtAmountController = TextEditingController();
   final _debtorNameController = TextEditingController();
   final _debtorPhoneController = TextEditingController();
@@ -144,30 +133,25 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   String _debtorType = 'customer'; // Default to 'customer'
   String _debtDepartment = 'all'; // Default department
   
-  // Controllers for payment recording
   final _paymentAmountController = TextEditingController();
   final _paymentNotesController = TextEditingController();
   String _paymentMethod = 'cash';
   DateTime? _paymentDate;
 
-  // Controllers for income recording
   final _incomeAmountController = TextEditingController();
   final _incomeDescriptionController = TextEditingController();
   final _incomeSourceController = TextEditingController();
   String _incomePaymentMethod = 'cash';
 
-  // Controllers for expense recording
   final _expenseAmountController = TextEditingController();
   final _expenseDescriptionController = TextEditingController();
   final _expenseCategoryController = TextEditingController();
 
-  // Controllers for payroll recording
   final _staffIdController = TextEditingController();
   final _payrollAmountController = TextEditingController();
   final _payrollMonthController = TextEditingController();
   final _salaryAmountController = TextEditingController();
 
-  // Finance form state
   final List<Map<String, dynamic>> _staffProfiles = [];
   String? _selectedPayrollStaffId;
   String? _selectedSalaryStaffId;
@@ -178,7 +162,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   String _incomeDepartment = 'finance';
   DateTime? _selectedDebtDueDate;
 
-  // Controllers for cash deposit recording
   final _depositAmountController = TextEditingController();
   final _bankChargesController = TextEditingController();
   final _bankNameController = TextEditingController();
@@ -197,7 +180,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       end: DateTime(now.year, now.month + 1, 0),
     );
     _tabController.addListener(_onTabChanged);
-    // Load only the visible tab (Overview) initially
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadDataForTab(0);
     });
@@ -216,7 +198,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     return PaymentService.koboToNaira(value.toInt()).toStringAsFixed(2);
   }
 
-  /// Non-blocking UI guard: warn if any payroll row already exists for this staff + month (any approval status).
   Future<void> _maybeShowDuplicatePayrollWarning() async {
     final staffId = _selectedPayrollStaffId;
     final month = _selectedPayrollMonth;
@@ -241,7 +222,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         );
       }
     } catch (_) {
-      // Silently ignore; this is best-effort warning only.
     }
   }
 
@@ -367,7 +347,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     super.dispose();
   }
 
-  /// Loads only the data required for the given tab index (0=Overview, 1=Debt, 2=Income, 3=Expenses, 4=Payroll, 5=Cash Deposits, 6=Audit).
   Future<void> _loadDataForTab(int index) async {
     if (!mounted) return;
     final loadToken = ++_activeTabLoadToken;
@@ -534,7 +513,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     });
   }
 
-  /// Loads income, expenses, debts, payroll, deposits, audit for export (PDF/CSV). Does not set _isLoadingData.
   Future<void> _loadDataForExport() async {
     final range = _effectiveSummaryRange;
     final results = await Future.wait([
@@ -566,9 +544,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final isOwnerOrManager = user?.roles.any((r) => r.name == 'owner' || r.name == 'manager') ?? false;
     final canApprove = isOwnerOrManager || isAccountant || isAssumedAccountant;
 
-    // Owner, manager, and accountant can record (expenses, income, debts, etc.); no need to assume role
     final canRecord = isOwnerOrManager || isAccountant || isAssumedAccountant;
-    // Set monthly gross (staff salary) restricted to Owner/Manager only (same as price edits).
     final canSetMonthlyGross = isOwnerOrManager;
     final roleKey = ValueKey('$canRecord-$canApprove-$canSetMonthlyGross');
 
@@ -576,7 +552,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       topSection: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Green header (no AppBar - avoids duplicate hamburger from MainScreen drawer)
           Material(
             color: Colors.green[700],
             elevation: 4,
@@ -615,7 +590,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               ),
             ),
           ),
-          // 2. TabBar in its own white container (matches Inventory/Mini Mart)
           Container(
             color: Colors.white,
             decoration: BoxDecoration(
@@ -654,7 +628,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               },
             ),
           ),
-          // 3. Date range strip (visible on all tabs, below tab row)
           _buildSummaryRangeStrip(),
         ],
       ),
@@ -850,13 +823,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  /// Compares only calendar date parts (ignores time-of-day).
   bool _isSameDate(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  /// Compact date range strip shown below the tab row on all tabs.
-  /// One row on desktop (width >= 600), two rows on mobile.
   Widget _buildSummaryRangeStrip() {
     final now = DateTime.now();
     final defaultStart = DateTime(now.year, now.month, 1);
@@ -1340,7 +1310,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 label: const Text('Record New Debt'),
               ),
             ),
-          // Pending payment approvals section
           if (_debtPaymentClaims.isNotEmpty) ...[
             Text(
               'Pending Payment Approvals',
@@ -1408,7 +1377,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             }),
             const SizedBox(height: 24),
           ],
-          // Debt list section
           Row(
             children: [
               Text(
@@ -1649,7 +1617,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Widget _buildPayrollTab(bool canRecord, bool canApprove, bool canSetMonthlyGross) {
-    // Salary configuration health check: find active staff with no monthly gross and no payroll for current month.
     final now = DateTime.now();
     final currentMonthPrefix = '${now.year}-${now.month.toString().padLeft(2, '0')}';
     final staffNeedingConfig = _staffProfiles.where((p) {
@@ -2091,7 +2058,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  // Dialog methods
   void _showAddDebtDialog() {
     _debtorType = 'customer';
     _debtDepartment = 'all';
@@ -2675,7 +2641,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  // Save methods
   Future<bool> _saveIncomeRecord() async {
     final description = _incomeDescriptionController.text.trim();
     if (description.isEmpty) {
@@ -2745,7 +2710,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   Future<bool> _saveExpense() async {
-    // Validation: description not empty
     final description = _expenseDescriptionController.text.trim();
     if (description.isEmpty) {
       if (mounted) {
@@ -2759,7 +2723,6 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       return false;
     }
 
-    // Validation: amount valid and greater than zero
     final amountInNaira = double.tryParse(_expenseAmountController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
@@ -3521,3 +3484,5 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
 }
+
+

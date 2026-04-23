@@ -12,16 +12,15 @@ class AuthGate extends StatelessWidget {
     return Consumer<AuthService>(
       child: const SizedBox.shrink(),
       builder: (context, authService, child) {
-        // If user is logged in, show main screen
         if (authService.currentUser != null) {
           return MainScreen(child: child ?? const SizedBox.shrink());
         }
-        // Otherwise, show login screen
         return const LoginScreen();
       },
     );
   }
 }
+
 
 
 

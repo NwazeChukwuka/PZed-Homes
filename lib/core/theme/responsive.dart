@@ -211,7 +211,6 @@ class ResponsiveText extends StatelessWidget {
       builder: (context, breakpoint) {
         TextStyle responsiveStyle = style ?? Theme.of(context).textTheme.bodyMedium!;
         
-        // Scale font size based on screen size
         double scaleFactor = 1.0;
         switch (breakpoint) {
           case ResponsiveBreakpoint.mobile:
@@ -241,3 +240,4 @@ class ResponsiveText extends StatelessWidget {
     );
   }
 }
+

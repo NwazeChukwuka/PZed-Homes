@@ -32,11 +32,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _fetchCategoriesAndDepartments() async {
-    // Mock lists for presentation
     setState(() {
       _categories = [
         'utilities',
-        // Salaries: use Finance → Payroll (approved rows), not a manual expense here.
         'maintenance',
         'supplies',
         'others',
@@ -74,7 +72,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         throw Exception('Invalid amount format');
       }
 
-      // Persist to mock storage via DataService
       await _dataService.addExpense({
         'id': 'exp_${DateTime.now().millisecondsSinceEpoch}',
         'description': _descriptionController.text,
