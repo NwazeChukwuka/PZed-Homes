@@ -25,6 +25,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   final _supabase = Supabase.instance.client;
   Map<String, dynamic>? _performanceData;
   bool _isLoadingPerformance = false;
+  bool _isLoadingTransferConfig = false;
+  List<Map<String, dynamic>> _transferAccounts = [];
+  int _transferDisplayCount = 1;
+  String _transferSupportPhone = '+2348157505978';
 
   String? _currentProfileId;
 
@@ -33,6 +37,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     super.initState();
     _currentProfileId = widget.userProfile['id'] as String?;
     _loadUserPermissions();
+    _loadTransferConfig();
   }
 
   @override
@@ -76,6 +81,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           _isLoadingPermissions = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadTransferConfig() async {
+    setState(() => _isLoadingTransferConfig = true);
+    try {
+      final config = await PaymentService().getTransferConfig();
+      if (!mounted) return;
+      setState(() {
+        _transferAccounts = List<Map<String, dynamic>>.from(
+          config['accounts'] as List? ?? const [],
+        );
+        _transferDisplayCount = (config['display_count'] as int? ?? 1).clamp(1, 10);
+        _transferSupportPhone =
+            config['support_phone']?.toString().trim().isNotEmpty == true
+                ? config['support_phone'].toString().trim()
+                : '+2348157505978';
+        _isLoadingTransferConfig = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoadingTransferConfig = false);
+      ErrorHandler.handleError(
+        context,
+        e,
+        customMessage: 'Failed to load transfer account settings.',
+      );
     }
   }
 
@@ -713,6 +745,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     const SizedBox(height: 24),
                   ],
 
+                  if (isOwner && viewingSelf) ...[
+                    _buildTransferSettingsCard(),
+                    const SizedBox(height: 24),
+                  ],
+
                   // Permission Delegation Section (Owner only)
                   if (isOwner && !viewingSelf) ...[
                     _buildPermissionsCard(isOwner: true),
@@ -768,6 +805,333 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildTransferSettingsCard() {
+    final sortedAccounts = List<Map<String, dynamic>>.from(_transferAccounts)
+      ..sort((a, b) =>
+          (int.tryParse(a['priority']?.toString() ?? '') ?? 0).compareTo(
+            int.tryParse(b['priority']?.toString() ?? '') ?? 0,
+          ));
+    final activeAccounts = sortedAccounts.where((a) => a['active'] == true).toList();
+    final visibleAccounts =
+        activeAccounts.take(_transferDisplayCount.clamp(1, 10)).toList();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Guest Transfer Account Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _isLoadingTransferConfig
+                      ? null
+                      : _showTransferSettingsDialog,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Manage'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Configure your bank accounts for guest transfer payments. '
+              'Guests will see active accounts by priority.',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 12),
+            if (_isLoadingTransferConfig)
+              const Center(child: CircularProgressIndicator())
+            else ...[
+              _buildInfoRow('Active Accounts', '${activeAccounts.length}/10'),
+              _buildInfoRow('Displayed to Guests', visibleAccounts.length.toString()),
+              _buildInfoRow('Support Phone', _transferSupportPhone),
+              if (visibleAccounts.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Current Guest-Facing Accounts',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                ...visibleAccounts.map(
+                  (account) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(account['bank_name']?.toString() ?? 'Bank'),
+                    subtitle: Text(
+                      '${account['account_name']?.toString() ?? ''} • '
+                      '${account['account_number']?.toString() ?? ''}',
+                    ),
+                    trailing: Text(
+                      'P${int.tryParse(account['priority']?.toString() ?? '') ?? 0}',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTransferSettingsDialog() async {
+    final editable = _transferAccounts
+        .map(
+          (account) => <String, dynamic>{
+            'bank_name': account['bank_name']?.toString() ?? '',
+            'account_name': account['account_name']?.toString() ?? '',
+            'account_number': account['account_number']?.toString() ?? '',
+            'priority': int.tryParse(account['priority']?.toString() ?? '') ?? 0,
+            'active': account['active'] == true,
+          },
+        )
+        .toList();
+    int displayCount = _transferDisplayCount.clamp(1, 10);
+    final supportPhoneController = TextEditingController(text: _transferSupportPhone);
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Manage Transfer Accounts'),
+              content: SizedBox(
+                width: 760,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'You can configure up to 10 accounts. Lower priority values appear first.',
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: supportPhoneController,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Support Phone (for request info fallback)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<int>(
+                        initialValue: displayCount.clamp(1, 10),
+                        decoration: const InputDecoration(
+                          labelText: 'How many active accounts guests should see',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: List.generate(
+                          10,
+                          (index) => DropdownMenuItem<int>(
+                            value: index + 1,
+                            child: Text((index + 1).toString()),
+                          ),
+                        ),
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setDialogState(() => displayCount = value);
+                              },
+                      ),
+                      const SizedBox(height: 12),
+                      ...editable.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final account = entry.value;
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Account ${index + 1}',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: account['active'] == true,
+                                      onChanged: saving
+                                          ? null
+                                          : (value) => setDialogState(
+                                                () => account['active'] = value,
+                                              ),
+                                    ),
+                                    IconButton(
+                                      onPressed: saving
+                                          ? null
+                                          : () => setDialogState(
+                                                () => editable.removeAt(index),
+                                              ),
+                                      icon: const Icon(Icons.delete_outline),
+                                      tooltip: 'Remove account',
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: account['bank_name']?.toString() ?? '',
+                                  enabled: !saving,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Bank Name',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onChanged: (value) => account['bank_name'] = value,
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: account['account_name']?.toString() ?? '',
+                                  enabled: !saving,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Account Holder Name',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onChanged: (value) => account['account_name'] = value,
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: account['account_number']?.toString() ?? '',
+                                  enabled: !saving,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Account Number',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (value) => account['account_number'] = value,
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: '${account['priority'] ?? 0}',
+                                  enabled: !saving,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Priority (lower shows first)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (value) {
+                                    account['priority'] = int.tryParse(value) ?? 0;
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: saving || editable.length >= 10
+                              ? null
+                              : () {
+                                  setDialogState(
+                                    () => editable.add({
+                                      'bank_name': '',
+                                      'account_name': '',
+                                      'account_number': '',
+                                      'priority': editable.length,
+                                      'active': true,
+                                    }),
+                                  );
+                                },
+                          icon: const Icon(Icons.add),
+                          label: Text(
+                            editable.length >= 10
+                                ? 'Maximum 10 accounts reached'
+                                : 'Add Account',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final activeCount =
+                              editable.where((account) => account['active'] == true).length;
+                          if (activeCount == 0) {
+                            ErrorHandler.showWarningMessage(
+                              dialogContext,
+                              'Please keep at least one active account.',
+                            );
+                            return;
+                          }
+
+                          final invalid = editable.any((account) {
+                            if (account['active'] != true) return false;
+                            final bank = account['bank_name']?.toString().trim() ?? '';
+                            final holder = account['account_name']?.toString().trim() ?? '';
+                            final number = account['account_number']?.toString().trim() ?? '';
+                            return bank.isEmpty || holder.isEmpty || number.isEmpty;
+                          });
+                          if (invalid) {
+                            ErrorHandler.showWarningMessage(
+                              dialogContext,
+                              'Fill bank name, account holder, and account number for active accounts.',
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => saving = true);
+                          try {
+                            await PaymentService().saveTransferConfig(
+                              accounts: editable,
+                              displayCount: displayCount,
+                              supportPhone: supportPhoneController.text.trim(),
+                            );
+                            if (!mounted || !dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                            await _loadTransferConfig();
+                            if (mounted) {
+                              ErrorHandler.showSuccessMessage(
+                                this.context,
+                                'Transfer account settings updated.',
+                              );
+                            }
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => saving = false);
+                              ErrorHandler.handleError(
+                                dialogContext,
+                                e,
+                                customMessage:
+                                    'Failed to save transfer account settings.',
+                              );
+                            }
+                          }
+                        },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    supportPhoneController.dispose();
   }
 
   // Permission Delegation Card (for Owners managing other users)

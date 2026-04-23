@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +20,9 @@ class PaymentService {
   PaymentService._internal();
 
   bool _isInitialized = false;
+  static const String _transferAccountsKey = 'transfer_bank_accounts';
+  static const String _transferDisplayCountKey = 'transfer_display_count';
+  static const String _transferSupportPhoneKey = 'transfer_support_phone';
 
   /// Initialize by fetching Paystack config from Supabase app_config table.
   /// Payment is configured when paystack_public_key is set in Supabase.
@@ -167,5 +171,122 @@ class PaymentService {
   /// Convert kobo to naira
   static double koboToNaira(int kobo) {
     return kobo / 100.0;
+  }
+
+  Future<Map<String, dynamic>> getTransferConfig() async {
+    List<Map<String, dynamic>> rows = [];
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('app_config')
+          .select('key, value')
+          .inFilter('key', [
+            _transferAccountsKey,
+            _transferDisplayCountKey,
+            _transferSupportPhoneKey,
+            'paystack_public_key',
+          ]);
+      rows = List<Map<String, dynamic>>.from(response as List);
+    } catch (_) {
+      // Backward-safe defaults when app_config is missing or inaccessible.
+      rows = [];
+    }
+
+    String valueFor(String key) {
+      final row = rows.cast<Map<String, dynamic>?>().firstWhere(
+            (r) => (r?['key']?.toString() ?? '') == key,
+            orElse: () => null,
+          );
+      return row?['value']?.toString() ?? '';
+    }
+
+    final rawAccounts = valueFor(_transferAccountsKey);
+    final List<Map<String, dynamic>> accounts = [];
+    if (rawAccounts.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawAccounts);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              accounts.add({
+                'bank_name': item['bank_name']?.toString() ?? '',
+                'account_name': item['account_name']?.toString() ?? '',
+                'account_number': item['account_number']?.toString() ?? '',
+                'priority': int.tryParse(item['priority']?.toString() ?? '') ?? 0,
+                'active': item['active'] == true,
+              });
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    accounts.sort((a, b) => (a['priority'] as int).compareTo(b['priority'] as int));
+
+    final displayCount = int.tryParse(valueFor(_transferDisplayCountKey)) ?? 1;
+    final supportPhone = valueFor(_transferSupportPhoneKey).isEmpty
+        ? '+2348157505978'
+        : valueFor(_transferSupportPhoneKey);
+    final paystackConfigured = valueFor('paystack_public_key').trim().isNotEmpty;
+
+    return {
+      'accounts': accounts,
+      'display_count': displayCount.clamp(1, 10),
+      'support_phone': supportPhone,
+      'paystack_configured': paystackConfigured,
+    };
+  }
+
+  Future<void> saveTransferConfig({
+    required List<Map<String, dynamic>> accounts,
+    required int displayCount,
+    String? supportPhone,
+  }) async {
+    final normalized = accounts
+        .take(10)
+        .map((a) => {
+              'bank_name': a['bank_name']?.toString().trim() ?? '',
+              'account_name': a['account_name']?.toString().trim() ?? '',
+              'account_number': a['account_number']?.toString().trim() ?? '',
+              'priority': int.tryParse(a['priority']?.toString() ?? '') ?? 0,
+              'active': a['active'] == true,
+            })
+        .toList();
+
+    await _saveConfigValue(_transferAccountsKey, jsonEncode(normalized));
+    await _saveConfigValue(
+      _transferDisplayCountKey,
+      displayCount.clamp(1, 10).toString(),
+    );
+    if (supportPhone != null && supportPhone.trim().isNotEmpty) {
+      await _saveConfigValue(_transferSupportPhoneKey, supportPhone.trim());
+    }
+  }
+
+  Future<void> _saveConfigValue(String key, String value) async {
+    final supabase = Supabase.instance.client;
+    final updated = await supabase
+        .from('app_config')
+        .update({
+          'value': value,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('key', key)
+        .select('key')
+        .limit(1);
+
+    if ((updated as List).isEmpty) {
+      try {
+        await supabase.from('app_config').insert({'key': key, 'value': value});
+      } catch (_) {
+        // Handle race where another writer inserted the same key.
+        await supabase
+            .from('app_config')
+            .update({
+              'value': value,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('key', key);
+      }
+    }
   }
 }

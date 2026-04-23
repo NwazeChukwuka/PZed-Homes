@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:pzed_homes/core/error/error_handler.dart';
 import 'package:pzed_homes/core/services/auth_service.dart';
 import 'package:pzed_homes/core/theme/responsive_helpers.dart';
@@ -31,6 +33,12 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
   String? _paymentReference;
   static const String _termsVersion = 'v1';
   bool _loggedInGuestPrefillScheduled = false;
+  bool _isLoadingTransferConfig = false;
+  bool _usePaystack = false;
+  bool _paystackConfigured = false;
+  int _transferDisplayCount = 1;
+  String _supportPhone = '+2348157505978';
+  List<Map<String, dynamic>> _transferAccounts = [];
   /// Name and email from profile; read-only for logged-in guests.
   bool _lockedNameAndEmail = false;
   /// Phone read-only when loaded from profile and non-empty.
@@ -56,6 +64,7 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     };
     checkInDate = DateTime.now();
     checkOutDate = DateTime.now().add(const Duration(days: 1));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTransferConfig());
   }
 
   @override
@@ -153,14 +162,46 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
     return checkOutDate.difference(checkInDate).inDays;
   }
 
-  Future<void> _handlePayment() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _loadTransferConfig() async {
+    setState(() => _isLoadingTransferConfig = true);
+    try {
+      final config = await PaymentService().getTransferConfig();
+      if (!mounted) return;
+      final accounts = List<Map<String, dynamic>>.from(config['accounts'] as List? ?? const []);
+      final active = accounts.where((a) => a['active'] == true).toList()
+        ..sort((a, b) {
+          final ap = int.tryParse(a['priority']?.toString() ?? '') ?? 0;
+          final bp = int.tryParse(b['priority']?.toString() ?? '') ?? 0;
+          return ap.compareTo(bp);
+        });
+      setState(() {
+        _transferAccounts = active;
+        _transferDisplayCount = (config['display_count'] as int? ?? 1).clamp(1, 10);
+        _supportPhone =
+            config['support_phone']?.toString().trim().isNotEmpty == true
+                ? config['support_phone'].toString().trim()
+                : '+2348157505978';
+        _paystackConfigured = config['paystack_configured'] == true;
+        _isLoadingTransferConfig = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _transferAccounts = [];
+        _paystackConfigured = false;
+        _isLoadingTransferConfig = false;
+      });
+    }
+  }
+
+  Future<bool> _validateCheckoutInputs() async {
+    if (!_formKey.currentState!.validate()) return false;
     if (!_termsAccepted) {
       ErrorHandler.showWarningMessage(
         context,
         'Please accept the terms and cancellation policy to continue.',
       );
-      return;
+      return false;
     }
 
     // Check if Supabase is initialized
@@ -168,6 +209,20 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       ErrorHandler.handleError(
         context,
         Exception('Service is currently unavailable. Please try again later.'),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _handlePayment() async {
+    final canProceed = await _validateCheckoutInputs();
+    if (!mounted) return;
+    if (!canProceed) return;
+    if (!_usePaystack && _transferAccounts.isEmpty) {
+      ErrorHandler.showWarningMessage(
+        context,
+        'No transfer accounts are available yet. Please request account information first.',
       );
       return;
     }
@@ -178,34 +233,43 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       // 1. Use guest account only if already logged in
       final guestProfileId = _supabase!.auth.currentUser?.id;
 
-      // 2. Generate payment reference before booking creation
-      final paymentService = PaymentService();
-      if (!paymentService.isInitialized) {
-        throw Exception('Payment system is not configured. Please contact support.');
-      }
-      _paymentReference ??= paymentService.generateReference();
+      if (_usePaystack) {
+        final paymentService = PaymentService();
+        if (!paymentService.isInitialized) {
+          throw Exception('Paystack is not configured. Use bank transfer or contact support.');
+        }
+        _paymentReference ??= paymentService.generateReference();
 
-      // 2. Create booking atomically with availability check using database function
-      // This prevents race conditions by performing availability check and booking creation
-      // in a single database transaction
-      final bookingId = await _createPendingBookingAtomically(guestProfileId);
-
-      // 4. Process payment with Paystack
-      final paymentSuccess = await _processPayment(bookingId);
-      
-      if (paymentSuccess) {
-        // 5. Update booking status to Pending Check-in (room will be assigned by receptionist)
-        await _confirmBooking(bookingId);
-        final refText = _paymentReference == null ? '' : ' Reference: $_paymentReference';
-        _showSuccess(
-          'Payment successful! Your booking is confirmed. A room will be assigned when you arrive.$refText',
+        final bookingId = await _createPendingBookingAtomically(
+          guestProfileId,
+          paymentMethod: 'paystack',
+          paymentProvider: 'paystack',
+          paidAmount: 0,
         );
-      } else {
-        // Payment failed - delete the pending booking
-        await _supabase!.from('bookings').delete().eq('id', bookingId);
-        _showError('Payment failed. Please try again.');
-      }
 
+        final paymentSuccess = await _processPayment(bookingId);
+        if (paymentSuccess) {
+          await _confirmBooking(bookingId);
+          final refText = _paymentReference == null ? '' : ' Reference: $_paymentReference';
+          _showSuccess(
+            'Payment successful! Your booking is confirmed. A room will be assigned when you arrive.$refText',
+          );
+        } else {
+          await _supabase!.from('bookings').delete().eq('id', bookingId);
+          _showError('Payment failed. Please try again.');
+        }
+      } else {
+        _paymentReference = PaymentService().generateReference();
+        await _createPendingBookingAtomically(
+          guestProfileId,
+          paymentMethod: 'bank_transfer_pending',
+          paymentProvider: 'manual_transfer',
+          paidAmount: 0,
+        );
+        _showSuccess(
+          'Transfer declaration received. Please keep your transfer receipt and present it at reception for room assignment.',
+        );
+      }
     } catch (e, stackTrace) {
       if (kDebugMode) debugPrint('DEBUG _handlePayment: $e\n$stackTrace');
       if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
@@ -218,7 +282,12 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
 
   // NEW: Use atomic database function to prevent race conditions
   // This function atomically checks room availability and creates the booking
-  Future<String> _createPendingBookingAtomically(String? guestProfileId) async {
+  Future<String> _createPendingBookingAtomically(
+    String? guestProfileId, {
+    required String paymentMethod,
+    required String paymentProvider,
+    required int paidAmount,
+  }) async {
     if (_supabase == null) {
       throw Exception('Service is currently unavailable. Please try again later.');
     }
@@ -239,10 +308,10 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
           'p_check_in_date': checkInDate.toIso8601String().split('T')[0],
           'p_check_out_date': checkOutDate.toIso8601String().split('T')[0],
           'p_total_amount': _totalPriceInKobo, // Already in kobo
-          'p_paid_amount': 0, // Will be updated after successful payment
-          'p_payment_method': 'paystack', // Will be updated after payment
+          'p_paid_amount': paidAmount,
+          'p_payment_method': paymentMethod,
           'p_payment_reference': _paymentReference,
-          'p_payment_provider': 'paystack',
+          'p_payment_provider': paymentProvider,
           'p_guest_name': guestName,
           'p_guest_email': guestEmail,
           'p_guest_phone': guestPhone.isNotEmpty ? guestPhone : null,
@@ -260,6 +329,110 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
       }
       rethrow;
     }
+  }
+
+  Future<void> _handleCouldNotTransfer() async {
+    final canProceed = await _validateCheckoutInputs();
+    if (!mounted) return;
+    if (!canProceed) return;
+
+    String reason = 'Bank app/network issue';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Could Not Make Transfer'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Select the reason so we can improve payment support:'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: reason,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Reason',
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Bank app/network issue', child: Text('Bank app/network issue')),
+                    DropdownMenuItem(value: 'Transfer limit exceeded', child: Text('Transfer limit exceeded')),
+                    DropdownMenuItem(value: 'Insufficient balance', child: Text('Insufficient balance')),
+                    DropdownMenuItem(value: 'Did not trust transfer option', child: Text('Did not trust transfer option')),
+                    DropdownMenuItem(value: 'Other', child: Text('Other')),
+                  ],
+                  onChanged: (value) => setDialogState(() => reason = value ?? reason),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Close')),
+              ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Submit')),
+            ],
+          );
+        },
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final guestProfileId = _supabase!.auth.currentUser?.id;
+      _paymentReference = PaymentService().generateReference();
+      final bookingId = await _createPendingBookingAtomically(
+        guestProfileId,
+        paymentMethod: 'bank_transfer_unpaid',
+        paymentProvider: 'manual_transfer',
+        paidAmount: 0,
+      );
+      try {
+        await _supabase!.rpc(
+          'update_booking_lifecycle_status',
+          params: {
+            'p_booking_id': bookingId,
+            'p_new_status': 'Cancelled',
+            'p_reason': 'Transfer not made: $reason',
+          },
+        );
+        await _supabase!.from('bookings').update({
+          'notes': 'Transfer not made reason: $reason',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', bookingId);
+      } catch (_) {
+        await _supabase!.from('bookings').update({
+          'status': 'Cancelled',
+          'notes': 'Transfer not made reason: $reason',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', bookingId);
+      }
+      _showSuccess('Thanks for your feedback. You can retry booking when ready.');
+    } catch (e, stackTrace) {
+      if (kDebugMode) debugPrint('DEBUG _handleCouldNotTransfer: $e\n$stackTrace');
+      if (mounted) ErrorHandler.handleError(context, e, stackTrace: stackTrace);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _copyAccountNumber(String accountNumber) async {
+    await Clipboard.setData(ClipboardData(text: accountNumber));
+    if (!mounted) return;
+    ErrorHandler.showSuccessMessage(context, 'Account number copied.');
+  }
+
+  Future<void> _requestAccountInformation() async {
+    final normalized = _supportPhone.trim();
+    final uri = Uri.parse('tel:$normalized');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      return;
+    }
+    if (!mounted) return;
+    ErrorHandler.showWarningMessage(
+      context,
+      'No account details configured. Please contact hotel support: $normalized',
+    );
   }
 
   Future<bool> _processPayment(String bookingId) async {
@@ -641,6 +814,73 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                 desktop: 32,
               )),
 
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Bank Transfer (Primary Option)',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Make transfer to one of the accounts below, then tap "I have made the transfer". '
+                        'Please keep your transfer receipt and present it at reception so your room can be assigned.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey[700],
+                            ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (_isLoadingTransferConfig)
+                        const Center(child: CircularProgressIndicator())
+                      else if (_transferAccounts.isEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'No transfer account details are currently available.',
+                              style: TextStyle(color: Colors.orange),
+                            ),
+                            const SizedBox(height: 10),
+                            OutlinedButton.icon(
+                              onPressed: _requestAccountInformation,
+                              icon: const Icon(Icons.call),
+                              label: const Text('Request account information'),
+                            ),
+                          ],
+                        )
+                      else
+                        ..._transferAccounts
+                            .take(_transferDisplayCount.clamp(1, 10))
+                            .map(
+                              (account) => Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(account['bank_name']?.toString() ?? 'Bank'),
+                                  subtitle: Text(
+                                    '${account['account_name']?.toString() ?? ''}\n'
+                                    '${account['account_number']?.toString() ?? ''}',
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: IconButton(
+                                    tooltip: 'Copy account number',
+                                    icon: const Icon(Icons.copy),
+                                    onPressed: () => _copyAccountNumber(
+                                      account['account_number']?.toString() ?? '',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ],
+                  ),
+                ),
+              ),
+
                     SizedBox(height: ResponsiveHelper.getResponsiveValue(
                       context,
                       mobile: 20,
@@ -671,41 +911,20 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                     )),
                     
                     // Payment methods
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.credit_card,
-                          size: ResponsiveHelper.getResponsiveValue(
-                            context,
-                            mobile: 14,
-                            tablet: 16,
-                            desktop: 16,
-                          ),
-                          color: Colors.grey,
-                        ),
-                        SizedBox(width: ResponsiveHelper.getResponsiveValue(
+                    Text(
+                      _paystackConfigured
+                          ? 'Bank Transfer • Optional Paystack'
+                          : 'Bank Transfer',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey,
+                        fontSize: ResponsiveHelper.getResponsiveFontSize(
                           context,
-                          mobile: 4,
-                          tablet: 4,
-                          desktop: 4,
-                        )),
-                        Flexible(
-                          child: Text(
-                            'Card • Bank Transfer • USSD',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey,
-                              fontSize: ResponsiveHelper.getResponsiveFontSize(
-                                context,
-                                mobile: 11,
-                                tablet: 12,
-                                desktop: 13,
-                              ),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
+                          mobile: 11,
+                          tablet: 12,
+                          desktop: 13,
                         ),
-                      ],
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                     
                     // Bottom padding to ensure content is scrollable above button
@@ -762,56 +981,70 @@ class _GuestBookingScreenState extends State<GuestBookingScreen> {
                       ),
                     ],
                   ),
+                  if (_paystackConfigured)
+                    SwitchListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Use Paystack instead'),
+                      subtitle: const Text('Turn on to pay instantly with card/USSD'),
+                      value: _usePaystack,
+                      onChanged: _isLoading
+                          ? null
+                          : (value) => setState(() => _usePaystack = value),
+                    ),
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _handlePayment,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[700],
-                              foregroundColor: Colors.white,
-                              padding: ResponsiveHelper.getResponsivePadding(
-                                context,
-                                mobile: const EdgeInsets.symmetric(vertical: 14),
-                                tablet: const EdgeInsets.symmetric(vertical: 16),
-                                desktop: const EdgeInsets.symmetric(vertical: 18),
-                              ),
-                              textStyle: TextStyle(
-                                fontSize: ResponsiveHelper.getResponsiveFontSize(
-                                  context,
-                                  mobile: 16,
-                                  tablet: 18,
-                                  desktop: 20,
-                                ),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.lock,
-                                  size: ResponsiveHelper.getResponsiveValue(
+                      : _usePaystack
+                          ? SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _handlePayment,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green[700],
+                                  foregroundColor: Colors.white,
+                                  padding: ResponsiveHelper.getResponsivePadding(
                                     context,
-                                    mobile: 18,
-                                    tablet: 20,
-                                    desktop: 22,
+                                    mobile: const EdgeInsets.symmetric(vertical: 14),
+                                    tablet: const EdgeInsets.symmetric(vertical: 16),
+                                    desktop: const EdgeInsets.symmetric(vertical: 18),
+                                  ),
+                                  textStyle: TextStyle(
+                                    fontSize: ResponsiveHelper.getResponsiveFontSize(
+                                      context,
+                                      mobile: 16,
+                                      tablet: 18,
+                                      desktop: 20,
+                                    ),
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                SizedBox(width: ResponsiveHelper.getResponsiveValue(
-                                  context,
-                                  mobile: 6,
-                                  tablet: 8,
-                                  desktop: 8,
-                                )),
-                                Flexible(
-                                  child: Text('Pay ${currencyFormatter.format(_totalPriceInNaira)}'),
+                                child: Text('Pay ${currencyFormatter.format(_totalPriceInNaira)}'),
+                              ),
+                            )
+                          : Column(
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _handlePayment,
+                                    icon: const Icon(Icons.verified_user),
+                                    label: const Text('I have made the transfer'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green[700],
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: _handleCouldNotTransfer,
+                                    child: const Text("I couldn't make the transfer"),
+                                  ),
                                 ),
                               ],
                             ),
-                          ),
-                        ),
                 ],
               ),
             ),

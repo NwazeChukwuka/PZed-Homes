@@ -118,7 +118,7 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
     try {
       final booking = await _supabase
           .from('bookings')
-          .select('total_amount, paid_amount, status, requested_room_type')
+          .select('total_amount, paid_amount, status, requested_room_type, payment_method')
           .eq('id', widget.booking.id)
           .single();
 
@@ -158,6 +158,17 @@ class _AssignRoomScreenState extends State<AssignRoomScreen> {
           }
           return;
         }
+      }
+
+      final paymentMethod = (booking['payment_method']?.toString() ?? '').toLowerCase();
+      final isTransferFlow = paymentMethod.contains('transfer');
+      if (isTransferFlow && paidAmount < totalAmount) {
+        // Revenue is recognized only when reception confirms by assigning room.
+        await _supabase.from('bookings').update({
+          'paid_amount': totalAmount,
+          'payment_method': 'bank_transfer_verified',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', widget.booking.id);
       }
 
       final selectedRoom = _availableRooms.firstWhere(
