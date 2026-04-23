@@ -339,9 +339,9 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final isMobile = constraints.maxWidth < 640;
+                      final showActionsOnFirstRow = constraints.maxWidth >= 420;
                       final actions = [
-                        if (!isMobile)
+                        if (showActionsOnFirstRow)
                           ContextAwareRoleButton(
                             suggestedRole: _selectedBar == 'outside_bar'
                                 ? AppRole.outside_bartender
@@ -383,10 +383,10 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                                   ),
                                 ),
                               ),
-                              if (!isMobile) ...actions,
+                              if (showActionsOnFirstRow) ...actions,
                             ],
                           ),
-                          if (isMobile) ...[
+                          if (!showActionsOnFirstRow) ...[
                             const SizedBox(height: 6),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,

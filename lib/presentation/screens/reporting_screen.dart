@@ -1338,7 +1338,7 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   }
 
   Widget _buildResponsiveKpiCards(double maxWidth, List<Widget> cards) {
-    if (maxWidth < 360) {
+    if (maxWidth < 300) {
       return Column(
         children: cards
             .map((c) => Padding(
@@ -1351,7 +1351,9 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
 
     final itemWidth = maxWidth < 600
         ? ((maxWidth - 16) / 2).clamp(130.0, 280.0)
-        : maxWidth < 1100
+        : maxWidth < 800
+            ? ((maxWidth - 24) / 3).clamp(120.0, 260.0)
+            : maxWidth < 1100
             ? ((maxWidth - 24) / 3).clamp(150.0, 320.0)
             : 260.0;
     return Wrap(
