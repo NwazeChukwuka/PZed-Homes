@@ -162,6 +162,161 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     await PasswordService.showPasswordResetDialog(context);
   }
 
+  Future<void> _updateProfileInfo({
+    required String profileId,
+    required String fullName,
+    required String email,
+    required String phone,
+    required bool updateAuthEmail,
+  }) async {
+    await _supabase.from('profiles').update({
+      'full_name': fullName,
+      'email': email,
+      'phone': phone,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', profileId);
+
+    if (updateAuthEmail) {
+      await _supabase.auth.updateUser(UserAttributes(email: email));
+    }
+  }
+
+  Future<void> _showEditProfileDialog({
+    required bool canEditEmail,
+    required bool updateAuthEmail,
+  }) async {
+    final profileId = widget.userProfile['id'] as String?;
+    if (profileId == null || profileId.isEmpty) return;
+
+    final nameController = TextEditingController(
+      text: (widget.userProfile['full_name']?.toString() ?? '').trim(),
+    );
+    final emailController = TextEditingController(
+      text: (widget.userProfile['email']?.toString() ?? '').trim(),
+    );
+    final phoneController = TextEditingController(
+      text: (widget.userProfile['phone']?.toString() ?? '').trim(),
+    );
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Update Personal Information'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: emailController,
+                      enabled: !saving && canEditEmail,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: phoneController,
+                      enabled: !saving,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final fullName = nameController.text.trim();
+                          final email = emailController.text.trim();
+                          final phone = phoneController.text.trim();
+
+                          if (fullName.isEmpty) {
+                            ErrorHandler.showWarningMessage(context, 'Full name is required');
+                            return;
+                          }
+                          if (email.isEmpty || !email.contains('@')) {
+                            ErrorHandler.showWarningMessage(context, 'Enter a valid email');
+                            return;
+                          }
+
+                          setDialogState(() => saving = true);
+                          try {
+                            await _updateProfileInfo(
+                              profileId: profileId,
+                              fullName: fullName,
+                              email: email,
+                              phone: phone,
+                              updateAuthEmail: updateAuthEmail,
+                            );
+                            if (!mounted || !dialogContext.mounted) return;
+                            setState(() {
+                              widget.userProfile['full_name'] = fullName;
+                              widget.userProfile['email'] = email;
+                              widget.userProfile['phone'] = phone;
+                            });
+                            Navigator.of(dialogContext).pop();
+                            ErrorHandler.showSuccessMessage(
+                              dialogContext,
+                              'Profile updated',
+                            );
+                          } catch (e) {
+                            if (mounted && dialogContext.mounted) {
+                              ErrorHandler.handleError(
+                                dialogContext,
+                                e,
+                                customMessage: 'Failed to update profile info.',
+                              );
+                            }
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => saving = false);
+                            }
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+  }
+
   Future<void> _showChangePasswordDialog() async {
     final oldPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
@@ -395,6 +550,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final bool isHR = roles.contains(AppRole.hr);
     final bool isAdmin = isManagement || isHR;
     final bool isOwner = roles.contains(AppRole.owner);
+    final bool canManageStaffProfileEdits = roles.contains(AppRole.owner) ||
+        roles.contains(AppRole.manager) ||
+        roles.contains(AppRole.hr);
     final bool viewingSelf = (currentUser?.id != null) && (widget.userProfile['id'] == currentUser!.id);
 
     final userStatus = widget.userProfile['status'] as String? ?? 'Active';
@@ -485,9 +643,24 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'User Information',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'User Information',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              if (viewingSelf || (canManageStaffProfileEdits && !viewingSelf))
+                                IconButton(
+                                  tooltip: 'Edit information',
+                                  onPressed: () => _showEditProfileDialog(
+                                    canEditEmail: true,
+                                    updateAuthEmail: viewingSelf,
+                                  ),
+                                  icon: const Icon(Icons.edit),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 16),
                           _buildInfoRow('Full Name', fullName),
@@ -822,10 +995,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           _performanceData = {
             'booking_count': bookingCount,
             'booking_collected': bookingCollected,
-            'department_count': departmentCount,
-            'department_collected': departmentCollected,
-            'sales_count': bookingCount + departmentCount,
-            'sales_collected': bookingCollected + departmentCollected,
+            'sales_count': departmentCount,
+            'sales_collected': departmentCollected,
             'debt_count': debtCount,
             'debt_amount': debtAmount,
             'payroll_owed_months': payrollOwedMonths,
@@ -877,9 +1048,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     String lastSalaryTop = 'Last salary paid: N/A';
     if (_isLoadingPerformance) {
       kpis = [
+        {'label': 'Bookings Revenue (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Sales (30d)', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Debt (Unpaid)', 'count': 'Loading...', 'amount': 'Loading...'},
-        {'label': 'Payroll Owed (Pending)', 'count': 'Loading...', 'amount': 'Loading...'},
+        {'label': 'Salary Owed (Pending)', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Last Salary Paid', 'count': 'Loading...', 'amount': 'Loading...'},
         {'label': 'Date of Last Transaction', 'count': 'Loading...', 'amount': 'N/A'},
       ];
@@ -896,6 +1068,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
       kpis = [
         {
+          'label': 'Bookings Revenue (30d)',
+          'count': '${data['booking_count'] ?? 0} txns',
+          'amount': amountLabel((data['booking_collected'] as int?) ?? 0),
+        },
+        {
           'label': 'Sales (30d)',
           'count': '${data['sales_count'] ?? 0} txns',
           'amount': amountLabel((data['sales_collected'] as int?) ?? 0),
@@ -906,7 +1083,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           'amount': amountLabel((data['debt_amount'] as int?) ?? 0),
         },
         {
-          'label': 'Payroll Owed (Pending)',
+          'label': 'Salary Owed (Pending)',
           'count': '${data['payroll_owed_months'] ?? 0} months',
           'amount': amountLabel((data['payroll_owed_amount'] as int?) ?? 0),
         },
@@ -923,9 +1100,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ];
     } else {
       kpis = [
+        {'label': 'Bookings Revenue (30d)', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Sales (30d)', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Debt (Unpaid)', 'count': 'N/A', 'amount': 'N/A'},
-        {'label': 'Payroll Owed (Pending)', 'count': 'N/A', 'amount': 'N/A'},
+        {'label': 'Salary Owed (Pending)', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Last Salary Paid', 'count': 'N/A', 'amount': 'N/A'},
         {'label': 'Date of Last Transaction', 'count': 'N/A', 'amount': 'N/A'},
       ];

@@ -1097,12 +1097,35 @@ class _ReportingScreenState extends State<ReportingScreen> with SingleTickerProv
   Widget _buildGuestKPIs() {
     final g = _guestStats!;
     return LayoutBuilder(builder: (context, constraints) {
-      final cards = [
-        _kpiCard('Total Bookings', '${g['total']}', Icons.book_online, Colors.blue[700]!),
-        _kpiCard('Room Revenue (bookings created in period)', _fmtNaira(g['revenue'] ?? 0), Icons.hotel, Colors.green[700]!),
-        _kpiCard('Avg Stay', '${g['avg_nights']} nights', Icons.nights_stay, Colors.purple[600]!),
-      ];
-      return _buildResponsiveKpiCards(constraints.maxWidth, cards);
+      final totalBookingsCard =
+          _kpiCard('Total Bookings', '${g['total']}', Icons.book_online, Colors.blue[700]!);
+      final avgStayCard =
+          _kpiCard('Avg Stay', '${g['avg_nights']} nights', Icons.nights_stay, Colors.purple[600]!);
+      final roomRevenueCard = _kpiCard(
+        'Room Revenue (bookings created in period)',
+        _fmtNaira(g['revenue'] ?? 0),
+        Icons.hotel,
+        Colors.green[700]!,
+      );
+
+      final width = constraints.maxWidth;
+      if (width < 700) {
+        final twoUpWidth = ((width - 12) / 2).clamp(120.0, 320.0);
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            SizedBox(width: twoUpWidth, child: totalBookingsCard),
+            SizedBox(width: twoUpWidth, child: avgStayCard),
+            SizedBox(width: width, child: roomRevenueCard),
+          ],
+        );
+      }
+
+      return _buildResponsiveKpiCards(
+        width,
+        [totalBookingsCard, avgStayCard, roomRevenueCard],
+      );
     });
   }
 

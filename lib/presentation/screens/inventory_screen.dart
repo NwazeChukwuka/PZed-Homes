@@ -339,7 +339,7 @@ class _InventoryScreenState extends State<InventoryScreen> with TickerProviderSt
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final isMobile = constraints.maxWidth < 760;
+                      final isMobile = constraints.maxWidth < 640;
                       final actions = [
                         if (!isMobile)
                           ContextAwareRoleButton(

@@ -1061,7 +1061,7 @@ class _MiniMartScreenState extends State<MiniMartScreen> with SingleTickerProvid
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final isMobile = constraints.maxWidth < 700;
+                      final isMobile = constraints.maxWidth < 620;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

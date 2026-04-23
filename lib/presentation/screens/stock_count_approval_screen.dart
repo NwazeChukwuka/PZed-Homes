@@ -360,7 +360,7 @@ class _StockCountApprovalScreenState extends State<StockCountApprovalScreen> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 860;
+              final isWide = constraints.maxWidth >= 700;
               final toggle = SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(value: 'pending', label: Text('Pending')),

@@ -2438,7 +2438,7 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final isMobile = constraints.maxWidth < 760;
+                      final isMobile = constraints.maxWidth < 640;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
