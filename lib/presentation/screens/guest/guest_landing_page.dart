@@ -47,7 +47,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     if (!mounted) return;
     final priorityPaths = [
       ..._heroImages,
-      'assets/images/VIP Bar/VIP Bar 1.JPG',
+      'assets/images/VIP Bar/VIP Bar 1.webp',
     ];
     for (final path in priorityPaths) {
       if (!mounted) return;
@@ -65,37 +65,37 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
     _loadRoomTypes();
 
     _heroImages = [
-      'assets/images/Front View/Front View 1.JPG',
-      'assets/images/Front View/Front View 2.JPG',
-      'assets/images/Front View/Front View 3.jpg',
-      'assets/images/Front View/Front View 4.jpg',
+      'assets/images/Front View/Front View 1.webp',
+      'assets/images/Front View/Front View 2.webp',
+      'assets/images/Front View/Front View 3.webp',
+      'assets/images/Front View/Front View 4.webp',
     ];
     
     _roomImages = {
       'Standard Room': [
-        'assets/images/Standard Room/Standard 1.png',
-        'assets/images/Standard Room/Standard 2.JPG',
-        'assets/images/Standard Room/Standard 3.jpg',
+        'assets/images/Standard Room/Standard 1.webp',
+        'assets/images/Standard Room/Standard 2.webp',
+        'assets/images/Standard Room/Standard 3.webp',
       ],
       'Classic Room': [
-        'assets/images/Classic Room/Classic 1.JPG',
-        'assets/images/Classic Room/Classic 2.png',
-        'assets/images/Classic Room/Classic 3.JPG',
+        'assets/images/Classic Room/Classic 1.webp',
+        'assets/images/Classic Room/Classic 2.webp',
+        'assets/images/Classic Room/Classic 3.webp',
       ],
       'Diplomatic Room': [
-        'assets/images/Diplomatic Room/Diplomatic 1.png',
-        'assets/images/Diplomatic Room/Diplomatic 2.JPG',
-        'assets/images/Diplomatic Room/Diplomatic 3.jpg',
+        'assets/images/Diplomatic Room/Diplomatic 1.webp',
+        'assets/images/Diplomatic Room/Diplomatic 2.webp',
+        'assets/images/Diplomatic Room/Diplomatic 3.webp',
       ],
       'Deluxe Room': [
-        'assets/images/Deluxe Room/Deluxe 1.JPG',
-        'assets/images/Deluxe Room/Deluxe 2.JPG',
-        'assets/images/Deluxe Room/Deluxe 3.png',
+        'assets/images/Deluxe Room/Deluxe 1.webp',
+        'assets/images/Deluxe Room/Deluxe 2.webp',
+        'assets/images/Deluxe Room/Deluxe 3.webp',
       ],
       'Executive Room': [
-        'assets/images/Executive Room/Executive 1.png',
-        'assets/images/Executive Room/Executive 2.png',
-        'assets/images/Executive Room/Executive 3.jpg',
+        'assets/images/Executive Room/Executive 1.webp',
+        'assets/images/Executive Room/Executive 2.webp',
+        'assets/images/Executive Room/Executive 3.webp',
       ],
     };
 
@@ -147,27 +147,27 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
   List<Map<String, dynamic>> _getGalleryItems() {
     return [
       {
-        'media_url': 'assets/images/Front View/Front View 1.JPG',
+        'media_url': 'assets/images/Front View/Front View 1.webp',
         'title': 'Front View',
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/VIP Bar/VIP Bar 1.JPG',
+        'media_url': 'assets/images/VIP Bar/VIP Bar 1.webp',
         'title': 'VIP Bar',
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/Restaurant/Restaurant 1.jpg',
+        'media_url': 'assets/images/Restaurant/Restaurant 1.webp',
         'title': 'Restaurant',
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/Reception/Reception 1.JPG',
+        'media_url': 'assets/images/Reception/Reception 1.webp',
         'title': 'Reception',
         'is_video': false,
       },
       {
-        'media_url': 'assets/images/Outside bar/Outside Bar 2.jpg',
+        'media_url': 'assets/images/Outside bar/Outside Bar 2.webp',
         'title': 'Outside Bar',
         'is_video': false,
       },
@@ -364,7 +364,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Image.asset(
-                      'assets/images/PZED logo.png',
+                      'assets/images/PZED logo.webp',
                       height: 40,
                       width: 40,
                       fit: BoxFit.contain,
@@ -442,7 +442,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Image.asset(
-                'assets/images/PZED logo.png',
+                'assets/images/PZED logo.webp',
                 height: 18,
                 width: 18,
                 fit: BoxFit.contain,
@@ -481,9 +481,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         description: 'Comfortable, affordable, and equipped with all the essentials for a pleasant stay.',
                         price: _getRoomPrice('Standard Room'),
                         imageUrls: _roomImages['Standard Room'] ?? [
-                          'assets/images/Standard Room/Standard 1.png',
-                          'assets/images/Standard Room/Standard 2.JPG',
-                          'assets/images/Standard Room/Standard 3.jpg',
+                          'assets/images/Standard Room/Standard 1.webp',
+                          'assets/images/Standard Room/Standard 2.webp',
+                          'assets/images/Standard Room/Standard 3.webp',
                         ],
                       ),
                     ),
@@ -494,9 +494,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         description: 'A touch of elegance with enhanced amenities and more space to relax and unwind.',
                         price: _getRoomPrice('Classic Room'),
                         imageUrls: _roomImages['Classic Room'] ?? [
-                          'assets/images/Classic Room/Classic 1.JPG',
-                          'assets/images/Classic Room/Classic 2.png',
-                          'assets/images/Classic Room/Classic 3.JPG',
+                          'assets/images/Classic Room/Classic 1.webp',
+                          'assets/images/Classic Room/Classic 2.webp',
+                          'assets/images/Classic Room/Classic 3.webp',
                         ],
                       ),
                     ),
@@ -507,9 +507,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         description: 'Spacious and refined, designed for the discerning traveler requiring extra comfort.',
                         price: _getRoomPrice('Diplomatic Room'),
                         imageUrls: _roomImages['Diplomatic Room'] ?? [
-                          'assets/images/Diplomatic Room/Diplomatic 1.png',
-                          'assets/images/Diplomatic Room/Diplomatic 2.JPG',
-                          'assets/images/Diplomatic Room/Diplomatic 3.jpg',
+                          'assets/images/Diplomatic Room/Diplomatic 1.webp',
+                          'assets/images/Diplomatic Room/Diplomatic 2.webp',
+                          'assets/images/Diplomatic Room/Diplomatic 3.webp',
                         ],
                       ),
                     ),
@@ -520,9 +520,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         description: 'A premium experience with superior furnishings and breathtaking views.',
                         price: _getRoomPrice('Deluxe Room'),
                         imageUrls: _roomImages['Deluxe Room'] ?? [
-                          'assets/images/Deluxe Room/Deluxe 1.JPG',
-                          'assets/images/Deluxe Room/Deluxe 2.JPG',
-                          'assets/images/Deluxe Room/Deluxe 3.png',
+                          'assets/images/Deluxe Room/Deluxe 1.webp',
+                          'assets/images/Deluxe Room/Deluxe 2.webp',
+                          'assets/images/Deluxe Room/Deluxe 3.webp',
                         ],
                       ),
                     ),
@@ -533,9 +533,9 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         description: 'A generously sized room crafted for refined comfort, combining elegant finishes with enhanced space, ideal for work, privacy, and relaxation.',
                         price: _getRoomPrice('Executive Room'),
                         imageUrls: _roomImages['Executive Room'] ?? [
-                          'assets/images/Executive Room/Executive 1.png',
-                          'assets/images/Executive Room/Executive 2.png',
-                          'assets/images/Executive Room/Executive 3.jpg',
+                          'assets/images/Executive Room/Executive 1.webp',
+                          'assets/images/Executive Room/Executive 2.webp',
+                          'assets/images/Executive Room/Executive 3.webp',
                         ],
                       ),
                     ),
@@ -549,7 +549,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'VIP Bar',
                         description: 'An exclusive lounge for premium drinks and a serene ambiance.',
-                        imageUrl: 'assets/images/VIP Bar/VIP Bar 1.JPG',
+                        imageUrl: 'assets/images/VIP Bar/VIP Bar 1.webp',
                       ),
                     ),
                     AnimatedWrapper(
@@ -557,7 +557,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'Restaurant',
                         description: 'Savor a wide range of local and continental dishes prepared by our expert chefs.',
-                        imageUrl: 'assets/images/Restaurant/Restaurant 1.jpg',
+                        imageUrl: 'assets/images/Restaurant/Restaurant 1.webp',
                       ),
                     ),
                     AnimatedWrapper(
@@ -565,7 +565,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'Reception',
                         description: 'Our welcoming reception area with professional staff ready to assist you 24/7.',
-                        imageUrl: 'assets/images/Reception/Reception 1.JPG',
+                        imageUrl: 'assets/images/Reception/Reception 1.webp',
                       ),
                     ),
                     AnimatedWrapper(
@@ -573,7 +573,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                       child: _buildFacilityShowcase(
                         name: 'Outside Bar',
                         description: 'Savor a wide range of local and continental dishes prepared by our expert chefs.',
-                        imageUrl: 'assets/images/Outside bar/Outside Bar 2.jpg',
+                        imageUrl: 'assets/images/Outside bar/Outside Bar 2.webp',
                       ),
                     ),
                     
@@ -824,7 +824,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Image.asset(
-                                'assets/images/PZED logo.png',
+                                'assets/images/PZED logo.webp',
                                 height: 60,
                                 width: 60,
                                 fit: BoxFit.contain,
@@ -865,7 +865,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Image.asset(
-                                  'assets/images/PZED logo.png',
+                                  'assets/images/PZED logo.webp',
                                   height: 60,
                                   width: 60,
                                   fit: BoxFit.contain,
@@ -1151,7 +1151,7 @@ class _GuestLandingPageState extends State<GuestLandingPage> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Image.asset(
-                        'assets/images/PZED logo.png',
+                        'assets/images/PZED logo.webp',
                         height: 28,
                         width: 28,
                         fit: BoxFit.contain,
@@ -1789,7 +1789,7 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                               ),
                             ),
                             child: Image.asset(
-                              'assets/images/PZED logo.png',
+                              'assets/images/PZED logo.webp',
                               height: 60,
                               width: 60,
                               fit: BoxFit.contain,
@@ -1812,7 +1812,7 @@ class _RoomDetailsDialogState extends State<_RoomDetailsDialog> {
                             ),
                           ),
                           child: Image.asset(
-                            'assets/images/PZED logo.png',
+                            'assets/images/PZED logo.webp',
                             height: 60,
                             width: 60,
                             fit: BoxFit.contain,

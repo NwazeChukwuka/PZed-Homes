@@ -10,7 +10,7 @@ class RoomCategory {
     required this.rooms,
     List<String>? images,
   }) : images = images ?? [
-          'assets/images/PZED logo.png',
+          'assets/images/PZED logo.webp',
         ];
 
   factory RoomCategory.fromMap(Map<String, dynamic> map) {

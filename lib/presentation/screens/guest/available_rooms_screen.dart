@@ -121,17 +121,17 @@ class _AvailableRoomsScreenState extends State<AvailableRoomsScreen> {
     final t = (roomTypeName ?? '').toString().trim();
     switch (t) {
       case 'Executive Room':
-        return 'assets/images/Executive Room/Executive 3.jpg';
+        return 'assets/images/Executive Room/Executive 3.webp';
       case 'Classic Room':
-        return 'assets/images/Classic Room/Classic 5.jpg';
+        return 'assets/images/Classic Room/Classic 5.webp';
       case 'Deluxe Room':
-        return 'assets/images/Deluxe Room/Deluxe 4.JPG';
+        return 'assets/images/Deluxe Room/Deluxe 4.webp';
       case 'Diplomatic Room':
-        return 'assets/images/Diplomatic Room/Diplomatic 3.jpg';
+        return 'assets/images/Diplomatic Room/Diplomatic 3.webp';
       case 'Standard Room':
-        return 'assets/images/Standard Room/Standard 3.jpg';
+        return 'assets/images/Standard Room/Standard 3.webp';
       default:
-        return 'assets/images/Standard Room/Standard 3.jpg';
+        return 'assets/images/Standard Room/Standard 3.webp';
     }
   }
 

@@ -38,7 +38,7 @@ class AboutUsScreen extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Image.asset(
-            'assets/images/Front View/Front View 1.JPG',
+            'assets/images/Front View/Front View 1.webp',
             fit: BoxFit.cover,
             cacheWidth: 1200,
             cacheHeight: 800,

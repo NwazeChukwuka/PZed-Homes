@@ -87,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Image.asset(
-                              'assets/images/PZED logo.png',
+                              'assets/images/PZED logo.webp',
                               height: 64,
                               width: 64,
                               fit: BoxFit.contain,

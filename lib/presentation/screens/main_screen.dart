@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -144,7 +144,7 @@ class _MainScreenMobile extends StatelessWidget {
         title: Row(
           children: [
             OptimizationHelpers.buildAssetImage(
-              assetPath: 'assets/images/PZED logo.png',
+              assetPath: 'assets/images/PZED logo.webp',
               width: 32,
               height: 32,
               fit: BoxFit.contain,
@@ -203,7 +203,7 @@ class _MainScreenTablet extends StatelessWidget {
         title: Row(
           children: [
             OptimizationHelpers.buildAssetImage(
-              assetPath: 'assets/images/PZED logo.png',
+              assetPath: 'assets/images/PZED logo.webp',
               width: 36,
               height: 36,
               fit: BoxFit.contain,
@@ -484,7 +484,7 @@ class _DesktopAppBar extends StatelessWidget {
           Row(
             children: [
               OptimizationHelpers.buildAssetImage(
-                assetPath: 'assets/images/PZED logo.png',
+                assetPath: 'assets/images/PZED logo.webp',
                 width: 40,
                 height: 40,
                 fit: BoxFit.contain,
@@ -1127,7 +1127,7 @@ class _LargeDesktopAppBar extends StatelessWidget {
           Row(
             children: [
               OptimizationHelpers.buildAssetImage(
-                assetPath: 'assets/images/PZED logo.png',
+                assetPath: 'assets/images/PZED logo.webp',
                 width: 48,
                 height: 48,
                 fit: BoxFit.contain,

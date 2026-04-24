@@ -48,7 +48,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# SQL helper/test files (not needed in production)
+# SQL helper/test files
 database_helpers.sql
 database_test_script.sql
 test_supabase_connection.dart

@@ -527,7 +527,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen> with Single
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/images/PZED logo.png',
+              'assets/images/PZED logo.webp',
               height: 64,
               width: 64,
               fit: BoxFit.contain,

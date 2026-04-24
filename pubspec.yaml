@@ -61,51 +61,51 @@ flutter:
   assets:
     # Explicitly list all images for Flutter web compatibility
     # Standard Room
-    - assets/images/Standard Room/Standard 1.png
-    - assets/images/Standard Room/Standard 2.JPG
-    - assets/images/Standard Room/Standard 3.jpg
-    - assets/images/Standard Room/Standard 4.JPG
+    - assets/images/Standard Room/Standard 1.webp
+    - assets/images/Standard Room/Standard 2.webp
+    - assets/images/Standard Room/Standard 3.webp
+    - assets/images/Standard Room/Standard 4.webp
     # Classic Room
-    - assets/images/Classic Room/Classic 1.JPG
-    - assets/images/Classic Room/Classic 2.png
-    - assets/images/Classic Room/Classic 3.JPG
-    - assets/images/Classic Room/Classic 4.JPG
-    - assets/images/Classic Room/Classic 5.jpg
+    - assets/images/Classic Room/Classic 1.webp
+    - assets/images/Classic Room/Classic 2.webp
+    - assets/images/Classic Room/Classic 3.webp
+    - assets/images/Classic Room/Classic 4.webp
+    - assets/images/Classic Room/Classic 5.webp
     # Diplomatic Room
-    - assets/images/Diplomatic Room/Diplomatic 1.png
-    - assets/images/Diplomatic Room/Diplomatic 2.JPG
-    - assets/images/Diplomatic Room/Diplomatic 3.jpg
+    - assets/images/Diplomatic Room/Diplomatic 1.webp
+    - assets/images/Diplomatic Room/Diplomatic 2.webp
+    - assets/images/Diplomatic Room/Diplomatic 3.webp
     # Deluxe Room
-    - assets/images/Deluxe Room/Deluxe 1.JPG
-    - assets/images/Deluxe Room/Deluxe 2.JPG
-    - assets/images/Deluxe Room/Deluxe 3.png
-    - assets/images/Deluxe Room/Deluxe 4.JPG
+    - assets/images/Deluxe Room/Deluxe 1.webp
+    - assets/images/Deluxe Room/Deluxe 2.webp
+    - assets/images/Deluxe Room/Deluxe 3.webp
+    - assets/images/Deluxe Room/Deluxe 4.webp
     # Executive Room
-    - assets/images/Executive Room/Executive 1.png
-    - assets/images/Executive Room/Executive 2.png
-    - assets/images/Executive Room/Executive 3.jpg
+    - assets/images/Executive Room/Executive 1.webp
+    - assets/images/Executive Room/Executive 2.webp
+    - assets/images/Executive Room/Executive 3.webp
     # Front View
-    - assets/images/Front View/Front View 1.JPG
-    - assets/images/Front View/Front View 2.JPG
-    - assets/images/Front View/Front View 3.jpg
-    - assets/images/Front View/Front View 4.jpg
-    - assets/images/Front View/Front View 5.JPG
-    - assets/images/Front View/Front View 6.jpg
+    - assets/images/Front View/Front View 1.webp
+    - assets/images/Front View/Front View 2.webp
+    - assets/images/Front View/Front View 3.webp
+    - assets/images/Front View/Front View 4.webp
+    - assets/images/Front View/Front View 5.webp
+    - assets/images/Front View/Front View 6.webp
     # VIP Bar
-    - assets/images/VIP Bar/VIP Bar 1.JPG
-    - assets/images/VIP Bar/VIP Bar 2.JPG
+    - assets/images/VIP Bar/VIP Bar 1.webp
+    - assets/images/VIP Bar/VIP Bar 2.webp
     # Restaurant
-    - assets/images/Restaurant/Restaurant 1.jpg
+    - assets/images/Restaurant/Restaurant 1.webp
     # Reception
-    - assets/images/Reception/Reception 1.JPG
-    - assets/images/Reception/Reception 2.png
-    - assets/images/Reception/Reception 3.jpg
-    - assets/images/Reception/Reception 4.jpg
+    - assets/images/Reception/Reception 1.webp
+    - assets/images/Reception/Reception 2.webp
+    - assets/images/Reception/Reception 3.webp
+    - assets/images/Reception/Reception 4.webp
     # Passage
-    - assets/images/Passage/Passage 1.jpg
+    - assets/images/Passage/Passage 1.webp
     # Outside bar
-    - assets/images/Outside bar/Outside Bar 1.JPG
-    - assets/images/Outside bar/Outside Bar 2.jpg
-    - assets/images/Outside bar/Outside Bar 3.JPG
+    - assets/images/Outside bar/Outside Bar 1.webp
+    - assets/images/Outside bar/Outside Bar 2.webp
+    - assets/images/Outside bar/Outside Bar 3.webp
     # Logo
-    - assets/images/PZED logo.png
+    - assets/images/PZED logo.webp
