@@ -1319,6 +1319,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final width = MediaQuery.sizeOf(context).width;
             final isMobile = width < 700;
             final isTablet = width >= 700 && width < 1024;
+            final rangeLabelMap = isMobile
+                ? const <String, String>{
+                    '7 days': '7d',
+                    '14 days': '14d',
+                    '30 days': '30d',
+                    'Custom': 'Cust',
+                  }
+                : const <String, String>{
+                    '7 days': '7 days',
+                    '14 days': '14 days',
+                    '30 days': '30 days',
+                    'Custom': 'Custom',
+                  };
+            final statusLabelMap = isMobile
+                ? const <String, String>{
+                    'All': 'All',
+                    'Checked-in': 'Chec',
+                    'Checked-out': 'Out',
+                    'Booked': 'Book',
+                    'Pending': 'Pend',
+                    'Expired': 'Expr',
+                    'Rejected': 'Rej',
+                    'Cancelled': 'Canc',
+                  }
+                : const <String, String>{
+                    'All': 'All',
+                    'Checked-in': 'Checked-in',
+                    'Checked-out': 'Checked-out',
+                    'Booked': 'Booked',
+                    'Pending': 'Pending',
+                    'Expired': 'Expired',
+                    'Rejected': 'Rejected',
+                    'Cancelled': 'Cancelled',
+                  };
             final roomColumnWidth = isMobile ? 85.0 : 100.0;
             final dayCellWidth = isMobile ? 85.0 : 92.0;
             const rowHeight = 56.0;
@@ -1357,7 +1391,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
-                                      'Period end: ${fmt(anchorDate)}',
+                                      isTablet ? fmt(anchorDate) : 'Period end: ${fmt(anchorDate)}',
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(color: Colors.black54),
                                     ),
@@ -1369,12 +1403,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           DropdownButton<String>(
                             value: rangeType,
                             isDense: true,
+                            iconSize: isMobile ? 16 : 20,
                             underline: const SizedBox(),
-                            items: const [
-                              DropdownMenuItem(value: '7 days', child: Text('7d')),
-                              DropdownMenuItem(value: '14 days', child: Text('14d')),
-                              DropdownMenuItem(value: '30 days', child: Text('30d')),
-                              DropdownMenuItem(value: 'Custom', child: Text('Custom')),
+                            style: TextStyle(fontSize: isMobile ? 12 : 13, color: Colors.black87),
+                            items: [
+                              DropdownMenuItem(value: '7 days', child: Text(rangeLabelMap['7 days']!)),
+                              DropdownMenuItem(value: '14 days', child: Text(rangeLabelMap['14 days']!)),
+                              DropdownMenuItem(value: '30 days', child: Text(rangeLabelMap['30 days']!)),
+                              DropdownMenuItem(value: 'Custom', child: Text(rangeLabelMap['Custom']!)),
                             ],
                             onChanged: (v) {
                               if (v == null) return;
@@ -1439,16 +1475,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           DropdownButton<String>(
                             value: statusFilter,
                             isDense: true,
+                            iconSize: isMobile ? 16 : 20,
                             underline: const SizedBox(),
-                            items: const [
-                              DropdownMenuItem(value: 'All', child: Text('All')),
-                              DropdownMenuItem(value: 'Checked-in', child: Text('Checked-in')),
-                              DropdownMenuItem(value: 'Checked-out', child: Text('Checked-out')),
-                              DropdownMenuItem(value: 'Booked', child: Text('Booked')),
-                              DropdownMenuItem(value: 'Pending', child: Text('Pending')),
-                              DropdownMenuItem(value: 'Expired', child: Text('Expired')),
-                              DropdownMenuItem(value: 'Rejected', child: Text('Rejected')),
-                              DropdownMenuItem(value: 'Cancelled', child: Text('Cancelled')),
+                            style: TextStyle(fontSize: isMobile ? 12 : 13, color: Colors.black87),
+                            items: [
+                              DropdownMenuItem(value: 'All', child: Text(statusLabelMap['All']!)),
+                              DropdownMenuItem(value: 'Checked-in', child: Text(statusLabelMap['Checked-in']!)),
+                              DropdownMenuItem(value: 'Checked-out', child: Text(statusLabelMap['Checked-out']!)),
+                              DropdownMenuItem(value: 'Booked', child: Text(statusLabelMap['Booked']!)),
+                              DropdownMenuItem(value: 'Pending', child: Text(statusLabelMap['Pending']!)),
+                              DropdownMenuItem(value: 'Expired', child: Text(statusLabelMap['Expired']!)),
+                              DropdownMenuItem(value: 'Rejected', child: Text(statusLabelMap['Rejected']!)),
+                              DropdownMenuItem(value: 'Cancelled', child: Text(statusLabelMap['Cancelled']!)),
                             ],
                             onChanged: (v) {
                               if (v == null) return;
@@ -1461,6 +1499,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             IconButton(
                               tooltip: 'Search',
                               icon: const Icon(Icons.search, size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                              visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
                               onPressed: () async {
                                 final controller = TextEditingController(text: query);
                                 final result = await showDialog<String>(
@@ -1512,6 +1553,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           IconButton(
                             icon: const Icon(Icons.close, size: 20),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                            visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
                             onPressed: () => Navigator.of(context).pop(),
                           ),
                         ],
