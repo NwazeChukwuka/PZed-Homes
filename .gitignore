@@ -48,17 +48,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Documentation files (review reports, analysis, etc.)
-DISCONNECTION_ANALYSIS.md
-COMPREHENSIVE_REVIEW_REPORT.md
-PRODUCTION_READINESS_REPORT.md
-FINAL_PRODUCTION_REVIEW.md
-MISSING_TABLES_ADDED.md
-RLS_POLICY_UPDATES.md
-COMPLETE_SETUP_GUIDE.md
-OWNER_PROFILE_SETUP.md
-MIGRATION_TO_LIVE_SYSTEM.md
-
 # SQL helper/test files (not needed in production)
 database_helpers.sql
 database_test_script.sql
@@ -73,7 +62,6 @@ recreate_user_profile.sql
 remove_orphaned.dart
 
 # Local docs and temp
-docs/
 supabase/.temp/
 
 # Vercel build artifacts (downloaded during build)

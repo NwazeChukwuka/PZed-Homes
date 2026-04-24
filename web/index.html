@@ -707,6 +707,27 @@
 
   <script>
     (function () {
+      var ghostImages = document.querySelectorAll('#ghost-root img[src*="assets/images/"], #ghost-root img[src*="assets/assets/images/"]');
+      ghostImages.forEach(function (img) {
+        var currentSrc = img.getAttribute('src');
+        if (!currentSrc) return;
+
+        var primary = currentSrc;
+        var fallback = currentSrc.includes('assets/assets/images/')
+          ? currentSrc.replace('assets/assets/images/', 'assets/images/')
+          : currentSrc.replace('assets/images/', 'assets/assets/images/');
+
+        img.onerror = function () {
+          if (img.getAttribute('src') !== fallback) {
+            img.setAttribute('src', fallback);
+            return;
+          }
+          img.onerror = null;
+        };
+
+        img.setAttribute('src', primary);
+      });
+
       function applyFooterLayout() {
         var mobile = window.matchMedia('(max-width: 599px)').matches;
         var cd = document.querySelector('.ghost-contact-desktop');
