@@ -1102,8 +1102,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _showFrontDeskCalendarDialog() async {
-    final DateTime start = DateTime.now();
-    var rangeDays = 7;
+    DateTime anchorDate = _selectedDay != null
+        ? DateTime(_selectedDay!.year, _selectedDay!.month, _selectedDay!.day)
+        : DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    var rangeType = '7 days';
+    var customDays = 7;
     var statusFilter = 'Checked-in';
     var query = '';
 
@@ -1175,16 +1178,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            List<DateTime> buildDays() {
+            int validationDays() {
+              switch (rangeType) {
+                case '7 days':
+                  return 7;
+                case '14 days':
+                  return 14;
+                case '30 days':
+                  return 30;
+                case 'Custom':
+                  return customDays.clamp(1, 365);
+                default:
+                  return 7;
+              }
+            }
+
+            DateTimeRange validationRange() {
+              final days = validationDays();
+              final end = DateTime(anchorDate.year, anchorDate.month, anchorDate.day)
+                  .add(const Duration(days: 1));
+              final start = end.subtract(Duration(days: days));
+              return DateTimeRange(start: start, end: end);
+            }
+
+            List<DateTime> buildDisplayDays() {
+              const displayDays = 90;
               return List.generate(
-                rangeDays,
-                (i) => DateTime(start.year, start.month, start.day + i),
+                displayDays,
+                (i) => DateTime(anchorDate.year, anchorDate.month, anchorDate.day + i),
               );
             }
 
-            List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> bookings, List<DateTime> days) {
-              final firstDay = days.first;
-              final lastDayExclusive = days.last.add(const Duration(days: 1));
+            List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> bookings, DateTimeRange range) {
+              final firstDay = range.start;
+              final lastDayExclusive = range.end;
               return bookings.where((b) {
                 DateTime? ci;
                 DateTime? co;
@@ -1235,8 +1262,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               }).toList();
             }
 
-            final days = buildDays();
-            final filteredBookings = applyFilters(_bookings, days);
+            final days = buildDisplayDays();
+            final range = validationRange();
+            final filteredBookings = applyFilters(_bookings, range);
             final filteredRoomSet = {
               ...filteredBookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? ''))
             }..removeWhere((e) => e.isEmpty);
@@ -1244,6 +1272,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             sortRoomNumberStrings(filteredRooms);
             final occupancyByDay = <int, int>{};
             for (final d in days) {
+              final dayStart = DateTime(d.year, d.month, d.day);
+              if (dayStart.isBefore(range.start) || !dayStart.isBefore(range.end)) {
+                occupancyByDay[_dayKey(d)] = 0;
+                continue;
+              }
               final occupiedRooms = <String>{};
               for (final b in filteredBookings) {
                 final room = ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? '');
@@ -1254,8 +1287,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             }
             final maxDayOccupancy = occupancyByDay.values.isEmpty ? 0 : occupancyByDay.values.reduce((a, b) => a > b ? a : b);
             final isMobile = MediaQuery.sizeOf(context).width < 700;
-            final roomColumnWidth = isMobile ? 88.0 : 220.0;
-            final dayCellWidth = isMobile ? 88.0 : 124.0;
+            final roomColumnWidth = isMobile ? 85.0 : 95.0;
+            final dayCellWidth = isMobile ? 85.0 : 92.0;
             const rowHeight = 56.0;
             const headerHeight = 56.0;
 
@@ -1282,21 +1315,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         runSpacing: 10,
                         children: [
                           const Text('Front Desk Calendar View', style: TextStyle(fontWeight: FontWeight.w700)),
-                          Text('From: ${fmt(days.first)}', style: const TextStyle(color: Colors.black54)),
-                          DropdownButton<int>(
-                            value: rangeDays,
+                          Text('Anchor: ${fmt(anchorDate)}', style: const TextStyle(color: Colors.black54)),
+                          DropdownButton<String>(
+                            value: rangeType,
                             underline: const SizedBox(),
                             items: const [
-                              DropdownMenuItem(value: 7, child: Text('7 days')),
-                              DropdownMenuItem(value: 14, child: Text('14 days')),
-                              DropdownMenuItem(value: 30, child: Text('30 days')),
+                              DropdownMenuItem(value: '7 days', child: Text('7 days')),
+                              DropdownMenuItem(value: '14 days', child: Text('14 days')),
+                              DropdownMenuItem(value: '30 days', child: Text('30 days')),
+                              DropdownMenuItem(value: 'Custom', child: Text('Custom')),
                             ],
                             onChanged: (v) {
                               if (v == null) return;
                               setDialogState(() {
-                                rangeDays = v;
+                                rangeType = v;
                               });
                             },
+                          ),
+                          if (rangeType == 'Custom')
+                            SizedBox(
+                              width: 120,
+                              child: TextField(
+                                keyboardType: TextInputType.number,
+                                onChanged: (value) {
+                                  final parsed = int.tryParse(value.trim());
+                                  if (parsed == null) return;
+                                  setDialogState(() {
+                                    customDays = parsed.clamp(1, 365);
+                                  });
+                                },
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  hintText: '$customDays days',
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: anchorDate,
+                                firstDate: DateTime(2020, 1, 1),
+                                lastDate: DateTime(2035, 12, 31),
+                              );
+                              if (picked == null) return;
+                              setDialogState(() {
+                                anchorDate = DateTime(picked.year, picked.month, picked.day);
+                              });
+                            },
+                            icon: const Icon(Icons.event, size: 16),
+                            label: const Text('Set date'),
                           ),
                           DropdownButton<String>(
                             value: statusFilter,
@@ -2348,17 +2417,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Color _activityHeatColor(int count, int maxCount) {
     if (maxCount <= 0 || count <= 0) return Colors.white;
     final t = (count / maxCount).clamp(0.0, 1.0);
-    const white = Colors.white;
-    const silver = Color(0xFFE0E0E0);
-    const yellow = Color(0xFFFFF59D);
-    const orange = Color(0xFFFFA726);
-    if (t <= 0.33) {
-      return Color.lerp(white, silver, t / 0.33)!;
+    const stops = <double>[0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+    const colors = <Color>[
+      Colors.white,
+      Color(0xFFF1F1F1),
+      Color(0xFFE0E0E0),
+      Color(0xFFFFF9C4),
+      Color(0xFFFFEE58),
+      Color(0xFFFFA726),
+    ];
+    for (var i = 0; i < stops.length - 1; i++) {
+      final a = stops[i];
+      final b = stops[i + 1];
+      if (t >= a && t <= b) {
+        final local = (t - a) / (b - a);
+        return Color.lerp(colors[i], colors[i + 1], local)!;
+      }
     }
-    if (t <= 0.66) {
-      return Color.lerp(silver, yellow, (t - 0.33) / 0.33)!;
-    }
-    return Color.lerp(yellow, orange, (t - 0.66) / 0.34)!;
+    return colors.last;
   }
 
   Widget _buildFrontDeskCalendarRow(
