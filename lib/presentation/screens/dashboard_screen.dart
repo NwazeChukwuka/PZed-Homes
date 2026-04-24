@@ -1253,8 +1253,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               occupancyByDay[_dayKey(d)] = occupiedRooms.length;
             }
             final maxDayOccupancy = occupancyByDay.values.isEmpty ? 0 : occupancyByDay.values.reduce((a, b) => a > b ? a : b);
-            const roomColumnWidth = 220.0;
-            const dayCellWidth = 124.0;
+            final isMobile = MediaQuery.sizeOf(context).width < 700;
+            final roomColumnWidth = isMobile ? 88.0 : 220.0;
+            final dayCellWidth = isMobile ? 88.0 : 124.0;
             const rowHeight = 56.0;
             const headerHeight = 56.0;
 
