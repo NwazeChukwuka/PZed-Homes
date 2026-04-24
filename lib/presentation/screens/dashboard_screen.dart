@@ -1103,7 +1103,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _showFrontDeskCalendarDialog() async {
     final DateTime start = DateTime.now();
-    final List<DateTime> days = List.generate(7, (i) => DateTime(start.year, start.month, start.day + i));
+    var rangeDays = 7;
+    var statusFilter = 'Checked-in';
+    var query = '';
 
     final Set<String> roomSet = {
       ..._bookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? 'Room ?'))
@@ -1153,148 +1155,330 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String fmt(DateTime d) => DateFormat('EEE, MMM d').format(d);
 
     if (!mounted) return;
+    final roomScrollController = ScrollController();
+    final gridScrollController = ScrollController();
+    var isSyncingScroll = false;
+    roomScrollController.addListener(() {
+      if (isSyncingScroll || !gridScrollController.hasClients) return;
+      isSyncingScroll = true;
+      gridScrollController.jumpTo(roomScrollController.offset.clamp(0, gridScrollController.position.maxScrollExtent));
+      isSyncingScroll = false;
+    });
+    gridScrollController.addListener(() {
+      if (isSyncingScroll || !roomScrollController.hasClients) return;
+      isSyncingScroll = true;
+      roomScrollController.jumpTo(gridScrollController.offset.clamp(0, roomScrollController.position.maxScrollExtent));
+      isSyncingScroll = false;
+    });
     showDialog(
       context: context,
       builder: (context) {
-        return Dialog(
-          insetPadding: const EdgeInsets.all(12),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 1200, maxHeight: 700),
-      decoration: BoxDecoration(
-        color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12)],
-      ),
-      child: Column(
-        children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('Front Desk Calendar View', style: TextStyle(fontWeight: FontWeight.w700)),
-                      const Spacer(),
-                      Text('From: ${fmt(days.first)}', style: const TextStyle(color: Colors.black54)),
-                      const SizedBox(width: 12),
-                      DropdownButton<String>(
-                        value: 'All Reservations',
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(value: 'All Reservations', child: Text('All Reservations')),
-                          DropdownMenuItem(value: 'Checked-in', child: Text('Checked-in')),
-                          DropdownMenuItem(value: 'Due in', child: Text('Due in')),
-                          DropdownMenuItem(value: 'Due out', child: Text('Due out')),
-                        ],
-                        onChanged: (_) {},
-                      ),
-                      const SizedBox(width: 12),
-          SizedBox(
-                        width: 220,
-                        child: TextField(
-                          decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.search),
-                            hintText: 'Search reservations...',
-                            isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                      )
-                    ],
-                  ),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            List<DateTime> buildDays() {
+              return List.generate(
+                rangeDays,
+                (i) => DateTime(start.year, start.month, start.day + i),
+              );
+            }
+
+            List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> bookings, List<DateTime> days) {
+              final firstDay = days.first;
+              final lastDayExclusive = days.last.add(const Duration(days: 1));
+              return bookings.where((b) {
+                DateTime? ci;
+                DateTime? co;
+                try {
+                  ci = b['check_in_date'] != null ? DateTime.parse('${b['check_in_date']}') : null;
+                  co = b['check_out_date'] != null ? DateTime.parse('${b['check_out_date']}') : null;
+                } catch (_) {
+                  return false;
+                }
+                if (ci == null || co == null) return false;
+                final overlap = ci.isBefore(lastDayExclusive) && co.isAfter(firstDay);
+                if (!overlap) return false;
+
+                if (statusFilter != 'All') {
+                  final s = _normalizeBookingStatus('${b['status'] ?? ''}');
+                  switch (statusFilter) {
+                    case 'Checked-in':
+                      if (s != 'checked-in') return false;
+                      break;
+                    case 'Checked-out':
+                      if (s != 'checked-out') return false;
+                      break;
+                    case 'Booked':
+                      if (s != 'booked') return false;
+                      break;
+                    case 'Expired':
+                      if (s != 'expired') return false;
+                      break;
+                    case 'Rejected':
+                      if (s != 'rejected') return false;
+                      break;
+                    case 'Cancelled':
+                      if (s != 'cancelled') return false;
+                      break;
+                    case 'Pending':
+                      if (s != 'pending') return false;
+                      break;
+                  }
+                }
+
+                if (query.trim().isNotEmpty) {
+                  final q = query.trim().toLowerCase();
+                  final room = ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? '').toLowerCase();
+                  final guest = ((b['profiles'] as Map<String, dynamic>?)?['full_name']?.toString() ?? '').toLowerCase();
+                  if (!room.contains(q) && !guest.contains(q)) return false;
+                }
+                return true;
+              }).toList();
+            }
+
+            final days = buildDays();
+            final filteredBookings = applyFilters(_bookings, days);
+            final filteredRoomSet = {
+              ...filteredBookings.map((b) => ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? ''))
+            }..removeWhere((e) => e.isEmpty);
+            final filteredRooms = filteredRoomSet.isEmpty ? rooms : filteredRoomSet.toList();
+            sortRoomNumberStrings(filteredRooms);
+            final occupancyByDay = <int, int>{};
+            for (final d in days) {
+              final occupiedRooms = <String>{};
+              for (final b in filteredBookings) {
+                final room = ((b['rooms'] as Map<String, dynamic>?)?['room_number']?.toString() ?? '');
+                if (room.isEmpty) continue;
+                if (_bookingOverlapsDay(b, d)) occupiedRooms.add(room);
+              }
+              occupancyByDay[_dayKey(d)] = occupiedRooms.length;
+            }
+            final maxDayOccupancy = occupancyByDay.values.isEmpty ? 0 : occupancyByDay.values.reduce((a, b) => a > b ? a : b);
+            const roomColumnWidth = 220.0;
+            const dayCellWidth = 124.0;
+            const rowHeight = 56.0;
+            const headerHeight = 56.0;
+
+            return Dialog(
+              insetPadding: const EdgeInsets.all(12),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 1200, maxHeight: 700),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12)],
                 ),
-
-                Expanded(
-                    child: Row(
-                      children: [
-                        Container(
-                        width: 220,
-                        color: Colors.green[800],
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              child: const Text('Rooms', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            ),
-                            const Divider(color: Colors.white24, height: 1),
-                            Expanded(
-                              child: rooms.isEmpty
-                                  ? const Center(
-                                      child: Padding(
-                                        padding: EdgeInsets.all(24.0),
-                                        child: Text(
-                                          'No rooms available',
-                                          style: TextStyle(color: Colors.white70),
-                                        ),
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      itemCount: rooms.length,
-                                      itemBuilder: (context, i) => Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          border: Border(bottom: BorderSide(color: Colors.white24.withValues(alpha: 0.2))),
-                                        ),
-                                        child: Text(rooms[i], style: const TextStyle(color: Colors.white)),
-                                      ),
-                                    ),
-                            ),
-                      ],
-                    ),
-                  ),
-
-                      Expanded(
-      child: Column(
-        children: [
-                            Container(
-                              color: Colors.white,
-            child: Row(
-              children: [
-                                  for (final d in days)
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
-                                        ),
-                                        child: Center(
-                                          child: Text(DateFormat('EEE\nMMM d').format(d), textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
-                                        ),
-                                      ),
-                                    ),
-                                ],
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
+                      ),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          const Text('Front Desk Calendar View', style: TextStyle(fontWeight: FontWeight.w700)),
+                          Text('From: ${fmt(days.first)}', style: const TextStyle(color: Colors.black54)),
+                          DropdownButton<int>(
+                            value: rangeDays,
+                            underline: const SizedBox(),
+                            items: const [
+                              DropdownMenuItem(value: 7, child: Text('7 days')),
+                              DropdownMenuItem(value: 14, child: Text('14 days')),
+                              DropdownMenuItem(value: 30, child: Text('30 days')),
+                            ],
+                            onChanged: (v) {
+                              if (v == null) return;
+                              setDialogState(() {
+                                rangeDays = v;
+                              });
+                            },
+                          ),
+                          DropdownButton<String>(
+                            value: statusFilter,
+                            underline: const SizedBox(),
+                            items: const [
+                              DropdownMenuItem(value: 'All', child: Text('All')),
+                              DropdownMenuItem(value: 'Checked-in', child: Text('Checked-in')),
+                              DropdownMenuItem(value: 'Checked-out', child: Text('Checked-out')),
+                              DropdownMenuItem(value: 'Booked', child: Text('Booked')),
+                              DropdownMenuItem(value: 'Pending', child: Text('Pending')),
+                              DropdownMenuItem(value: 'Expired', child: Text('Expired')),
+                              DropdownMenuItem(value: 'Rejected', child: Text('Rejected')),
+                              DropdownMenuItem(value: 'Cancelled', child: Text('Cancelled')),
+                            ],
+                            onChanged: (v) {
+                              if (v == null) return;
+                              setDialogState(() {
+                                statusFilter = v;
+                              });
+                            },
+                          ),
+                          SizedBox(
+                            width: 220,
+                            child: TextField(
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  query = value;
+                                });
+                              },
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.search),
+                                hintText: 'Search room/guest...',
+                                isDense: true,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                             ),
-
-                            Expanded(
-                              child: SingleChildScrollView(
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: roomColumnWidth,
+                            color: Colors.green[800],
+                            child: Column(
+                              children: [
+                                Container(
+                                  height: headerHeight,
+                                  alignment: Alignment.centerLeft,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    border: Border(bottom: BorderSide(color: Colors.white24.withValues(alpha: 0.35))),
+                                  ),
+                                  child: const Text('Rooms', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                                Expanded(
+                                  child: filteredRooms.isEmpty
+                                      ? const Center(
+                                          child: Padding(
+                                            padding: EdgeInsets.all(24.0),
+                                            child: Text('No rooms available', style: TextStyle(color: Colors.white70)),
+                                          ),
+                                        )
+                                      : ListView.builder(
+                                          controller: roomScrollController,
+                                          itemExtent: rowHeight,
+                                          itemCount: filteredRooms.length,
+                                          itemBuilder: (context, i) => Container(
+                                            alignment: Alignment.centerLeft,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                                            decoration: BoxDecoration(
+                                              border: Border(bottom: BorderSide(color: Colors.white24.withValues(alpha: 0.2))),
+                                            ),
+                                            child: Text(filteredRooms[i], style: const TextStyle(color: Colors.white)),
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: dayCellWidth * days.length,
                                 child: Column(
                                   children: [
-                                    for (final room in rooms)
-                                      _buildFrontDeskCalendarRow(context, room, days, _bookings, statusColor),
-              ],
-            ),
-          ),
+                                    SizedBox(
+                                      height: headerHeight,
+                                      child: Row(
+                                        children: [
+                                          for (final d in days)
+                                            SizedBox(
+                                              width: dayCellWidth,
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: _activityHeatColor(
+                                                    occupancyByDay[_dayKey(d)] ?? 0,
+                                                    maxDayOccupancy,
+                                                  ),
+                                                  border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+                                                ),
+                                                child: Center(
+                                                  child: Column(
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: [
+                                                      Text(
+                                                        DateFormat('EEE').format(d),
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, height: 1.0),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        DateFormat('MMM d').format(d),
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 11, height: 1.0),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        '${occupancyByDay[_dayKey(d)] ?? 0} rooms',
+                                                        textAlign: TextAlign.center,
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          height: 1.0,
+                                                          color: Colors.grey[800],
+                                                          fontWeight: (occupancyByDay[_dayKey(d)] ?? 0) == maxDayOccupancy && maxDayOccupancy > 0
+                                                              ? FontWeight.w700
+                                                              : FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: filteredRooms.isEmpty
+                                          ? const SizedBox.shrink()
+                                          : ListView.builder(
+                                              controller: gridScrollController,
+                                              itemExtent: rowHeight,
+                                              itemCount: filteredRooms.length,
+                                              itemBuilder: (context, i) => _buildFrontDeskCalendarRow(
+                                                context,
+                                                filteredRooms[i],
+                                                days,
+                                                filteredBookings,
+                                                statusColor,
+                                                dayCellWidth,
+                                                occupancyByDay,
+                                                maxDayOccupancy,
+                                              ),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+            );
+          },
         );
       },
-    );
+    ).whenComplete(() {
+      roomScrollController.dispose();
+      gridScrollController.dispose();
+    });
   }
   List<dynamic> _getEventsForDay(DateTime day) {
     final hasBooking = _bookings.any((b) {
@@ -2145,23 +2329,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  int _dayKey(DateTime d) => DateTime(d.year, d.month, d.day).millisecondsSinceEpoch;
+
+  bool _bookingOverlapsDay(Map<String, dynamic> booking, DateTime day) {
+    try {
+      final ci = booking['check_in_date'] != null ? DateTime.parse('${booking['check_in_date']}') : null;
+      final co = booking['check_out_date'] != null ? DateTime.parse('${booking['check_out_date']}') : null;
+      if (ci == null || co == null) return false;
+      final dayStart = DateTime(day.year, day.month, day.day);
+      final dayEnd = dayStart.add(const Duration(days: 1));
+      return ci.isBefore(dayEnd) && co.isAfter(dayStart);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Color _activityHeatColor(int count, int maxCount) {
+    if (maxCount <= 0 || count <= 0) return Colors.white;
+    final t = (count / maxCount).clamp(0.0, 1.0);
+    const white = Colors.white;
+    const silver = Color(0xFFE0E0E0);
+    const yellow = Color(0xFFFFF59D);
+    const orange = Color(0xFFFFA726);
+    if (t <= 0.33) {
+      return Color.lerp(white, silver, t / 0.33)!;
+    }
+    if (t <= 0.66) {
+      return Color.lerp(silver, yellow, (t - 0.33) / 0.33)!;
+    }
+    return Color.lerp(yellow, orange, (t - 0.66) / 0.34)!;
+  }
+
   Widget _buildFrontDeskCalendarRow(
     BuildContext context,
     String roomName,
     List<DateTime> days,
     List<Map<String, dynamic>> bookings,
     Color Function(String status) statusColor,
+    double dayCellWidth,
+    Map<int, int> occupancyByDay,
+    int maxDayOccupancy,
   ) {
     return SizedBox(
       height: 56,
       child: Row(
         children: [
           for (final d in days)
-            Expanded(
+            SizedBox(
+              width: dayCellWidth,
               child: Container(
                 height: 56,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
+                  color: _activityHeatColor(
+                    occupancyByDay[_dayKey(d)] ?? 0,
+                    maxDayOccupancy,
+                  ),
                   border: Border(
                     right: BorderSide(color: Colors.grey[300]!),
                     bottom: BorderSide(color: Colors.grey[300]!),
