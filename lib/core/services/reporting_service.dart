@@ -232,6 +232,7 @@ class ReportingService {
       final expenseResponse = await _supabase
           .from('expenses')
           .select('*')
+          .eq('status', 'Approved')
           .gte('transaction_date', startStr)
           .lte('transaction_date', endStr)
           .order('transaction_date', ascending: false);

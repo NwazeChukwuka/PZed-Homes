@@ -21,11 +21,6 @@ class _DataServiceCache {
       return entry.data;
     }
 
-    if (entry != null) {
-      _revalidateInBackground(key, tables, fetch);
-      return entry.data;
-    }
-
     final existing = _inFlight[key] as Future<T>?;
     if (existing != null) return existing;
 
@@ -39,12 +34,6 @@ class _DataServiceCache {
     });
     _inFlight[key] = future;
     return future;
-  }
-
-  void _revalidateInBackground<T>(String key, List<String> tables, Future<T> Function() fetch) {
-    fetch().then((data) {
-      _entries[key] = _CacheEntry<T>(data, DateTime.now());
-    }).catchError((_) {});
   }
 
   void invalidateForTable(String table) {
@@ -869,7 +858,7 @@ class DataService {
     DateTime? startDate,
     DateTime? endDate,
     String? status,
-    int limit = 200,
+    int limit = 2000,
     bool light = false,
   }) async {
     final key = 'getExpenses:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$status:$limit:$light';
@@ -878,7 +867,7 @@ class DataService {
       tables: const ['expenses'],
       fetch: () => _retryOperation(() async {
         final select = light
-            ? 'id, amount, transaction_date, department, category, status'
+            ? 'id, amount, transaction_date, department, category, status, description, payment_method'
             : '*';
         var query = _supabase.from('expenses').select(select);
         if (status != null && status.isNotEmpty) {
@@ -909,6 +898,7 @@ class DataService {
         'status': expense['status'] ?? 'Pending',
       });
     });
+    invalidateCacheForTable('expenses');
   }
 
   Future<void> approveExpense({
@@ -925,6 +915,7 @@ class DataService {
         'rejection_reason': null,
       }).eq('id', expenseId);
     });
+    invalidateCacheForTable('expenses');
   }
 
   Future<void> rejectExpense({
@@ -940,6 +931,42 @@ class DataService {
         'rejection_reason': reason,
       }).eq('id', expenseId);
     });
+    invalidateCacheForTable('expenses');
+  }
+
+  Future<void> deleteExpense(String expenseId) async {
+    await _retryOperation(() async {
+      await _supabase.from('expenses').delete().eq('id', expenseId);
+    });
+    invalidateCacheForTable('expenses');
+  }
+
+  Future<void> deleteIncomeRecord(String incomeId) async {
+    await _retryOperation(() async {
+      await _supabase.from('income_records').delete().eq('id', incomeId);
+    });
+    invalidateCacheForTable('income_records');
+  }
+
+  Future<void> deleteMiniMartSale(String saleId) async {
+    await _retryOperation(() async {
+      await _supabase.from('mini_mart_sales').delete().eq('id', saleId);
+    });
+    invalidateCacheForTable('mini_mart_sales');
+  }
+
+  Future<void> deleteKitchenSale(String saleId) async {
+    await _retryOperation(() async {
+      await _supabase.from('kitchen_sales').delete().eq('id', saleId);
+    });
+    invalidateCacheForTable('kitchen_sales');
+  }
+
+  Future<void> deleteDepartmentSale(String saleId) async {
+    await _retryOperation(() async {
+      await _supabase.from('department_sales').delete().eq('id', saleId);
+    });
+    invalidateCacheForTable('department_sales');
   }
 
   Future<List<Map<String, dynamic>>> getIncomeRecords({
@@ -981,6 +1008,7 @@ class DataService {
         'booking_id': income['booking_id'], // Optional booking link
       });
     });
+    invalidateCacheForTable('income_records');
   }
 
   Future<List<Map<String, dynamic>>> getPayrollRecords({
@@ -1710,7 +1738,7 @@ class DataService {
           .from('mini_mart_sales')
           .select('total_amount')
           .gte('sale_date', startStr)
-          .lte('sale_date', endStr);
+          .lte('sale_date', '${endStr}T23:59:59.999');
 
       final Future<dynamic> cashIncomeFuture = _supabase
           .from('income_records')
@@ -1731,7 +1759,7 @@ class DataService {
           .select('total_amount')
           .eq('payment_method', 'cash')
           .gte('sale_date', startStr)
-          .lte('sale_date', endStr);
+          .lte('sale_date', '${endStr}T23:59:59.999');
 
       final Future<dynamic> cashRoomSalesFuture = _supabase
           .from('bookings')
@@ -1751,6 +1779,7 @@ class DataService {
       final Future<dynamic> expensesFuture = _supabase
           .from('expenses')
           .select('amount')
+          .eq('status', 'Approved')
           .gte('transaction_date', startStr)
           .lte('transaction_date', endStr);
 
@@ -1959,6 +1988,7 @@ class DataService {
         final expenses = await _supabase
             .from('expenses')
             .select('department, amount')
+            .eq('status', 'Approved')
             .gte('transaction_date', startStr)
             .lte('transaction_date', endStr);
         for (var expense in expenses as List) {
@@ -2143,7 +2173,8 @@ class DataService {
         query = query.gte('sale_date', startDate.toIso8601String().split('T')[0]);
       }
       if (endDate != null) {
-        query = query.lte('sale_date', endDate.toIso8601String().split('T')[0]);
+        final endDay = endDate.toIso8601String().split('T')[0];
+        query = query.lte('sale_date', '${endDay}T23:59:59.999');
       }
       if (staffId != null && staffId != 'all') {
         query = query.eq('sold_by', staffId);

@@ -118,7 +118,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   final ValueNotifier<bool> _isExporting = ValueNotifier<bool>(false);
   int _activeTabLoadToken = 0;
   DateTimeRange? _summaryRange;
-  bool _showPendingExpenses = false;
+  String _expenseStatusFilter = 'all';
   String _payrollListFilter = 'all';
   bool _dismissPayrollConfigWarning = false;
   bool _showOverdueDebtsOnly = false;
@@ -456,7 +456,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     final expenses = await _dataService.getExpenses(
       startDate: range.start,
       endDate: range.end,
-      status: _showPendingExpenses ? 'Pending' : null,
+      status: _expenseStatusFilter == 'all' ? null : _expenseStatusFilter,
+      limit: 2000,
     );
     if (_isStaleLoad(loadToken)) return;
     setState(() {
@@ -634,10 +635,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       content: TabBarView(
         controller: _tabController,
         children: [
-          _LazyTab(index: 0, controller: _tabController, builder: _buildOverviewTab),
+          _LazyTab(index: 0, controller: _tabController, builder: () => _buildOverviewTab(isOwnerOrManager)),
           _LazyTab(key: roleKey, index: 1, controller: _tabController, builder: () => _buildDebtManagementTab(canRecord, canApprove)),
-          _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord)),
-          _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove)),
+          _LazyTab(key: roleKey, index: 2, controller: _tabController, builder: () => _buildIncomeTab(canRecord, isOwnerOrManager)),
+          _LazyTab(key: roleKey, index: 3, controller: _tabController, builder: () => _buildExpensesTab(canRecord, canApprove, isOwnerOrManager)),
           _LazyTab(key: roleKey, index: 4, controller: _tabController, builder: () => _buildPayrollTab(canRecord, canApprove, canSetMonthlyGross)),
           _LazyTab(key: roleKey, index: 5, controller: _tabController, builder: () => _buildCashDepositsTab(canRecord)),
           _LazyTab(index: 6, controller: _tabController, builder: _buildAuditTab),
@@ -646,7 +647,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildOverviewTab() {
+  Widget _buildOverviewTab(bool canDeleteTransactions) {
     return RefreshIndicator(
       onRefresh: () => _loadDataForTab(0),
       child: SingleChildScrollView(
@@ -669,6 +670,17 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             if (_isLoadingData) const SizedBox(height: 16),
             _buildFinancialSummaryCard(),
             const SizedBox(height: 16),
+            if (canDeleteTransactions) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showManageTransactionsDialog(),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Manage / delete sales'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             if (_loadError != null) _buildDataLoadFailedBanner(),
             if (_loadError != null) const SizedBox(height: 12),
             _buildAuditorExportsCard(),
@@ -968,7 +980,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             ),
             const SizedBox(height: 6),
             Text(
-              'Summary from recorded income, expenses and cash.',
+              'Summary from recorded income, approved expenses and cash.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
@@ -1081,6 +1093,244 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       backgroundColor: color.withValues(alpha: 0.15),
       labelStyle: TextStyle(color: color),
       visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Future<void> _confirmDeleteTransaction({
+    required String title,
+    required String detail,
+    required Future<void> Function() onDelete,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text('This cannot be undone.\n\n$detail'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await onDelete();
+      if (!mounted) return;
+      ErrorHandler.showSuccessMessage(context, 'Transaction deleted.');
+      _loadCurrentTabData();
+    } catch (e, stackTrace) {
+      if (!mounted) return;
+      ErrorHandler.handleError(
+        context,
+        e,
+        customMessage: 'Failed to delete transaction. Check delete permissions in Supabase.',
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _showManageTransactionsDialog() async {
+    final range = _effectiveSummaryRange;
+    var source = 'mini_mart';
+    var loading = true;
+    var rows = <Map<String, dynamic>>[];
+    String? error;
+    var didInitialLoad = false;
+
+    Future<void> loadRows(void Function(void Function()) setLocal) async {
+      setLocal(() {
+        loading = true;
+        error = null;
+      });
+      try {
+        late List<Map<String, dynamic>> next;
+        if (source == 'mini_mart') {
+          next = await _dataService.getMiniMartSales(startDate: range.start, endDate: range.end, limit: 300);
+        } else if (source == 'kitchen') {
+          next = await _dataService.getKitchenSalesHistory(startDate: range.start, endDate: range.end, limit: 300);
+        } else {
+          final depts = ['vip_bar', 'outside_bar', 'mini_mart', 'restaurant', 'reception'];
+          final all = <Map<String, dynamic>>[];
+          for (final d in depts) {
+            final part = await _dataService.getDepartmentSales(
+              department: d,
+              startDate: range.start,
+              endDate: range.end,
+              limit: 100,
+            );
+            all.addAll(part);
+          }
+          next = all;
+        }
+        setLocal(() {
+          rows = next;
+          loading = false;
+        });
+      } catch (e) {
+        setLocal(() {
+          loading = false;
+          error = ErrorHandler.getFriendlyErrorMessage(e);
+        });
+      }
+    }
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            if (!didInitialLoad) {
+              didInitialLoad = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                loadRows(setLocal);
+              });
+            }
+            return AlertDialog(
+              title: const Text('Manage / delete sales'),
+              content: SizedBox(
+                width: 520,
+                height: 460,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Date range: ${range.start.toIso8601String().split('T')[0]} → ${range.end.toIso8601String().split('T')[0]}',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final option in const [
+                          ('mini_mart', 'Mini Mart'),
+                          ('kitchen', 'Kitchen'),
+                          ('department', 'Department totals'),
+                        ])
+                          ChoiceChip(
+                            label: Text(option.$2),
+                            selected: source == option.$1,
+                            onSelected: (_) {
+                              setLocal(() {
+                                source = option.$1;
+                                rows = [];
+                              });
+                              loadRows(setLocal);
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (loading)
+                      const Expanded(child: Center(child: CircularProgressIndicator()))
+                    else if (error != null)
+                      Expanded(child: Center(child: Text(error!, textAlign: TextAlign.center)))
+                    else if (rows.isEmpty)
+                      const Expanded(child: Center(child: Text('No sales in this range')))
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: rows.length,
+                          itemBuilder: (context, index) {
+                            final row = rows[index];
+                            final id = row['id']?.toString() ?? '';
+                            late final String title;
+                            late final String subtitle;
+                            if (source == 'mini_mart') {
+                              final item = row['mini_mart_items'];
+                              final itemName = item is Map ? (item['name']?.toString() ?? 'Item') : 'Item';
+                              title = itemName;
+                              subtitle =
+                                  '₦${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['sale_date'] ?? ''}';
+                            } else if (source == 'kitchen') {
+                              final menu = row['menu_items'];
+                              final menuName = menu is Map ? menu['name']?.toString() : null;
+                              title = row['item_name']?.toString() ?? menuName ?? 'Kitchen sale';
+                              subtitle =
+                                  '₦${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['created_at'] ?? ''}';
+                            } else {
+                              title = '${row['department'] ?? 'Department'} · ${row['date'] ?? ''}';
+                              subtitle =
+                                  '₦${_formatKobo(row['total_sales'] ?? 0)} · ${row['transaction_count'] ?? 0} txns';
+                            }
+                            return ListTile(
+                              dense: true,
+                              title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              trailing: IconButton(
+                                tooltip: 'Delete',
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                onPressed: id.isEmpty
+                                    ? null
+                                    : () async {
+                                        final ok = await showDialog<bool>(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Delete this sale?'),
+                                            content: Text('$title\n$subtitle'),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(ctx, false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(ctx, true),
+                                                child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (ok != true) return;
+                                        try {
+                                          if (source == 'mini_mart') {
+                                            await _dataService.deleteMiniMartSale(id);
+                                          } else if (source == 'kitchen') {
+                                            await _dataService.deleteKitchenSale(id);
+                                          } else {
+                                            await _dataService.deleteDepartmentSale(id);
+                                          }
+                                          setLocal(() {
+                                            rows = rows.where((r) => r['id']?.toString() != id).toList();
+                                          });
+                                          if (mounted) {
+                                            ErrorHandler.showSuccessMessage(
+                                              this.context,
+                                              'Sale deleted.',
+                                            );
+                                            _loadDataForTab(0);
+                                          }
+                                        } catch (e, stackTrace) {
+                                          if (!mounted) return;
+                                          ErrorHandler.handleError(
+                                            this.context,
+                                            e,
+                                            customMessage:
+                                                'Delete failed. Run the DELETE RLS SQL for kitchen/department sales first.',
+                                            stackTrace: stackTrace,
+                                          );
+                                        }
+                                      },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1515,7 +1765,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     }
   }
 
-  Widget _buildIncomeTab(bool canRecord) {
+  Widget _buildIncomeTab(bool canRecord, bool canDelete) {
     return Column(
       children: [
         if (canRecord)
@@ -1537,7 +1787,24 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 child: ListTile(
                   title: Text(income['description'] ?? 'Unknown'),
                   subtitle: Text('₦${_formatKobo(income['amount'] ?? 0)} - ${income['department'] ?? ''}'),
-                  trailing: Text(income['date'] ?? ''),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(income['date'] ?? ''),
+                      if (canDelete) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Delete income',
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _confirmDeleteTransaction(
+                            title: 'Delete income record?',
+                            detail: income['description']?.toString() ?? 'Income',
+                            onDelete: () => _dataService.deleteIncomeRecord(income['id'].toString()),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   leading: const Icon(Icons.trending_up, color: Colors.green),
                 ),
               );
@@ -1548,7 +1815,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
     );
   }
 
-  Widget _buildExpensesTab(bool canRecord, bool canApprove) {
+  Widget _buildExpensesTab(bool canRecord, bool canApprove, bool canDelete) {
     return Column(
       children: [
         if (canRecord)
@@ -1560,57 +1827,97 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
               label: const Text('Record Expense'),
             ),
           ),
-        if (canApprove)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                Expanded(
-                  child: Text(
-                    _showPendingExpenses ? 'Showing pending only' : 'Showing all',
-                    style: TextStyle(color: Colors.grey[700]),
+                for (final option in const [
+                  ('all', 'All'),
+                  ('Pending', 'Pending'),
+                  ('Approved', 'Approved'),
+                  ('Rejected', 'Rejected'),
+                ])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(option.$2),
+                      selected: _expenseStatusFilter == option.$1,
+                      onSelected: (_) {
+                        setState(() => _expenseStatusFilter = option.$1);
+                        _loadCurrentTabData();
+                      },
+                    ),
                   ),
-                ),
-                Switch(
-                  value: _showPendingExpenses,
-                  onChanged: (value) {
-                    setState(() => _showPendingExpenses = value);
-                    _loadCurrentTabData();
-                  },
-                ),
               ],
             ),
           ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: _expenses.length,
-            itemBuilder: (context, index) {
-              final expense = _expenses[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: ListTile(
-                  title: Text(expense['description'] ?? 'Unknown'),
-                  subtitle: Text(
-                    '₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}',
-                  ),
-                  trailing: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(expense['transaction_date'] ?? expense['date'] ?? ''),
-                      const SizedBox(height: 4),
-                      _buildStatusChip(expense['status'] ?? 'Pending'),
-                    ],
-                  ),
-                  leading: const Icon(Icons.trending_down, color: Colors.red),
-                  onTap: canApprove &&
-                          (expense['status']?.toString() ?? '').toLowerCase() == 'pending'
-                      ? () => _showExpenseApprovalDialog(expense)
-                      : null,
-                ),
-              );
-            },
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Only Approved expenses affect profit. Rejected ones are ignored.',
+              style: TextStyle(color: Colors.grey[700], fontSize: 12),
+            ),
           ),
+        ),
+        Expanded(
+          child: _expenses.isEmpty
+              ? Center(
+                  child: Text(
+                    'No expenses in this date range',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _expenses.length,
+                  itemBuilder: (context, index) {
+                    final expense = _expenses[index];
+                    final status = expense['status']?.toString() ?? 'Pending';
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: ListTile(
+                        title: Text(expense['description'] ?? 'Unknown'),
+                        subtitle: Text(
+                          '₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(expense['transaction_date'] ?? expense['date'] ?? ''),
+                                const SizedBox(height: 4),
+                                _buildStatusChip(status),
+                              ],
+                            ),
+                            if (canDelete) ...[
+                              const SizedBox(width: 4),
+                              IconButton(
+                                tooltip: 'Delete expense',
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                onPressed: () => _confirmDeleteTransaction(
+                                  title: 'Delete expense?',
+                                  detail: expense['description']?.toString() ?? 'Expense',
+                                  onDelete: () => _dataService.deleteExpense(expense['id'].toString()),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        leading: const Icon(Icons.trending_down, color: Colors.red),
+                        onTap: canApprove && status.toLowerCase() == 'pending'
+                            ? () => _showExpenseApprovalDialog(expense)
+                            : null,
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
