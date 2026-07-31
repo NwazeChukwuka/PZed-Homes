@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -259,6 +260,27 @@ class PaymentService {
             })
             .eq('key', key);
       }
+    }
+  }
+
+  static String formatCurrency(num amountInKobo) {
+    try {
+      final nairaAmount = amountInKobo / 100;
+      final formatter = NumberFormat('#,##0.00');
+      return '₦${formatter.format(nairaAmount)}';
+    } catch (e) {
+      if (kDebugMode) debugPrint('Currency formatting error: $e');
+      return '₦0.00';
+    }
+  }
+
+  static double? parseAmount(String text) {
+    try {
+      final cleaned = text.replaceAll(',', '').trim();
+      return double.tryParse(cleaned);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Amount parsing error: $e');
+      return null;
     }
   }
 }

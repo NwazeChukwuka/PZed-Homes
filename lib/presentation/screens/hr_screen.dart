@@ -53,9 +53,9 @@ class _HrScreenState extends State<HrScreen>
     const allLetters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     final random = Random.secure();
     final suffix = StringBuffer();
-    
+
     final useThreeNumbers = random.nextBool();
-    
+
     if (useThreeNumbers) {
       for (int i = 0; i < 3; i++) {
         suffix.write(numbers[random.nextInt(numbers.length)]);
@@ -71,8 +71,16 @@ class _HrScreenState extends State<HrScreen>
         suffix.write(allLetters[random.nextInt(allLetters.length)]);
       }
     }
-    
+
     return '$prefix$suffix';
+  }
+
+  String deptLabel(String? deptName) {
+    if (deptName == null) return 'Unknown';
+    return deptName.replaceAll('_', ' ').split(' ').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
   }
 
   @override
@@ -364,6 +372,10 @@ class _HrScreenState extends State<HrScreen>
   }
 
   Widget _buildRolesPositionsTab(BuildContext context) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final role = authService.currentUser?.role;
+    final canManageDepartments = role == AppRole.owner || role == AppRole.manager;
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -382,6 +394,18 @@ class _HrScreenState extends State<HrScreen>
                 icon: const Icon(Icons.person_add_alt_1),
                 label: const Text('Assign Role to Staff'),
               ),
+              if (canManageDepartments) ...[
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _showManageDepartmentsDialog,
+                  icon: const Icon(Icons.business),
+                  label: const Text('Manage Departments'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700],
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -787,6 +811,335 @@ class _HrScreenState extends State<HrScreen>
     );
   }
 
+  Future<void> _showManageDepartmentsDialog() async {
+    List<Map<String, dynamic>> departments = [];
+    bool isLoading = true;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> loadDepartments() async {
+            setDialogState(() => isLoading = true);
+            try {
+              departments = await _dataService.getDepartments();
+            } catch (e) {
+              departments = [];
+              if (dialogCtx.mounted) {
+                ErrorHandler.handleError(
+                  dialogCtx,
+                  e,
+                  customMessage: 'Failed to load departments',
+                );
+              }
+            } finally {
+              setDialogState(() => isLoading = false);
+            }
+          }
+
+          // Load departments when dialog opens
+          if (isLoading) {
+            loadDepartments();
+          }
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.business, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Manage Departments'),
+              ],
+            ),
+            content: SizedBox(
+              width: 600,
+              height: 500,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      children: [
+                        Expanded(
+                          child: departments.isEmpty
+                              ? const Center(
+                                  child: Text('No departments found'),
+                                )
+                              : ListView.builder(
+                                  itemCount: departments.length,
+                                  itemBuilder: (context, index) {
+                                    final dept = departments[index];
+                                    return Card(
+                                      child: ListTile(
+                                        title: Text(
+                                          deptLabel(dept['name'] as String?),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          dept['description']?.toString() ?? 'No description',
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.edit, size: 20),
+                                              onPressed: () => _showEditDepartmentDialog(
+                                                dialogCtx,
+                                                dept['id'] as String,
+                                                dept['name'] as String,
+                                                dept['description'] as String?,
+                                                () => loadDepartments(),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+                                              onPressed: () => _showDeleteDepartmentDialog(
+                                                dialogCtx,
+                                                dept['id'] as String,
+                                                dept['name'] as String,
+                                                () => loadDepartments(),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showAddDepartmentDialog(dialogContext, () => loadDepartments()),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Department'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[700],
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showAddDepartmentDialog(
+    BuildContext parentContext,
+    VoidCallback onRefresh,
+  ) async {
+    final nameController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    await showDialog(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add New Department'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Department Name *',
+                hintText: 'e.g., VIP Bar, Reception',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+                hintText: 'Brief description of the department',
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final description = descriptionController.text.trim();
+
+              if (name.isEmpty) {
+                if (dialogContext.mounted) {
+                  ErrorHandler.showWarningMessage(
+                    dialogContext,
+                    'Please enter a department name',
+                  );
+                }
+                return;
+              }
+
+              try {
+                await _dataService.createDepartment(name, description);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Department added successfully',
+                );
+                onRefresh();
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ErrorHandler.handleError(
+                    dialogContext,
+                    e,
+                    customMessage: 'Failed to add department',
+                  );
+                }
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showEditDepartmentDialog(
+    BuildContext parentContext,
+    String departmentId,
+    String currentName,
+    String? currentDescription,
+    VoidCallback onRefresh,
+  ) async {
+    final nameController = TextEditingController(text: currentName);
+    final descriptionController = TextEditingController(text: currentDescription ?? '');
+
+    await showDialog(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit Department'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Department Name *',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final description = descriptionController.text.trim();
+
+              if (name.isEmpty) {
+                if (dialogContext.mounted) {
+                  ErrorHandler.showWarningMessage(
+                    dialogContext,
+                    'Please enter a department name',
+                  );
+                }
+                return;
+              }
+
+              try {
+                await _dataService.updateDepartment(departmentId, name, description);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ErrorHandler.showSuccessMessage(
+                  context,
+                  'Department updated successfully',
+                );
+                onRefresh();
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ErrorHandler.handleError(
+                    dialogContext,
+                    e,
+                    customMessage: 'Failed to update department',
+                  );
+                }
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDeleteDepartmentDialog(
+    BuildContext parentContext,
+    String departmentId,
+    String departmentName,
+    VoidCallback onRefresh,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Department'),
+        content: Text(
+          'Are you sure you want to delete "${deptLabel(departmentName)}"? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _dataService.deleteDepartment(departmentId);
+        if (!mounted) return;
+        ErrorHandler.showSuccessMessage(
+          context,
+          'Department deleted successfully',
+        );
+        onRefresh();
+      } catch (e) {
+        if (mounted) {
+          ErrorHandler.handleError(
+            context,
+            e,
+            customMessage: 'Failed to delete department',
+          );
+        }
+      }
+    }
+  }
+
   void _showSuspendDialog(Map<String, dynamic> staff) {
     final reasonController = TextEditingController();
     DateTime? suspensionEndDate;
@@ -1146,6 +1499,9 @@ class _HrScreenState extends State<HrScreen>
     Map<String, dynamic>? selectedGuest;
     int? outstandingKobo;
     var outstandingLoading = false;
+    var departments = <Map<String, dynamic>>[];
+    var departmentsLoaded = false;
+    var departmentsLoading = false;
 
     showDialog(
       context: context,
@@ -1167,6 +1523,64 @@ class _HrScreenState extends State<HrScreen>
               }
             } finally {
               setDialogState(() => guestsLoading = false);
+            }
+          }
+
+          Future<void> loadDepartments() async {
+            setDialogState(() => departmentsLoading = true);
+            try {
+              departments = await _dataService.getDepartments();
+              departmentsLoaded = true;
+            } catch (e) {
+              departments = [];
+              if (dialogCtx2.mounted) {
+                ErrorHandler.handleError(
+                  dialogCtx2,
+                  e,
+                  customMessage: 'Could not load departments',
+                );
+              }
+            } finally {
+              setDialogState(() => departmentsLoading = false);
+            }
+          }
+
+          // Load departments when dialog opens
+          if (!departmentsLoaded && !departmentsLoading) {
+            loadDepartments();
+          }
+
+          String? getDepartmentForRole(String? role) {
+            if (role == null) return null;
+            switch (role) {
+              case 'vip_bartender':
+                return 'vip_bar';
+              case 'outside_bartender':
+                return 'outside_bar';
+              case 'receptionist':
+                return 'reception';
+              case 'kitchen_staff':
+                return 'restaurant';
+              case 'housekeeper':
+              case 'porter':
+              case 'cleaner':
+                return 'housekeeping';
+              case 'laundry_attendant':
+                return 'laundry';
+              case 'manager':
+              case 'supervisor':
+              case 'accountant':
+                return 'finance';
+              case 'hr':
+                return 'hr';
+              case 'security':
+                return 'security';
+              case 'purchaser':
+                return 'purchasing';
+              case 'storekeeper':
+                return 'storeroom';
+              default:
+                return null;
             }
           }
 
@@ -1532,33 +1946,39 @@ class _HrScreenState extends State<HrScreen>
                       ),
                     ],
                     onChanged: (val) {
-                      setDialogState(() => selectedRole = val);
+                      setDialogState(() {
+                        selectedRole = val;
+                        // Auto-map department based on role
+                        if (val != null) {
+                          final mappedDept = getDepartmentForRole(val);
+                          if (mappedDept != null) {
+                            selectedDepartment = mappedDept;
+                          }
+                        }
+                      });
                     },
                   ),
                   const SizedBox(height: 16),
-                  DropdownButtonFormField<String?>(
-                    key: ValueKey<String?>(selectedDepartment),
-                    initialValue: selectedDepartment,
-                    decoration: const InputDecoration(
-                      labelText: 'Department (optional)',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.business),
+                  if (departmentsLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey<String?>(selectedDepartment),
+                      initialValue: selectedDepartment,
+                      decoration: const InputDecoration(
+                        labelText: 'Department (optional)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.business),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(value: null, child: Text('None')),
+                        ...departments.map((dept) => DropdownMenuItem<String?>(
+                          value: dept['name'] as String?,
+                          child: Text(deptLabel(dept['name'] as String?)),
+                        )),
+                      ],
+                      onChanged: (val) => setDialogState(() => selectedDepartment = val),
                     ),
-                    items: const [
-                      DropdownMenuItem<String?>(value: null, child: Text('None')),
-                      DropdownMenuItem<String?>(value: 'reception', child: Text('Reception')),
-                      DropdownMenuItem<String?>(value: 'kitchen', child: Text('Kitchen')),
-                      DropdownMenuItem<String?>(value: 'housekeeping', child: Text('Housekeeping')),
-                      DropdownMenuItem<String?>(value: 'finance', child: Text('Finance')),
-                      DropdownMenuItem<String?>(value: 'hr', child: Text('HR')),
-                      DropdownMenuItem<String?>(value: 'security', child: Text('Security')),
-                      DropdownMenuItem<String?>(value: 'maintenance', child: Text('Maintenance')),
-                      DropdownMenuItem<String?>(value: 'laundry', child: Text('Laundry')),
-                      DropdownMenuItem<String?>(value: 'purchasing', child: Text('Purchasing')),
-                      DropdownMenuItem<String?>(value: 'storeroom', child: Text('Storeroom')),
-                    ],
-                    onChanged: (val) => setDialogState(() => selectedDepartment = val),
-                  ),
                   if (!hireFromGuest) ...[
                     const SizedBox(height: 16),
                     Container(

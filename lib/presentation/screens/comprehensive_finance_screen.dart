@@ -195,7 +195,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   String _formatKobo(num value) {
-    return PaymentService.koboToNaira(value.toInt()).toStringAsFixed(2);
+    return PaymentService.formatCurrency(value.toInt());
   }
 
   Future<void> _maybeShowDuplicatePayrollWarning() async {
@@ -1663,10 +1663,10 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${debt['debtor_type'] ?? ''} owes ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0))}'),
+                    Text('${debt['debtor_type'] ?? ''} owes ${PaymentService.formatCurrency(int.tryParse(debt['amount']?.toString() ?? '') ?? 0)}'),
                     if (debt['paid_amount'] != null && (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0) > 0)
                       Text(
-                        'Paid: ₦${PaymentService.koboToNaira(int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0)} | Remaining: ₦${PaymentService.koboToNaira((int.tryParse(debt['amount']?.toString() ?? '') ?? 0) - (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0))}',
+                        'Paid: ${PaymentService.formatCurrency(int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0)} | Remaining: ${PaymentService.formatCurrency((int.tryParse(debt['amount']?.toString() ?? '') ?? 0) - (int.tryParse(debt['paid_amount']?.toString() ?? '') ?? 0))}',
                         style: TextStyle(fontSize: 12, color: Colors.green[700], fontWeight: FontWeight.w500),
                       ),
                     Text('${debt['reason'] ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -2538,7 +2538,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       }
       return false;
     }
-    final amountInNaira = double.tryParse(_debtAmountController.text.trim());
+    final amountInNaira = PaymentService.parseAmount(_debtAmountController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2770,7 +2770,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a staff')));
                     return;
                   }
-                  final naira = double.tryParse(_salaryAmountController.text.trim());
+                  final naira = PaymentService.parseAmount(_salaryAmountController.text.trim());
                   if (naira == null || naira < 0) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
                     return;
@@ -2961,7 +2961,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       }
       return false;
     }
-    final amountInNaira = double.tryParse(_incomeAmountController.text.trim());
+    final amountInNaira = PaymentService.parseAmount(_incomeAmountController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3030,7 +3030,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       return false;
     }
 
-    final amountInNaira = double.tryParse(_expenseAmountController.text.trim());
+    final amountInNaira = PaymentService.parseAmount(_expenseAmountController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3113,7 +3113,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       }
       return false;
     }
-    final amountInNaira = double.tryParse(_payrollAmountController.text.trim());
+    final amountInNaira = PaymentService.parseAmount(_payrollAmountController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3156,8 +3156,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       }
       return false;
     }
-    final amountInNaira = double.tryParse(_depositAmountController.text.trim());
-    final bankChargesInNaira = double.tryParse(_bankChargesController.text.trim());
+    final amountInNaira = PaymentService.parseAmount(_depositAmountController.text.trim());
+    final bankChargesInNaira = PaymentService.parseAmount(_bankChargesController.text.trim());
     if (amountInNaira == null || amountInNaira <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3334,7 +3334,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 return;
               }
               
-              final amountInNaira = double.tryParse(amountText.replaceAll(',', ''));
+              final amountInNaira = PaymentService.parseAmount(amountText);
               if (amountInNaira == null || amountInNaira <= 0) {
                 ErrorHandler.showWarningMessage(context, 'Please enter a valid amount greater than zero');
                 return;

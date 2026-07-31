@@ -7,6 +7,15 @@ import '../../core/services/auth_service.dart';
 import '../../core/error/error_handler.dart';
 import '../../data/models/user.dart';
 
+extension StringExtension on String {
+  String toTitleCase() {
+    return split(' ').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
+  }
+}
+
 class BartenderShiftScreen extends StatefulWidget {
   const BartenderShiftScreen({super.key});
 
@@ -37,7 +46,7 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _loadShiftData();
   }
 
@@ -247,6 +256,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
             Tab(text: 'Opening Stock', icon: Icon(Icons.inventory)),
             Tab(text: 'Transfers', icon: Icon(Icons.swap_horiz)),
             Tab(text: 'Closing Stock', icon: Icon(Icons.inventory_2)),
+            Tab(text: 'Wastage', icon: Icon(Icons.delete_outline)),
+            Tab(text: 'Dept Transfer', icon: Icon(Icons.send)),
           ],
         ),
       ),
@@ -259,6 +270,8 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
               _buildOpeningStockTab(),
               _buildTransfersTab(),
               _buildClosingStockTab(),
+              _buildWastageTab(),
+              _buildDepartmentTransferTab(),
             ],
           ),
           if (_isLoading)
@@ -1082,6 +1095,475 @@ class _BartenderShiftScreenState extends State<BartenderShiftScreen> with Single
       return time.toString();
     }
   }
-}
 
+  Widget _buildWastageTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _dataService.getWastageRequests(
+        locationId: _getLocationIdByName(_selectedBar),
+        limit: 50,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading wastage data: ${snapshot.error}'),
+          );
+        }
+
+        final wastageRequests = snapshot.data ?? [];
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _showReportWastageDialog,
+                  icon: const Icon(Icons.report_problem),
+                  label: const Text('Report Wastage'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: wastageRequests.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Text('No wastage records found'),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: wastageRequests.length,
+                      itemBuilder: (context, index) {
+                        final request = wastageRequests[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            title: Text(
+                              request['stock_items']?['name']?.toString() ?? 'Unknown Item',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Quantity: ${request['quantity']}'),
+                                Text('Reason: ${request['reason_type']?.toString() ?? 'N/A'}'),
+                                Text('Date: ${_formatDateTime(request['created_at'])}'),
+                                Text('Status: ${request['status']?.toString() ?? 'N/A'}'),
+                                if (request['notes'] != null && request['notes'].toString().isNotEmpty)
+                                  Text('Notes: ${request['notes']}'),
+                              ],
+                            ),
+                            trailing: Icon(
+                              request['status'] == 'approved'
+                                  ? Icons.check_circle
+                                  : request['status'] == 'rejected'
+                                      ? Icons.cancel
+                                      : Icons.pending,
+                              color: request['status'] == 'approved'
+                                  ? Colors.green
+                                  : request['status'] == 'rejected'
+                                      ? Colors.red
+                                      : Colors.orange,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showReportWastageDialog() async {
+    final itemController = TextEditingController();
+    final quantityController = TextEditingController();
+    final notesController = TextEditingController();
+    String? selectedItemId;
+    String? selectedReason;
+    bool isLoading = false;
+    List<Map<String, dynamic>> stockItems = [];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> loadData() async {
+            setDialogState(() => isLoading = true);
+            try {
+              stockItems = await _dataService.getInventoryItems();
+            } catch (e) {
+              if (mounted) {
+                ErrorHandler.handleError(dialogContext, e, customMessage: 'Failed to load data');
+              }
+            } finally {
+              setDialogState(() => isLoading = false);
+            }
+          }
+
+          loadData();
+
+          return AlertDialog(
+            title: const Text('Report Wastage'),
+            content: SizedBox(
+              width: 500,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Item *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: stockItems
+                                .where((item) =>
+                                    item['category'] == 'Beverages' || item['category'] == 'Food Items')
+                                .map((item) => DropdownMenuItem<String>(
+                                      value: item['id']?.toString(),
+                                      child: Text(item['name']?.toString() ?? 'Unknown'),
+                                    ))
+                                .toList(),
+                            onChanged: (val) => setDialogState(() => selectedItemId = val),
+                            validator: (val) => val == null ? 'Please select an item' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Reason *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'spoilt', child: Text('Spoilt')),
+                              DropdownMenuItem(value: 'trashed', child: Text('Trashed')),
+                              DropdownMenuItem(value: 'destroyed', child: Text('Destroyed')),
+                              DropdownMenuItem(value: 'expired', child: Text('Expired')),
+                            ],
+                            onChanged: (val) => setDialogState(() => selectedReason = val),
+                            validator: (val) => val == null ? 'Please select a reason' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: quantityController,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity *',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) return 'Please enter quantity';
+                              final qty = int.tryParse(val.trim()) ?? 0;
+                              if (qty <= 0) return 'Quantity must be greater than 0';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: notesController,
+                            decoration: const InputDecoration(
+                              labelText: 'Notes (Optional)',
+                              border: OutlineInputBorder(),
+                            ),
+                            maxLines: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedItemId == null || selectedReason == null) {
+                    return;
+                  }
+                  final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+                  if (quantity <= 0) return;
+
+                  setDialogState(() => isLoading = true);
+                  try {
+                    final authService = Provider.of<AuthService>(context, listen: false);
+                    final requestedBy = authService.currentUser?.id;
+                    final locationId = _getLocationIdByName(_selectedBar);
+                    if (requestedBy == null || locationId == null) return;
+
+                    await _dataService.createWastageRequest(
+                      stockItemId: selectedItemId!,
+                      locationId: locationId,
+                      quantity: quantity,
+                      reasonType: selectedReason!,
+                      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+                      requestedBy: requestedBy,
+                    );
+
+                    if (!mounted) return;
+                    Navigator.pop(dialogContext);
+                    ErrorHandler.showSuccessMessage(context, 'Wastage request submitted');
+                    setState(() {});
+                  } catch (e) {
+                    setDialogState(() => isLoading = false);
+                    if (mounted) {
+                      ErrorHandler.handleError(context, e, customMessage: 'Failed to submit request');
+                    }
+                  }
+                },
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDepartmentTransferTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _dataService.getInterDepartmentTransfers(
+        sourceDepartmentId: _getLocationIdByName(_selectedBar),
+        limit: 50,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading transfer data: ${snapshot.error}'),
+          );
+        }
+
+        final transfers = snapshot.data ?? [];
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _showDepartmentTransferDialog,
+                  icon: const Icon(Icons.send),
+                  label: const Text('Transfer to Department'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: transfers.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Text('No transfer records found'),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: transfers.length,
+                      itemBuilder: (context, index) {
+                        final transfer = transfers[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            title: Text(
+                              transfer['menu_items']?['name']?.toString() ?? 'Unknown Item',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Quantity: ${transfer['quantity']}'),
+                                Text('From: ${transfer['source_location']?['name']?.toString() ?? 'N/A'}'),
+                                Text('To: ${transfer['destination_location']?['name']?.toString() ?? 'N/A'}'),
+                                Text('Date: ${_formatDateTime(transfer['created_at'])}'),
+                                Text('By: ${transfer['dispatched_by_profile']?['full_name']?.toString() ?? 'Unknown'}'),
+                                if (transfer['notes'] != null && transfer['notes'].toString().isNotEmpty)
+                                  Text('Notes: ${transfer['notes']}'),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showDepartmentTransferDialog() async {
+    final itemController = TextEditingController();
+    final quantityController = TextEditingController();
+    final notesController = TextEditingController();
+    String? selectedItemId;
+    String? selectedDestinationId;
+    bool isLoading = false;
+    List<Map<String, dynamic>> stockItems = [];
+    List<Map<String, dynamic>> locations = [];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> loadData() async {
+            setDialogState(() => isLoading = true);
+            try {
+              stockItems = await _dataService.getInventoryItems();
+              locations = await _dataService.getLocations();
+            } catch (e) {
+              if (mounted) {
+                ErrorHandler.handleError(dialogContext, e, customMessage: 'Failed to load data');
+              }
+            } finally {
+              setDialogState(() => isLoading = false);
+            }
+          }
+
+          loadData();
+
+          final sourceLocationId = _getLocationIdByName(_selectedBar);
+
+          return AlertDialog(
+            title: const Text('Transfer to Department'),
+            content: SizedBox(
+              width: 500,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Source: ${_selectedBar.replaceAll('_', ' ').toTitleCase()}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Destination Department *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: locations
+                                .where((loc) => loc['id']?.toString() != sourceLocationId)
+                                .map((loc) => DropdownMenuItem<String>(
+                                      value: loc['id']?.toString(),
+                                      child: Text(loc['name']?.toString() ?? 'Unknown'),
+                                    ))
+                                .toList(),
+                            onChanged: (val) => setDialogState(() => selectedDestinationId = val),
+                            validator: (val) => val == null ? 'Please select a destination' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Item *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: stockItems
+                                .where((item) =>
+                                    item['category'] == 'Beverages' || item['category'] == 'Food Items')
+                                .map((item) => DropdownMenuItem<String>(
+                                      value: item['id']?.toString(),
+                                      child: Text(item['name']?.toString() ?? 'Unknown'),
+                                    ))
+                                .toList(),
+                            onChanged: (val) => setDialogState(() => selectedItemId = val),
+                            validator: (val) => val == null ? 'Please select an item' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: quantityController,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity *',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) return 'Please enter quantity';
+                              final qty = int.tryParse(val.trim()) ?? 0;
+                              if (qty <= 0) return 'Quantity must be greater than 0';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: notesController,
+                            decoration:	const InputDecoration(
+                              labelText: 'Notes (Optional)',
+                              border: OutlineInputBorder(),
+                            ),
+                            maxLines: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedItemId == null || selectedDestinationId == null) {
+                    return;
+                  }
+                  final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+                  if (quantity <= 0) return;
+
+                  setDialogState(() => isLoading = true);
+                  try {
+                    final authService = Provider.of<AuthService>(context, listen: false);
+                    final dispatchedById = authService.currentUser?.id;
+                    if (dispatchedById == null || sourceLocationId == null) return;
+
+                    await _dataService.createInterDepartmentTransfer(
+                      sourceDepartmentId: sourceLocationId,
+                      destinationDepartmentId: selectedDestinationId!,
+                      stockItemId: selectedItemId!,
+                      quantity: quantity,
+                      dispatchedById: dispatchedById,
+                      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+                    );
+
+                    if (!mounted) return;
+                    Navigator.pop(dialogContext);
+                    ErrorHandler.showSuccessMessage(context, 'Transfer completed successfully');
+                    setState(() {});
+                  } catch (e) {
+                    setDialogState(() => isLoading = false);
+                    if (mounted) {
+                      ErrorHandler.handleError(context, e, customMessage: 'Failed to complete transfer');
+                    }
+                  }
+                },
+                child: const Text('Transfer'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }

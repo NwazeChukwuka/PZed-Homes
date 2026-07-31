@@ -269,6 +269,32 @@ class AppRouter {
           GoRoute(
             path: '/kitchen',
             name: 'kitchen',
+            redirect: (context, state) {
+              final authService = Provider.of<AuthService>(context, listen: false);
+              final user = authService.currentUser;
+              if (user == null) return '/dashboard';
+              
+              final roles = <AppRole>{
+                ...user.roles,
+                ...authService.activeAssumedRoles,
+              };
+              
+              final allowedRoles = {
+                AppRole.owner,
+                AppRole.manager,
+                AppRole.supervisor,
+                AppRole.kitchen_staff,
+                AppRole.vip_bartender,
+              };
+              
+              final hasAccess = roles.any(allowedRoles.contains);
+              
+              if (!hasAccess) {
+                return '/dashboard';
+              }
+              
+              return null;
+            },
             builder: (context, state) => const KitchenDispatchScreen(),
           ),
           GoRoute(

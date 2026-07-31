@@ -893,12 +893,10 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         _dataService.getDepartments(),
         _dataService.getDepartmentTransfers(
           limit: _historyPageSize,
-          offset: 0,
           staffId: isManagement ? null : staffId,
         ),
         _dataService.getKitchenSalesHistory(
           limit: _historyPageSize,
-          offset: 0,
           staffId: isManagement ? null : staffId,
         ),
         _dataService.getBookings(),
@@ -999,7 +997,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         futures.add(
           _dataService.getDepartmentTransfers(
             limit: _historyPageSize,
-            offset: _dispatchOffset,
             staffId: isManagement ? null : staffId,
           ),
         );
@@ -1008,7 +1005,6 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
         futures.add(
           _dataService.getKitchenSalesHistory(
             limit: _historyPageSize,
-            offset: _salesOffset,
             staffId: isManagement ? null : staffId,
           ),
         );
@@ -1175,19 +1171,22 @@ class _KitchenDispatchScreenState extends State<KitchenDispatchScreen> with Tick
           paymentStatus == 'unpaid' ? 'credit' : _dispatchPaymentMethod;
 
       _dispatchLedgerRequestId ??= const Uuid().v4();
-      final transferId = await _dataService.createDepartmentTransfer({
-        'source_department': 'restaurant',
-        'destination_department': destinationDepartment,
-        'menu_item_id': _selectedStockItemId,
-        'quantity': quantity,
-        'dispatched_by_id': staffId,
-        'status': 'Pending',
-        'unit_price': PaymentService.nairaToKobo(unitPriceNaira),
-        'total_amount': totalInKobo,
-        'payment_method': effectivePaymentMethod,
-        'payment_status': paymentStatus,
-        'booking_id': bookingId,
-      }, clientRequestId: _dispatchLedgerRequestId);
+      final transferId = await _dataService.createDepartmentTransfer(
+        {
+          'source_department': 'restaurant',
+          'destination_department': destinationDepartment,
+          'menu_item_id': _selectedStockItemId,
+          'quantity': quantity,
+          'dispatched_by_id': staffId,
+          'status': 'Pending',
+          'unit_price': PaymentService.nairaToKobo(unitPriceNaira),
+          'total_amount': totalInKobo,
+          'payment_method': effectivePaymentMethod,
+          'payment_status': paymentStatus,
+          'booking_id': bookingId,
+        },
+        clientRequestId: _dispatchLedgerRequestId,
+      );
       if (transferId == null) {
         if (mounted) {
           ErrorHandler.showInfoMessage(

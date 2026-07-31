@@ -18,6 +18,7 @@ class _DataServiceCache {
     final now = DateTime.now();
 
     if (entry != null && now.difference(entry.fetchedAt) < _ttl) {
+      _revalidateInBackground(key, tables, fetch);
       return entry.data;
     }
 
@@ -34,6 +35,12 @@ class _DataServiceCache {
     });
     _inFlight[key] = future;
     return future;
+  }
+
+  void _revalidateInBackground<T>(String key, List<String> tables, Future<T> Function() fetch) {
+    fetch().then((data) {
+      _entries[key] = _CacheEntry<T>(data, DateTime.now());
+    }).catchError((_) {});
   }
 
   void invalidateForTable(String table) {
@@ -554,6 +561,328 @@ class DataService {
           .select()
           .order('name')
           .limit(100);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<void> createDepartment(String name, String description) async {
+    await _retryOperation(() async {
+      await _supabase.from('departments').insert({
+        'name': name,
+        'description': description,
+      });
+    });
+    invalidateCacheForTable('departments');
+  }
+
+  Future<void> updateDepartment(String id, String name, String description) async {
+    await _retryOperation(() async {
+      await _supabase.from('departments').update({
+        'name': name,
+        'description': description,
+      }).eq('id', id);
+    });
+    invalidateCacheForTable('departments');
+  }
+
+  Future<void> deleteDepartment(String id) async {
+    await _retryOperation(() async {
+      await _supabase.from('departments').delete().eq('id', id);
+    });
+    invalidateCacheForTable('departments');
+  }
+
+  // Wastage Request Methods
+  Future<String> createWastageRequest({
+    required String stockItemId,
+    required String locationId,
+    required int quantity,
+    required String reasonType,
+    String? notes,
+    required String requestedBy,
+  }) async {
+    return await _retryOperation(() async {
+      final response = await _supabase.from('wastage_requests').insert({
+        'stock_item_id': stockItemId,
+        'location_id': locationId,
+        'quantity': quantity,
+        'reason_type': reasonType,
+        'notes': notes,
+        'requested_by': requestedBy,
+        'status': 'pending',
+      }).select('id').single();
+      invalidateCacheForTable('wastage_requests');
+      return response['id'] as String;
+    });
+  }
+
+  Future<void> approveWastageRequest(String requestId, String approvedBy) async {
+    await _retryOperation(() async {
+      // Get the wastage request details
+      final request = await _supabase
+          .from('wastage_requests')
+          .select('*')
+          .eq('id', requestId)
+          .single();
+
+      // Update the wastage request
+      await _supabase.from('wastage_requests').update({
+        'status': 'approved',
+        'approved_by': approvedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+      }).eq('id', requestId);
+
+      // Create stock transaction for the wastage
+      await _supabase.from('stock_transactions').insert({
+        'stock_item_id': request['stock_item_id'],
+        'location_id': request['location_id'],
+        'staff_profile_id': request['requested_by'],
+        'transaction_type': 'Wastage',
+        'quantity': -request['quantity'], // Negative to reduce stock
+        'notes': request['notes'],
+        'wastage_request_id': requestId,
+        'wastage_reason': request['reason_type'],
+      });
+
+      invalidateCacheForTable('wastage_requests');
+      invalidateCacheForTable('stock_transactions');
+    });
+  }
+
+  Future<void> rejectWastageRequest(String requestId, String approvedBy) async {
+    await _retryOperation(() async {
+      await _supabase.from('wastage_requests').update({
+        'status': 'rejected',
+        'approved_by': approvedBy,
+        'approved_at': DateTime.now().toIso8601String(),
+      }).eq('id', requestId);
+      invalidateCacheForTable('wastage_requests');
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getWastageRequests({
+    String? status,
+    String? locationId,
+    String? requestedBy,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 100,
+  }) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('wastage_requests')
+          .select('''
+            *,
+            stock_items(name, unit),
+            locations(name),
+            requested_by_profile:profiles!requested_by(full_name),
+            approved_by_profile:profiles!approved_by(full_name)
+          ''');
+
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+      if (locationId != null && locationId.isNotEmpty) {
+        query = query.eq('location_id', locationId);
+      }
+      if (requestedBy != null && requestedBy.isNotEmpty) {
+        query = query.eq('requested_by', requestedBy);
+      }
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query.order('created_at', ascending: false).limit(limit);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> getWastageAnalytics({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final effectiveStart = startDate ?? DateTime.now().subtract(const Duration(days: 30));
+    final effectiveEnd = endDate ?? DateTime.now();
+
+    return await _retryOperation(() async {
+      // Get total wastage by department
+      final byDeptResponse = await _supabase
+          .from('wastage_requests')
+          .select('locations(name), quantity')
+          .eq('status', 'approved')
+          .gte('approved_at', effectiveStart.toIso8601String())
+          .lte('approved_at', effectiveEnd.toIso8601String());
+
+      // Get total wastage by reason
+      final byReasonResponse = await _supabase
+          .from('wastage_requests')
+          .select('reason_type, quantity')
+          .eq('status', 'approved')
+          .gte('approved_at', effectiveStart.toIso8601String())
+          .lte('approved_at', effectiveEnd.toIso8601String());
+
+      // Get pending count
+      final pendingResponse = await _supabase
+          .from('wastage_requests')
+          .select('id')
+          .eq('status', 'pending');
+
+      return {
+        'by_department': byDeptResponse,
+        'by_reason': byReasonResponse,
+        'pending_count': pendingResponse.length,
+      };
+    });
+  }
+
+  // Notification Methods
+  Future<void> createNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String message,
+    String? relatedId,
+  }) async {
+    await _retryOperation(() async {
+      await _supabase.from('notifications').insert({
+        'user_id': userId,
+        'type': type,
+        'title': title,
+        'message': message,
+        'related_id': relatedId,
+      });
+      invalidateCacheForTable('notifications');
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getNotifications({
+    bool unreadOnly = false,
+    int limit = 50,
+  }) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('notifications')
+          .select('*');
+
+      if (unreadOnly) {
+        query = query.eq('is_read', false);
+      }
+
+      final response = await query.order('created_at', ascending: false).limit(limit);
+      return List<Map<String, dynamic>>.from(response);
+    });
+  }
+
+  Future<void> markNotificationAsRead(String notificationId) async {
+    await _retryOperation(() async {
+      await _supabase.from('notifications').update({
+        'is_read': true,
+      }).eq('id', notificationId);
+      invalidateCacheForTable('notifications');
+    });
+  }
+
+  Future<void> markAllNotificationsAsRead(String userId) async {
+    await _retryOperation(() async {
+      await _supabase.from('notifications').update({
+        'is_read': true,
+      }).eq('user_id', userId);
+      invalidateCacheForTable('notifications');
+    });
+  }
+
+  Future<int> getUnreadNotificationCount(String userId) async {
+    return await _retryOperation(() async {
+      final response = await _supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('is_read', false);
+      return response.length;
+    });
+  }
+
+  // Department Transfer Methods
+  Future<String> createInterDepartmentTransfer({
+    required String sourceDepartmentId,
+    required String destinationDepartmentId,
+    required String stockItemId,
+    required int quantity,
+    required String dispatchedById,
+    String? notes,
+  }) async {
+    return await _retryOperation(() async {
+      // Create the department transfer record
+      final transferResponse = await _supabase.from('department_transfers').insert({
+        'source_department_id': sourceDepartmentId,
+        'destination_department_id': destinationDepartmentId,
+        'menu_item_id': stockItemId,
+        'quantity': quantity,
+        'dispatched_by_id': dispatchedById,
+        'notes': notes,
+      }).select('id').single();
+
+      // Create stock transaction for source (Transfer_Out)
+      await _supabase.from('stock_transactions').insert({
+        'stock_item_id': stockItemId,
+        'location_id': sourceDepartmentId,
+        'staff_profile_id': dispatchedById,
+        'transaction_type': 'Transfer_Out',
+        'quantity': -quantity,
+        'notes': notes,
+      });
+
+      // Create stock transaction for destination (Transfer_In)
+      await _supabase.from('stock_transactions').insert({
+        'stock_item_id': stockItemId,
+        'location_id': destinationDepartmentId,
+        'staff_profile_id': dispatchedById,
+        'transaction_type': 'Transfer_In',
+        'quantity': quantity,
+        'notes': notes,
+      });
+
+      invalidateCacheForTable('department_transfers');
+      invalidateCacheForTable('stock_transactions');
+      return transferResponse['id'] as String;
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getInterDepartmentTransfers({
+    String? sourceDepartmentId,
+    String? destinationDepartmentId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 100,
+  }) async {
+    return await _retryOperation(() async {
+      var query = _supabase
+          .from('department_transfers')
+          .select('''
+            *,
+            source_location:locations!source_department_id(name),
+            destination_location:locations!destination_department_id(name),
+            menu_items(name),
+            dispatched_by_profile:profiles!dispatched_by_id(full_name)
+          ''');
+
+      if (sourceDepartmentId != null && sourceDepartmentId.isNotEmpty) {
+        query = query.eq('source_department_id', sourceDepartmentId);
+      }
+      if (destinationDepartmentId != null && destinationDepartmentId.isNotEmpty) {
+        query = query.eq('destination_department_id', destinationDepartmentId);
+      }
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query.order('created_at', ascending: false).limit(limit);
       return List<Map<String, dynamic>>.from(response);
     });
   }
@@ -2322,19 +2651,23 @@ class DataService {
     String? department,
     DateTime? startDate,
     DateTime? endDate,
+    String? staffId,
     int limit = 1000,
   }) async {
-    final key = 'getDepartmentSales:$department:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$limit';
+    final key = 'getDepartmentSales:$department:${startDate?.toIso8601String()}:${endDate?.toIso8601String()}:$staffId:$limit';
     return _cache.getOrFetch<List<Map<String, dynamic>>>(
       key: key,
       tables: const ['department_sales'],
       fetch: () => _retryOperation(() async {
-        const selectCols = 'id, department, total_sales, date, created_at, updated_at';
+        const selectCols = 'id, department, total_sales, date, created_at, updated_at, staff_id';
         var query = _supabase
             .from('department_sales')
             .select(selectCols);
         if (department != null && department.isNotEmpty) {
           query = query.eq('department', department);
+        }
+        if (staffId != null && staffId.isNotEmpty) {
+          query = query.eq('staff_id', staffId);
         }
         if (startDate != null && endDate != null) {
           final startCalendarDate = startDate.toIso8601String().split('T')[0];

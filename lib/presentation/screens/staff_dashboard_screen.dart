@@ -103,7 +103,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       case AppRole.outside_bartender:
         return 'outside_bar';
       case AppRole.receptionist:
-        return 'mini_mart';
+        return 'reception';
       case AppRole.kitchen_staff:
         return 'restaurant';
       case AppRole.housekeeper:
@@ -125,10 +125,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       _dataService.getStockTransactions(staffId: staffId),
       _dataService.getDebts(soldBy: staffId, startDate: range?.start, endDate: range?.end),
       _dataService.getDebts(createdBy: staffId, startDate: range?.start, endDate: range?.end),
-      if (range != null) _dataService.getMiniMartSales(staffId: staffId, startDate: range.start, endDate: range.end),
-      if (range != null) _dataService.getKitchenSalesHistory(staffId: staffId, startDate: range.start, endDate: range.end),
-      if (prevRange != null) _dataService.getMiniMartSales(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
-      if (prevRange != null) _dataService.getKitchenSalesHistory(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
+      if (range != null && department != null) _dataService.getDepartmentSales(department: department, startDate: range.start, endDate: range.end, staffId: staffId),
+      if (range != null && department == 'vip_bar') _dataService.getDepartmentSales(department: 'restaurant', startDate: range.start, endDate: range.end, staffId: staffId),
+      if (range != null && department == 'mini_mart') _dataService.getMiniMartSales(staffId: staffId, startDate: range.start, endDate: range.end),
+      if (range != null && department == 'restaurant') _dataService.getKitchenSalesHistory(staffId: staffId, startDate: range.start, endDate: range.end),
+      if (prevRange != null && department != null) _dataService.getDepartmentSales(department: department, startDate: prevRange.start, endDate: prevRange.end, staffId: staffId),
+      if (prevRange != null && department == 'vip_bar') _dataService.getDepartmentSales(department: 'restaurant', startDate: prevRange.start, endDate: prevRange.end, staffId: staffId),
+      if (prevRange != null && department == 'mini_mart') _dataService.getMiniMartSales(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
+      if (prevRange != null && department == 'restaurant') _dataService.getKitchenSalesHistory(staffId: staffId, startDate: prevRange.start, endDate: prevRange.end),
       if (prevRange != null) _dataService.getDebts(soldBy: staffId, startDate: prevRange.start, endDate: prevRange.end),
       if (prevRange != null) _dataService.getDebts(createdBy: staffId, startDate: prevRange.start, endDate: prevRange.end),
     ];
@@ -138,10 +142,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     final allTransactions = results[idx++] as List<Map<String, dynamic>>;
     final soldDebts = results[idx++] as List<Map<String, dynamic>>;
     final createdDebts = results[idx++] as List<Map<String, dynamic>>;
-    final miniMartSales = range != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
-    final kitchenSales = range != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
-    final prevMiniMart = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
-    final prevKitchen = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final deptSales = (range != null && department != null) ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final vipKitchenSales = (range != null && department == 'vip_bar') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final miniMartSales = (range != null && department == 'mini_mart') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final kitchenSales = (range != null && department == 'restaurant') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevDeptSales = (prevRange != null && department != null) ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevVipKitchenSales = (prevRange != null && department == 'vip_bar') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevMiniMart = (prevRange != null && department == 'mini_mart') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
+    final prevKitchen = (prevRange != null && department == 'restaurant') ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
     final prevSoldDebts = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
     final prevCreatedDebts = prevRange != null ? results[idx++] as List<Map<String, dynamic>> : <Map<String, dynamic>>[];
 
@@ -155,6 +163,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     double transferSales = 0;
     double creditSales = 0;
 
+    for (var s in deptSales) {
+      final amount = (s['total_sales'] as num?)?.toDouble() ?? 0.0;
+      totalSales += amount;
+      transactionCount++;
+    }
+    for (var s in vipKitchenSales) {
+      final amount = (s['total_sales'] as num?)?.toDouble() ?? 0.0;
+      totalSales += amount;
+      transactionCount++;
+    }
     for (var s in miniMartSales) {
       final amount = (s['total_amount'] as num?)?.toDouble() ?? 0.0;
       totalSales += amount;
@@ -211,6 +229,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     
     double prevTotalSales = 0;
     int prevTransactionCount = 0;
+    for (var s in prevDeptSales) {
+      prevTotalSales += (s['total_sales'] as num?)?.toDouble() ?? 0;
+      prevTransactionCount++;
+    }
+    for (var s in prevVipKitchenSales) {
+      prevTotalSales += (s['total_sales'] as num?)?.toDouble() ?? 0;
+      prevTransactionCount++;
+    }
     for (var s in prevMiniMart) {
       prevTotalSales += (s['total_amount'] as num?)?.toDouble() ?? 0;
       prevTransactionCount++;

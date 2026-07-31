@@ -10,6 +10,7 @@ import 'package:pzed_homes/presentation/widgets/context_aware_role_button.dart';
 import 'package:pzed_homes/presentation/widgets/layered_scroll_body.dart';
 import 'package:pzed_homes/presentation/screens/confirm_purchases_screen.dart'; // We will reuse this screen
 import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart';
 
 class StorekeeperDashboardScreen extends StatefulWidget {
   const StorekeeperDashboardScreen({super.key});
@@ -23,7 +24,17 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userRole = authService.currentUser?.role;
+    final canManageWastage = [
+      AppRole.owner,
+      AppRole.manager,
+      AppRole.supervisor,
+      AppRole.accountant,
+      AppRole.storekeeper,
+    ].contains(userRole);
+    
+    _tabController = TabController(length: canManageWastage ? 4 : 3, vsync: this);
   }
 
   @override
@@ -83,10 +94,12 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         ),
         content: TabBarView(
           controller: _tabController,
-          children: const [
-            ConfirmPurchasesScreen(),
-            DirectStockEntryForm(),
-            StockTransferForm(),
+          children: [
+            const ConfirmPurchasesScreen(),
+            const DirectStockEntryForm(),
+            const StockTransferForm(),
+            if (_canManageWastage(context))
+              const WastageManagementTab(),
           ],
         ),
       ),
@@ -142,14 +155,28 @@ class _StorekeeperDashboardScreenState extends State<StorekeeperDashboardScreen>
         if (showTabs)
           TabBar(
             controller: _tabController,
-            tabs: const [
-              Tab(text: 'Confirm Purchases'),
-              Tab(text: 'Direct Stock Entry'),
-              Tab(text: 'Issue to Department'),
+            tabs: [
+              const Tab(text: 'Confirm Purchases'),
+              const Tab(text: 'Direct Stock Entry'),
+              const Tab(text: 'Issue to Department'),
+              if (_canManageWastage(context))
+                const Tab(text: 'Wastage Management'),
             ],
           ),
       ],
     );
+  }
+
+  bool _canManageWastage(BuildContext context) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userRole = authService.currentUser?.role;
+    return [
+      AppRole.owner,
+      AppRole.manager,
+      AppRole.supervisor,
+      AppRole.accountant,
+      AppRole.storekeeper,
+    ].contains(userRole);
   }
 
   Widget _buildReadOnlyStoreView() {
@@ -753,6 +780,417 @@ class _StockTransferFormState extends State<StockTransferForm> {
                   ),
                 ),
         ],
+      ),
+    );
+  }
+}
+
+class WastageManagementTab extends StatefulWidget {
+  const WastageManagementTab({super.key});
+
+  @override
+  State<WastageManagementTab> createState() => _WastageManagementTabState();
+}
+
+class _WastageManagementTabState extends State<WastageManagementTab> {
+  final DataService _dataService = DataService();
+  List<Map<String, dynamic>> _wastageRequests = [];
+  Map<String, dynamic> _analytics = {};
+  bool _isLoading = true;
+  String _selectedStatusFilter = 'pending';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final requests = await _dataService.getWastageRequests(status: _selectedStatusFilter);
+      final analytics = await _dataService.getWastageAnalytics();
+      setState(() {
+        _wastageRequests = requests;
+        _analytics = analytics;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to load wastage data');
+      }
+    }
+  }
+
+  Future<void> _approveRequest(String requestId) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final approvedBy = authService.currentUser?.id;
+    if (approvedBy == null) return;
+
+    try {
+      await _dataService.approveWastageRequest(requestId, approvedBy);
+      if (!mounted) return;
+      ErrorHandler.showSuccessMessage(context, 'Wastage request approved');
+      _loadData();
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to approve request');
+      }
+    }
+  }
+
+  Future<void> _rejectRequest(String requestId) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final approvedBy = authService.currentUser?.id;
+    if (approvedBy == null) return;
+
+    try {
+      await _dataService.rejectWastageRequest(requestId, approvedBy);
+      if (!mounted) return;
+      ErrorHandler.showSuccessMessage(context, 'Wastage request rejected');
+      _loadData();
+    } catch (e) {
+      if (mounted) {
+        ErrorHandler.handleError(context, e, customMessage: 'Failed to reject request');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      children: [
+        // Report Wastage Button
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _showReportWastageDialog,
+              icon: const Icon(Icons.report_problem),
+              label: const Text('Report Wastage'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Summary Cards
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSummaryCard(
+                        'Pending Approvals',
+                        '${_analytics['pending_count'] ?? 0}',
+                        Icons.pending_actions,
+                        Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSummaryCard(
+                        'Total This Month',
+                        _calculateTotalQuantity(),
+                        Icons.delete_outline,
+                        Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Status Filter
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'pending', label: Text('Pending')),
+                    ButtonSegment(value: 'approved', label: Text('Approved')),
+                    ButtonSegment(value: 'rejected', label: Text('Rejected')),
+                  ],
+                  selected: {_selectedStatusFilter},
+                  onSelectionChanged: (Set<String> newSelection) {
+                    setState(() => _selectedStatusFilter = newSelection.first);
+                    _loadData();
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Wastage Requests List
+                _wastageRequests.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text('No wastage requests found'),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _wastageRequests.length,
+                        itemBuilder: (context, index) {
+                          final request = _wastageRequests[index];
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: ListTile(
+                              title: Text(
+                                request['stock_items']?['name']?.toString() ?? 'Unknown Item',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Quantity: ${request['quantity']}'),
+                                  Text('Reason: ${request['reason_type']?.toString() ?? 'N/A'}'),
+                                  Text(
+                                    'Location: ${request['locations']?['name']?.toString() ?? 'N/A'}',
+                                  ),
+                                  Text(
+                                    'Requested by: ${request['requested_by_profile']?['full_name']?.toString() ?? 'Unknown'}',
+                                  ),
+                                  if (request['notes'] != null && request['notes'].toString().isNotEmpty)
+                                    Text('Notes: ${request['notes']}'),
+                                ],
+                              ),
+                              trailing: request['status'] == 'pending'
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.check, color: Colors.green),
+                                          onPressed: () => _approveRequest(request['id'].toString()),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.close, color: Colors.red),
+                                          onPressed: () => _rejectRequest(request['id'].toString()),
+                                        ),
+                                      ],
+                                    )
+                                  : Icon(
+                                      request['status'] == 'approved' ? Icons.check_circle : Icons.cancel,
+                                      color: request['status'] == 'approved' ? Colors.green : Colors.red,
+                                    ),
+                            ),
+                          );
+                        },
+                      ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _calculateTotalQuantity() {
+    int total = 0;
+    for (var item in _analytics['by_department'] ?? []) {
+      total += (item['quantity'] as num?)?.toInt() ?? 0;
+    }
+    return total.toString();
+  }
+
+  Future<void> _showReportWastageDialog() async {
+    final itemController = TextEditingController();
+    final quantityController = TextEditingController();
+    final notesController = TextEditingController();
+    String? selectedItemId;
+    String? selectedLocationId;
+    String? selectedReason;
+    bool isLoading = false;
+    List<Map<String, dynamic>> stockItems = [];
+    List<Map<String, dynamic>> locations = [];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          Future<void> loadData() async {
+            setDialogState(() => isLoading = true);
+            try {
+              stockItems = await _dataService.getStockItems();
+              locations = await _dataService.getLocations();
+            } catch (e) {
+              if (mounted) {
+                ErrorHandler.handleError(dialogContext, e, customMessage: 'Failed to load data');
+              }
+            } finally {
+              setDialogState(() => isLoading = false);
+            }
+          }
+
+          loadData();
+
+          return AlertDialog(
+            title: const Text('Report Wastage'),
+            content: SizedBox(
+              width: 500,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Item *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: stockItems.map((item) => DropdownMenuItem<String>(
+                              value: item['id']?.toString(),
+                              child: Text(item['name']?.toString() ?? 'Unknown'),
+                            )).toList(),
+                            onChanged: (val) => setDialogState(() => selectedItemId = val),
+                            validator: (val) => val == null ? 'Please select an item' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Location *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: locations.map((loc) => DropdownMenuItem<String>(
+                              value: loc['id']?.toString(),
+                              child: Text(loc['name']?.toString() ?? 'Unknown'),
+                            )).toList(),
+                            onChanged: (val) => setDialogState(() => selectedLocationId = val),
+                            validator: (val) => val == null ? 'Please select a location' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Reason *',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'spoilt', child: Text('Spoilt')),
+                              DropdownMenuItem(value: 'trashed', child: Text('Trashed')),
+                              DropdownMenuItem(value: 'destroyed', child: Text('Destroyed')),
+                              DropdownMenuItem(value: 'expired', child: Text('Expired')),
+                            ],
+                            onChanged: (val) => setDialogState(() => selectedReason = val),
+                            validator: (val) => val == null ? 'Please select a reason' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: quantityController,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity *',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) return 'Please enter quantity';
+                              final qty = int.tryParse(val.trim()) ?? 0;
+                              if (qty <= 0) return 'Quantity must be greater than 0';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: notesController,
+                            decoration: const InputDecoration(
+                              labelText: 'Notes (Optional)',
+                              border: OutlineInputBorder(),
+                            ),
+                            maxLines: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedItemId == null || selectedLocationId == null || selectedReason == null) {
+                    return;
+                  }
+                  final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+                  if (quantity <= 0) return;
+
+                  setDialogState(() => isLoading = true);
+                  try {
+                    final authService = Provider.of<AuthService>(context, listen: false);
+                    final requestedBy = authService.currentUser?.id;
+                    if (requestedBy == null) return;
+
+                    await _dataService.createWastageRequest(
+                      stockItemId: selectedItemId!,
+                      locationId: selectedLocationId!,
+                      quantity: quantity,
+                      reasonType: selectedReason!,
+                      notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+                      requestedBy: requestedBy,
+                    );
+
+                    if (!mounted) return;
+                    Navigator.pop(dialogContext);
+                    ErrorHandler.showSuccessMessage(context, 'Wastage request submitted');
+                    _loadData();
+                  } catch (e) {
+                    setDialogState(() => isLoading = false);
+                    if (mounted) {
+                      ErrorHandler.handleError(context, e, customMessage: 'Failed to submit request');
+                    }
+                  }
+                },
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
