@@ -1978,9 +1978,9 @@ class _HrScreenState extends State<HrScreen>
                         )),
                       ],
                       onChanged: (val) => setDialogState(() => selectedDepartment = val),
-                    ),
+                  ),
+                  const SizedBox(height: 16),
                   if (!hireFromGuest) ...[
-                    const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(

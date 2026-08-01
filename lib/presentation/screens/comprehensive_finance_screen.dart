@@ -195,6 +195,8 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
   }
 
   String _formatKobo(num value) {
+    // Convert naira to kobo if value is already in naira (e.g., from financial summary)
+    // Financial summary returns values in kobo, so we pass directly
     return PaymentService.formatCurrency(value.toInt());
   }
 
@@ -2351,7 +2353,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     subtitle: Text(
                       '$stream\n'
                       '${description.isEmpty ? 'No details' : description}\n'
-                      'Qty: ${qty.isEmpty ? '-' : qty} | Unit: ${unit == null ? '-' : '${_formatKobo(unit)}'} | Total: ${line == null ? '-' : '${_formatKobo(line)}'}\n',
+                      'Qty: ${qty.isEmpty ? '-' : qty} | Unit: ${unit == null ? '-' : '${_formatKobo(unit)}'} | Total: ${line == null ? '-' : '${_formatKobo(line)}'}\n'
                       'By $actor',
                     ),
                     isThreeLine: true,
@@ -3644,7 +3646,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
           pw.Text(label, style: const pw.TextStyle(fontSize: 12)),
-          pw.Text('₦${_formatKobo(amountKobo)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.Text('${_formatKobo(amountKobo)}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
         ],
       ),
     );
