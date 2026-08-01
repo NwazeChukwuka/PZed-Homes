@@ -259,7 +259,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Amount: ₦${_formatKobo(payroll['amount'] ?? 0)}'),
+              Text('Amount: ${_formatKobo(payroll['amount'] ?? 0)}'),
               const SizedBox(height: 8),
               Text('Month: ${payroll['month']?.toString() ?? '—'}'),
               const SizedBox(height: 8),
@@ -989,7 +989,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Total Income',
-                    '₦${_formatKobo(_financialSummary['total_income'] ?? 0)}',
+                    '${_formatKobo(_financialSummary['total_income'] ?? 0)}',
                     Colors.green,
                     Icons.trending_up,
                   ),
@@ -998,7 +998,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Total Expenses',
-                    '₦${_formatKobo(_financialSummary['total_expenses'] ?? 0)}',
+                    '${_formatKobo(_financialSummary['total_expenses'] ?? 0)}',
                     Colors.red,
                     Icons.trending_down,
                   ),
@@ -1011,7 +1011,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Available Cash',
-                    '₦${_formatKobo(_financialSummary['available_cash'] ?? 0)}',
+                    '${_formatKobo(_financialSummary['available_cash'] ?? 0)}',
                     Colors.blue,
                     Icons.account_balance_wallet,
                   ),
@@ -1020,7 +1020,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 Expanded(
                   child: _buildSummaryItem(
                     'Net Profit',
-                    '₦${_formatKobo(_financialSummary['net_profit'] ?? 0)}',
+                    '${_formatKobo(_financialSummary['net_profit'] ?? 0)}',
                     Colors.orange,
                     Icons.attach_money,
                   ),
@@ -1244,17 +1244,17 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                               final itemName = item is Map ? (item['name']?.toString() ?? 'Item') : 'Item';
                               title = itemName;
                               subtitle =
-                                  '₦${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['sale_date'] ?? ''}';
+                                  '${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['sale_date'] ?? ''}';
                             } else if (source == 'kitchen') {
                               final menu = row['menu_items'];
                               final menuName = menu is Map ? menu['name']?.toString() : null;
                               title = row['item_name']?.toString() ?? menuName ?? 'Kitchen sale';
                               subtitle =
-                                  '₦${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['created_at'] ?? ''}';
+                                  '${_formatKobo(row['total_amount'] ?? 0)} · qty ${row['quantity'] ?? 1} · ${row['created_at'] ?? ''}';
                             } else {
                               title = '${row['department'] ?? 'Department'} · ${row['date'] ?? ''}';
                               subtitle =
-                                  '₦${_formatKobo(row['total_sales'] ?? 0)} · ${row['transaction_count'] ?? 0} txns';
+                                  '${_formatKobo(row['total_sales'] ?? 0)} · ${row['transaction_count'] ?? 0} txns';
                             }
                             return ListTile(
                               dense: true,
@@ -1344,7 +1344,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
       builder: (context) => AlertDialog(
         title: const Text('Expense Approval'),
         content: Text(
-          'Approve expense of ₦${_formatKobo(expense['amount'] ?? 0)}?',
+          'Approve expense of ${_formatKobo(expense['amount'] ?? 0)}?',
         ),
         actions: [
           TextButton(
@@ -1511,14 +1511,14 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           ),
           Expanded(
             child: Text(
-              '₦${_formatKobo(dept['revenue'] ?? 0)}',
+              '${_formatKobo(dept['revenue'] ?? 0)}',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
           ),
           Expanded(
             child: Text(
-              '₦${_formatKobo(dept['profit'] ?? 0)}',
+              '${_formatKobo(dept['profit'] ?? 0)}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: performanceColor,
                 fontWeight: FontWeight.bold,
@@ -1786,7 +1786,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text(income['description'] ?? 'Unknown'),
-                  subtitle: Text('₦${_formatKobo(income['amount'] ?? 0)} - ${income['department'] ?? ''}'),
+                  subtitle: Text('${_formatKobo(income['amount'] ?? 0)} - ${income['department'] ?? ''}'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1882,7 +1882,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                       child: ListTile(
                         title: Text(expense['description'] ?? 'Unknown'),
                         subtitle: Text(
-                          '₦${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}',
+                          '${_formatKobo(expense['amount'] ?? 0)} - ${expense['payment_method'] ?? ''}',
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -2094,7 +2094,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     child: ListTile(
                       title: Text(payroll['staff_name'] ?? 'Unknown'),
                       subtitle: Text(
-                        '₦${_formatKobo(payroll['amount'] ?? 0)} · ${payroll['month'] ?? ''} · tap for details',
+                        '${_formatKobo(payroll['amount'] ?? 0)} · ${payroll['month'] ?? ''} · tap for details',
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: Chip(
@@ -2139,15 +2139,15 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                         ),
                   ),
                   const SizedBox(height: 8),
-                  _buildSummaryMetricRow('Cash Sales Inflow', '₦${_formatKobo(cashSalesInflow)}', Colors.green),
-                  _buildSummaryMetricRow('Other Cash Income', '₦${_formatKobo(cashOtherIncome)}', Colors.green),
-                  _buildSummaryMetricRow('Total Cash Inflow', '₦${_formatKobo(cashTotalInflow)}', Colors.green),
-                  _buildSummaryMetricRow('Cash Expenses', '₦${_formatKobo(cashExpenses)}', Colors.red),
-                  _buildSummaryMetricRow('Cash Deposits', '₦${_formatKobo(cashDeposits)}', Colors.purple),
+                  _buildSummaryMetricRow('Cash Sales Inflow', '${_formatKobo(cashSalesInflow)}', Colors.green),
+                  _buildSummaryMetricRow('Other Cash Income', '${_formatKobo(cashOtherIncome)}', Colors.green),
+                  _buildSummaryMetricRow('Total Cash Inflow', '${_formatKobo(cashTotalInflow)}', Colors.green),
+                  _buildSummaryMetricRow('Cash Expenses', '${_formatKobo(cashExpenses)}', Colors.red),
+                  _buildSummaryMetricRow('Cash Deposits', '${_formatKobo(cashDeposits)}', Colors.purple),
                   const Divider(),
                   _buildSummaryMetricRow(
                     'Expected Available Cash',
-                    '₦${_formatKobo(availableCash)}',
+                    '${_formatKobo(availableCash)}',
                     availableCash >= 0 ? Colors.blue : Colors.red,
                   ),
                 ],
@@ -2173,7 +2173,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: ListTile(
                   title: Text('${deposit['bank_name']} - ${deposit['account_type']}'),
-                  subtitle: Text('₦${_formatKobo(deposit['amount'] ?? 0)} (Net: ₦${_formatKobo(deposit['net_amount'] ?? 0)})'),
+                  subtitle: Text('${_formatKobo(deposit['amount'] ?? 0)} (Net: ${_formatKobo(deposit['net_amount'] ?? 0)})'),
                   trailing: Text(deposit['date'] ?? ''),
                   leading: const Icon(Icons.account_balance, color: Colors.purple),
                 ),
@@ -2351,7 +2351,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
                     subtitle: Text(
                       '$stream\n'
                       '${description.isEmpty ? 'No details' : description}\n'
-                      'Qty: ${qty.isEmpty ? '-' : qty} | Unit: ${unit == null ? '-' : '₦${_formatKobo(unit)}'} | Total: ${line == null ? '-' : '₦${_formatKobo(line)}'}\n'
+                      'Qty: ${qty.isEmpty ? '-' : qty} | Unit: ${unit == null ? '-' : '${_formatKobo(unit)}'} | Total: ${line == null ? '-' : '${_formatKobo(line)}'}\n',
                       'By $actor',
                     ),
                     isThreeLine: true,
@@ -2412,7 +2412,7 @@ class _ComprehensiveFinanceScreenState extends State<ComprehensiveFinanceScreen>
           TextField(
             controller: _debtAmountController,
             decoration: const InputDecoration(
-              labelText: 'Amount (₦) *',
+              labelText: 'Amount *',
               border: OutlineInputBorder(),
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
